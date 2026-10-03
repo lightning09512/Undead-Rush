@@ -41,7 +41,9 @@ import { EVOLUTIONS } from './data/upgrades';
 import { getHorrorAttack, HORROR_TYPES, ZOMBIE_TYPES } from './data/zombies';
 import { horrorAttackHits } from './systems/horror-ai';
 import { HorrorRemains } from './entities/horror-remains';
-import { resolveBuildingCollision } from './entities/map-geometry';
+import { resolveBuildingCollision, setCampaignGeometry } from './entities/map-geometry';
+import { CampaignMapRenderer } from './graphics/campaign-map-renderer';
+import { CampaignBossDirector } from './systems/campaign-boss';
 
 // Development encounters use an isolated, non-persistent save from the outset.
 const horrorPreview = import.meta.env.DEV && new URLSearchParams(location.search).get('horror-preview') === '1';
@@ -64,6 +66,7 @@ function resizeCanvas(): void {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   camera.resize(viewportWidth, viewportHeight);
+  camera.zoom = gameMode === 'stage' && viewportWidth < 700 ? 0.95 : 1.42;
   LightingRenderer.get().resizeVignette(viewportWidth, viewportHeight);
 }
 
@@ -89,6 +92,8 @@ const save = new SaveSystem(!horrorPreview);
 const horrorRemains = new HorrorRemains();
 const groundRenderer = new GroundRenderer();
 const propRenderer = new PropRenderer();
+const campaignMapRenderer = new CampaignMapRenderer();
+const campaignBossDirector = new CampaignBossDirector();
 
 // ─── UI ───
 const hud = new HUD();
@@ -104,10 +109,70 @@ let gameMode: 'endless' | 'stage' = 'endless';
 let currentStageIndex = 0;
 let stageComplete = false;
 let bossKilledThisRun = false;
+let stageObjectiveIndex = 0;
+let stageBossSpawned = false;
+let stageObjectiveHoldTime = 0;
+let stageBossSummonsSpawned = 0;
+let stageExitActive = false;
+let stageExitActivated = false;
 let goldEarned = 0;
 let hasRevive = false;     // from perm upgrade or ad
 let previewEncounter = false;
 const previewAudit = { hits: 0, attacks: 0, deaths: 0, drops: 0, phases: new Set<string>() };
+type MusicThreat = 'calm' | 'combat' | 'boss';
+const MUSIC_THREAT_RANK: Record<MusicThreat, number> = { calm: 0, combat: 1, boss: 2 };
+let activeMusicThreat: MusicThreat = 'calm';
+let pendingMusicThreat: MusicThreat | null = null;
+let pendingMusicThreatTime = 0;
+
+function syncMusicForThreat(dt: number): void {
+  const menuScene = menuUI.currentScreen === 'main' || menuUI.currentScreen === 'hunter_profile' || menuUI.currentScreen === 'tutorial';
+  if (menuScene) {
+    activeMusicThreat = 'calm';
+    pendingMusicThreat = null;
+    pendingMusicThreatTime = 0;
+    audio.setMusicScene('menu');
+    return;
+  }
+  const upgradeScene = menuUI.currentScreen === 'levelup' || upgradeUI.visible;
+  if ((menuUI.currentScreen === 'paused' || paused) && !upgradeScene) {
+    audio.setMusicScene('paused');
+    return;
+  }
+
+  let targetThreat: MusicThreat = 'calm';
+  for (const z of zombies.pool.getActive()) {
+    if (z.hp <= 0) continue;
+    // Keep boss music while a boss is alive, even if it has moved beyond the viewport.
+    if (z.isBoss) {
+      targetThreat = 'boss';
+      break;
+    }
+    if (camera.isVisible(z.x, z.y, z.size + 40)) targetThreat = 'combat';
+  }
+
+  if (MUSIC_THREAT_RANK[targetThreat] > MUSIC_THREAT_RANK[activeMusicThreat]) {
+    activeMusicThreat = targetThreat;
+    pendingMusicThreat = null;
+    pendingMusicThreatTime = 0;
+  } else if (targetThreat === activeMusicThreat) {
+    pendingMusicThreat = null;
+    pendingMusicThreatTime = 0;
+  } else {
+    if (pendingMusicThreat !== targetThreat) {
+      pendingMusicThreat = targetThreat;
+      pendingMusicThreatTime = 0;
+    }
+    pendingMusicThreatTime += dt;
+    if (pendingMusicThreatTime >= 3.5) {
+      activeMusicThreat = targetThreat;
+      pendingMusicThreat = null;
+      pendingMusicThreatTime = 0;
+    }
+  }
+
+  audio.setMusicScene(activeMusicThreat);
+}
 
 // ─── Spitter attack timer (shared) ───
 let spitterGlobalCooldown = 0;
@@ -142,13 +207,12 @@ adWrapper.init({
 function gameLoop(timestamp: number): void {
   requestAnimationFrame(gameLoop);
 
-  const menuScene = menuUI.currentScreen === 'main' || menuUI.currentScreen === 'hunter_profile' || menuUI.currentScreen === 'tutorial';
-  audio.setMusicScene(menuScene ? 'menu' : menuUI.currentScreen === 'paused' || paused ? 'paused' : 'game');
-
   const rawDt = (timestamp - lastTimestamp) / 1000;
   const dt = Math.min(rawDt, 0.1);
   lastTimestamp = timestamp;
+  syncMusicForThreat(dt);
   input.touchButtonsEnabled = menuUI.currentScreen === 'playing' && !paused && !shopUI.visible;
+  input.campaignTouchEnabled = input.touchButtonsEnabled && gameMode === 'stage';
 
   if (!spriteLoader.ready) {
     ctx.fillStyle = '#060906';
@@ -310,26 +374,34 @@ function updateGame(dt: number): void {
   }
 
   // ─── Player Movement ───
-  player.move(input.dirX, input.dirY, dt, gameMode === 'endless');
+  player.move(input.dirX, input.dirY, dt, true);
   player.update(dt);
 
   // Dash input
   if (input.dashPressed) {
-    player.dash(input.dirX, input.dirY);
+    const dashX = gameMode === 'stage' && input.dirX === 0 && input.dirY === 0 ? Math.cos(player.aimAngle) : input.dirX;
+    const dashY = gameMode === 'stage' && input.dirX === 0 && input.dirY === 0 ? Math.sin(player.aimAngle) : input.dirY;
+    player.dash(dashX, dashY);
   }
+  if (gameMode === 'stage') updateCampaignObjective(dt);
 
   // ─── Camera ───
   camera.follow(player.x, player.y, input.mouseX, input.mouseY, dt);
 
   // ─── Spawning ───
-  const toSpawn = previewEncounter ? [] : spawner.update(dt, gameTime, zombies.pool.activeCount, camera, player.x, player.y, gameMode === 'endless');
+  const stage = gameMode === 'stage' ? STAGES[currentStageIndex] : undefined;
+  const campaignWaveTime = stage ? Math.min(gameTime, 100) + stage.id * 6 : gameTime;
+  const toSpawn = previewEncounter || !!stage && stageBossSpawned ? [] : spawner.update(
+    dt, campaignWaveTime, zombies.pool.activeCount, camera, player.x, player.y,
+    gameMode === 'endless', stage?.mobIds, !!stage
+  );
   for (const s of toSpawn) {
     const z = zombies.spawn(
       s.type, s.x, s.y,
       s.tier.hpMultiplier, s.tier.speedMultiplier, s.tier.damageMultiplier,
       s.isElite
     );
-    if (gameMode === 'endless' && getHorrorAttack(z.typeId)) {
+    if (gameMode === 'endless' && getHorrorAttack(z.typeId) || gameMode === 'stage') {
       [z.x, z.y] = resolveBuildingCollision(z.x, z.y, z.size);
     }
 
@@ -346,10 +418,37 @@ function updateGame(dt: number): void {
   weapons.update(dt, player, input, zombies.pool, bullets, audio, camera);
 
   // ─── Bullets ───
-  bullets.update(dt, gameMode === 'endless');
+  bullets.update(dt, true);
 
   // ─── Zombies ───
-  zombies.update(dt, player.x, player.y, gameMode === 'endless');
+  zombies.update(dt, player.x, player.y, true);
+  if (stage) {
+    const boss = zombies.pool.getActive().find((z) => z.campaignBossId === stage.id);
+    const bossDamage = campaignBossDirector.update(dt, stage, boss, player.x, player.y, () => {
+      const summonCap = stage.id === 1 ? 4 : stage.id === 10 ? 3 : 0;
+      if (!summonCap || stageBossSummonsSpawned >= summonCap || !boss) return;
+      const summonIds = stage.id === 10 ? ['normal', 'runner', 'spitter'] : ['normal', 'normal', 'normal', 'normal'];
+      for (let i = 0; i < 2 && stageBossSummonsSpawned < summonCap; i++) {
+        const shambler = ZOMBIE_TYPES.find((entry) => entry.id === summonIds[stageBossSummonsSpawned % summonIds.length]);
+        if (!shambler) continue;
+        const angle = Math.PI * (.35 + i * .3);
+        const z = zombies.spawn(shambler, boss.x + Math.cos(angle) * 105, boss.y + Math.sin(angle) * 105, 1, 1, 1);
+        z.hp = Math.round(z.hp * stage.difficultyMult); z.maxHp = z.hp;
+        z.damage = Math.round(z.damage * stage.difficultyMult);
+        [z.x, z.y] = resolveBuildingCollision(z.x, z.y, z.size);
+        stageBossSummonsSpawned++;
+      }
+    });
+    if (bossDamage > 0) {
+      const hit = player.takeDamage(bossDamage);
+      if (hit.dead) { handlePlayerDeath(); return; }
+      if (hit.damaged) {
+        audio.playerHit(); camera.shake(3.2, .16);
+        damageNumbers.spawn(player.x, player.y, hit.actualDamage, UI_PALETTE.dangerBright, false, '-');
+        particles.burst(player.x, player.y, 9, '#a9473d', Math.atan2(player.y - (boss?.y ?? player.y), player.x - (boss?.x ?? player.x)), 1.2, 105, .3);
+      }
+    }
+  }
   if (horrorPreview) for (const z of zombies.pool.getActive()) previewAudit.phases.add(z.specialState);
   horrorRemains.update(dt);
 
@@ -396,8 +495,9 @@ function updateGame(dt: number): void {
   }
 
   // ─── Boss AI: special attacks ───
-  bossAttackTimer -= dt;
-  if (bossAttackTimer <= 0) {
+  if (gameMode === 'endless') {
+    bossAttackTimer -= dt;
+    if (bossAttackTimer <= 0) {
     bossAttackTimer = 3.0;
     bossAttackPhase++;
     for (const z of zombies.pool.getActive()) {
@@ -418,6 +518,7 @@ function updateGame(dt: number): void {
         enemyProjectiles.fireRing(z.x, z.y, 24, 80, Math.round(z.damage * 0.6), 'boss_wave');
         camera.shake(8, 0.3);
       }
+    }
     }
   }
 
@@ -530,14 +631,14 @@ function updateGame(dt: number): void {
 
   // Special enemies deal damage only in the committed active phase, once per attack.
   for (const z of zombies.pool.getActive()) {
-    if (z.hp <= 0 || !getHorrorAttack(z.typeId)) continue;
+    if (z.campaignBossId !== null || z.hp <= 0 || !getHorrorAttack(z.typeId)) continue;
     const distance = Math.hypot(player.x - z.x, player.y - z.y);
     const pan = Math.max(-1, Math.min(1, (z.x - player.x) / 420));
     if (z.specialStarted) {
       audio.zombieAttack(pan, z.typeId, distance);
       if (horrorPreview) previewAudit.attacks++;
     }
-    if (!horrorAttackHits(z, player.x, player.y, player.size, gameMode === 'endless')) continue;
+    if (!horrorAttackHits(z, player.x, player.y, player.size, true)) continue;
     z.specialHit = true;
     const hit = player.takeDamage(z.damage);
     if (hit.damaged) {
@@ -553,7 +654,10 @@ function updateGame(dt: number): void {
   const nearPlayer = zombieGrid.query(player.x, player.y, player.size + 50);
   for (const z of nearPlayer) {
     if (z.hp <= 0) continue;
-    if (getHorrorAttack(z.typeId)) continue;
+    // Campaign bosses only hurt the player through their telegraphed move hitboxes.
+    // Don't let the generic overlap timer deal invisible contact damage.
+    if (z.campaignBossId !== null) continue;
+    if (getHorrorAttack(z.typeId) && z.campaignBossId === null) continue;
     const dx = player.x - z.x;
     const dy = player.y - z.y;
     const dist = dx * dx + dy * dy;
@@ -824,6 +928,57 @@ function checkEvolutions(): void {
   }
 }
 
+function updateCampaignObjective(dt: number): void {
+  const stage = STAGES[currentStageIndex];
+  const pressed = input.interactPressed;
+  if (!stage) return;
+  if (stage.exitSpawn && bossKilledThisRun && !stageExitActivated) {
+    stageExitActive = true;
+    if (pressed && Math.hypot(player.x - stage.exitSpawn.x, player.y - stage.exitSpawn.y) <= 88) {
+      stageExitActivated = true; audio.levelUp();
+      particles.emit(stage.exitSpawn.x, stage.exitSpawn.y, 22, '#8eafa0', 100, .7, 3);
+    }
+    return;
+  }
+  if (stageBossSpawned) return;
+  if (stageObjectiveIndex >= stage.objectiveNodes.length) return;
+  const node = stage.objectiveNodes[stageObjectiveIndex];
+  if (stage.objectiveHoldAt === stageObjectiveIndex) {
+    if (Math.hypot(player.x - node.x, player.y - node.y) <= 110) stageObjectiveHoldTime += dt;
+    else stageObjectiveHoldTime = 0;
+    if (stageObjectiveHoldTime >= (stage.objectiveHoldSeconds ?? 15)) {
+      stageObjectiveIndex++; stageObjectiveHoldTime = 0; audio.levelUp();
+      if (stageObjectiveIndex >= stage.objectiveNodes.length) spawnCampaignBoss(stage);
+    }
+    return;
+  }
+  if (pressed && Math.hypot(player.x - node.x, player.y - node.y) <= 82) {
+    stageObjectiveIndex++;
+    audio.levelUp();
+    particles.emit(node.x, node.y, 14, '#d8ad65', 90, .55, 3);
+    if (stageObjectiveIndex >= stage.objectiveNodes.length) spawnCampaignBoss(stage);
+  }
+}
+
+function spawnCampaignBoss(stage: typeof STAGES[number]): void {
+  if (stageBossSpawned) return;
+  stageBossSpawned = true;
+  const type = [...ZOMBIE_TYPES, ...HORROR_TYPES].find((entry) => entry.id === stage.bossTypeId) ?? ZOMBIE_TYPES.find((entry) => entry.id === 'boss_1')!;
+  const boss = zombies.spawn(type, stage.bossSpawn.x, stage.bossSpawn.y, 1, 1, 1);
+  [boss.x, boss.y] = resolveBuildingCollision(boss.x, boss.y, 88);
+  boss.campaignBossId = stage.id;
+  boss.isBoss = true;
+  boss.typeId = stage.bossTypeId;
+  boss.size = stage.id === 9 ? 88 : stage.id === 10 ? 82 : 55 + Math.min(18, stage.id * 1.8);
+  boss.hp = stage.bossHp; boss.maxHp = stage.bossHp;
+  boss.damage = 20 + stage.id * 2;
+  boss.speed = 32;
+  boss.xpValue = 80 + stage.id * 15;
+  campaignBossDirector.reset();
+  camera.shake(7, .35);
+  particles.emit(boss.x, boss.y, 38, '#a9473d', 145, .9, 6);
+}
+
 function checkStageObjective(): void {
   if (currentStageIndex >= STAGES.length) return;
   const stage = STAGES[currentStageIndex];
@@ -837,7 +992,10 @@ function checkStageObjective(): void {
       complete = player.kills >= stage.objectiveValue;
       break;
     case 'kill_boss':
-      complete = bossKilledThisRun;
+      if (stage.exitSpawn && bossKilledThisRun) {
+        stageExitActive = true;
+        complete = stageExitActivated;
+      } else complete = bossKilledThisRun;
       break;
   }
 
@@ -986,11 +1144,17 @@ function drawGame(): void {
   drawMapBorder();
 
   propRenderer.draw(ctx, camera, 'ground', gameMode === 'endless');
+  const campaignStage = gameMode === 'stage' ? STAGES[currentStageIndex] : undefined;
+  if (campaignStage) {
+    ctx.save(); ctx.globalAlpha = .13; ctx.fillStyle = campaignStage.floorColor; ctx.fillRect(0, 0, viewportWidth, viewportHeight); ctx.restore();
+    campaignMapRenderer.draw(ctx, camera, campaignStage, stageObjectiveIndex, stageBossSpawned, stageExitActive, stageExitActivated);
+  }
 
   if (gameMode === 'endless') {
     horrorRemains.draw(ctx, camera);
-    zombies.drawWarnings(ctx, camera);
   }
+  zombies.drawWarnings(ctx, camera);
+  if (campaignStage) campaignBossDirector.draw(ctx, camera, zombies.pool.getActive().find((z) => z.campaignBossId === campaignStage.id));
 
   // Draw entities
   mapPickups.draw(ctx, camera);
@@ -1023,7 +1187,8 @@ function drawGame(): void {
   LightingRenderer.get().drawVignette(ctx);
 
   // HUD
-  hud.draw(ctx, viewportWidth, viewportHeight, player, gameTime, input, zombies, mapPickups, camera);
+  hud.draw(ctx, viewportWidth, viewportHeight, player, gameTime, input, zombies, mapPickups, camera,
+    campaignStage ? { stage: campaignStage, activeNode: stageObjectiveIndex, bossSpawned: stageBossSpawned, exitActive: stageExitActive, exitActivated: stageExitActivated } : undefined);
 
   // Active buffs display
   drawActiveBuffs();
@@ -1036,7 +1201,7 @@ function drawGame(): void {
   // ─── Tactical Gun Loadout Bottom HUD Card (Matches User Spec) ───
   if (menuUI.currentScreen === 'playing') {
     weapons.loadout.drawHUD(ctx, viewportWidth, viewportHeight, player);
-    drawTouchActionButtons(ctx, viewportWidth, viewportHeight);
+    drawTouchActionButtons(ctx, viewportWidth, viewportHeight, gameMode === 'stage');
   }
 
   // ─── Custom Shooter Crosshair (Directional Arrow & Reticle) ───
@@ -1120,31 +1285,33 @@ function drawStageObjective(): void {
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-
-  ctx.fillStyle = '#1a1a2e88';
-  ctx.fillRect(x - 120, y - 15, 240, 30);
-
-  ctx.fillStyle = '#ffcc00';
-  ctx.font = `bold 12px 'Segoe UI', Arial, sans-serif`;
-
-  let objText = '';
-  switch (stage.objective) {
-    case 'survive': {
-      const remaining = Math.max(0, stage.objectiveValue - gameTime);
-      const m = Math.floor(remaining / 60);
-      const s = Math.floor(remaining % 60);
-      objText = `Survive: ${m}:${s.toString().padStart(2, '0')} remaining`;
-      break;
+  const panelW = Math.min(460, viewportWidth - 24);
+  ctx.fillStyle = 'rgba(13,17,19,.9)'; ctx.strokeStyle = stageBossSpawned ? '#a9473d' : '#a9966d'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.roundRect(x - panelW / 2, y - 29, panelW, 54, 4); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#d4c7a2'; ctx.font = `bold 10px 'Segoe UI', Arial, sans-serif`;
+  ctx.fillText(`CAMPAIGN ${stage.id}/10  •  ${stage.name}`, x, y - 16);
+  let objectiveText: string;
+  if (stageBossSpawned) objectiveText = `HẠ BOSS: ${stage.bossName}`;
+  else if (stageObjectiveIndex >= stage.objectiveNodes.length) objectiveText = 'ĐANG TIẾN VÀO KHU BOSS';
+  else {
+    const node = stage.objectiveNodes[stageObjectiveIndex];
+    const near = Math.hypot(player.x - node.x, player.y - node.y) < 82;
+    const holding = stage.objectiveHoldAt === stageObjectiveIndex;
+    objectiveText = holding
+      ? `${stage.objectiveLabel}  •  ${Math.floor(stageObjectiveHoldTime)}/${stage.objectiveHoldSeconds ?? 15} GIÂY${near ? '  •  GIỮ VỊ TRÍ' : '  •  QUAY LẠI VÙNG SẢNH'}`
+      : `${stage.objectiveLabel}  ${stageObjectiveIndex}/${stage.objectiveNodes.length}${near ? '  •  NHẤN Q ĐỂ TƯƠNG TÁC' : '  •  THEO DẤU TRÊN MINIMAP'}`;
+    if (holding) {
+      ctx.fillStyle = 'rgba(38,43,41,.95)'; ctx.fillRect(x - panelW*.38, y + 17, panelW*.76, 3);
+      ctx.fillStyle = '#a8c08b'; ctx.fillRect(x - panelW*.38, y + 17, panelW*.76 * Math.min(1, stageObjectiveHoldTime / (stage.objectiveHoldSeconds ?? 15)), 3);
     }
-    case 'kill_count':
-      objText = `Kill ${player.kills}/${stage.objectiveValue} zombies`;
-      break;
-    case 'kill_boss':
-      objText = bossKilledThisRun ? '✓ Boss defeated!' : 'Defeat the boss!';
-      break;
   }
-
-  ctx.fillText(`Stage ${stage.id}: ${stage.name} — ${objText}`, x, y);
+  if (stageExitActive && stage.exitSpawn && !stageExitActivated) {
+    const nearExit = Math.hypot(player.x - stage.exitSpawn.x, player.y - stage.exitSpawn.y) <= 88;
+    objectiveText = nearExit ? 'ĐIỂM THOÁT ĐÃ MỞ  •  NHẤN Q ĐỂ KẾT THÚC' : 'ĐI ĐẾN ĐIỂM THOÁT TRÊN MINIMAP';
+  }
+  ctx.fillStyle = stageExitActive ? '#9fc4af' : stageBossSpawned ? '#e47a68' : '#f0eadc';
+  ctx.font = `bold ${viewportWidth < 700 ? 10 : 12}px 'Segoe UI', Arial, sans-serif`;
+  ctx.fillText(objectiveText, x, y + 5);
 }
 
 function drawMapBorder(): void {
@@ -1278,6 +1445,17 @@ function applyPermUpgrades(): void {
 
 function startGame(): void {
   resetGame();
+  const stage = gameMode === 'stage' ? STAGES[currentStageIndex] : undefined;
+  if (stage) {
+    setCampaignGeometry(stage.buildings);
+    camera.zoom = viewportWidth < 700 ? 0.95 : 1.42;
+    player.x = stage.playerStart.x; player.y = stage.playerStart.y;
+    player.dashMaxCooldown = 1.15;
+    camera.x = player.x - camera.width / 2; camera.y = player.y - camera.height / 2;
+  } else {
+    camera.zoom = 1.42;
+    player.dashMaxCooldown = 3;
+  }
   player.loadout = weapons.loadout;
   audio.init();
   applyPermUpgrades();
@@ -1292,6 +1470,17 @@ function startGame(): void {
 }
 
 function resetGame(): void {
+  setCampaignGeometry();
+  stageObjectiveIndex = 0;
+  stageBossSpawned = false;
+  stageObjectiveHoldTime = 0;
+  stageBossSummonsSpawned = 0;
+  stageExitActive = false;
+  stageExitActivated = false;
+  campaignBossDirector.reset();
+  activeMusicThreat = 'calm';
+  pendingMusicThreat = null;
+  pendingMusicThreatTime = 0;
   player.reset();
   bullets.pool.releaseAll();
   zombies.pool.releaseAll();
@@ -1346,6 +1535,22 @@ if (import.meta.env.DEV && horrorPreview) {
       z.facingAngle = Math.PI;
       camera.x = player.x - camera.width / 2;
       camera.y = player.y - camera.height / 2;
+      mapPickups.reset();
+    },
+    campaign(stageIndex, bossPreview) {
+      const stage = STAGES[stageIndex];
+      if (!stage) return;
+      previewEncounter = true;
+      gameMode = 'stage'; currentStageIndex = stageIndex;
+      startGame();
+      if (bossPreview) {
+        stageObjectiveIndex = stage.objectiveNodes.length;
+        spawnCampaignBoss(stage);
+        player.x = stage.bossSpawn.x - 150;
+        player.y = stage.bossSpawn.y;
+        [player.x, player.y] = resolveBuildingCollision(player.x, player.y, player.size);
+        camera.x = player.x - camera.width / 2; camera.y = player.y - camera.height / 2;
+      }
       mapPickups.reset();
     },
     shoot() {

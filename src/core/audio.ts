@@ -5,7 +5,7 @@ import gameMusicOne from '../assets/02. Music 1.mp3';
 import gameMusicTwo from '../assets/03. Music 2.mp3';
 import gameMusicThree from '../assets/04. Music 3.mp3';
 
-type MusicScene = 'menu' | 'game' | 'paused';
+type MusicScene = 'menu' | 'calm' | 'combat' | 'boss' | 'paused';
 interface MusicDeck {
   element: HTMLAudioElement;
   gain: GainNode;
@@ -14,11 +14,11 @@ interface MusicDeck {
 }
 
 const MENU_TRACK = { key: 'menu', url: menuMusic };
-const GAME_TRACKS = [
-  { key: 'game-1', url: gameMusicOne },
-  { key: 'game-2', url: gameMusicTwo },
-  { key: 'game-3', url: gameMusicThree },
-] as const;
+const GAME_TRACKS: Record<Exclude<MusicScene, 'menu' | 'paused'>, { key: string; url: string }> = {
+  calm: { key: 'game-1', url: gameMusicOne },
+  combat: { key: 'game-2', url: gameMusicTwo },
+  boss: { key: 'game-3', url: gameMusicThree },
+};
 
 export class Audio {
   private ctx: AudioContext | null = null;
@@ -41,7 +41,6 @@ export class Audio {
   private musicDecks: MusicDeck[] = [];
   private activeMusicDeck = -1;
   private musicScene: MusicScene = 'menu';
-  private nextGameTrack = 0;
   private musicWarningLogged = false;
 
   private get recordedAudioFiles(): Array<[string, string]> {
@@ -156,12 +155,6 @@ export class Audio {
       element.addEventListener('playing', () => {
         console.info(`[Undead Rush] Background music playing: ${deck.key ?? 'unknown track'}.`);
       });
-      element.addEventListener('ended', () => {
-        if (this.musicScene === 'game' && this.musicDecks[this.activeMusicDeck] === deck) {
-          this.startMusicTrack(GAME_TRACKS[this.nextGameTrack], 0.18, false);
-          this.nextGameTrack = (this.nextGameTrack + 1) % GAME_TRACKS.length;
-        }
-      });
       element.addEventListener('error', () => {
         if (this.musicWarningLogged) return;
         this.musicWarningLogged = true;
@@ -183,14 +176,7 @@ export class Audio {
       return;
     }
 
-    const active = this.musicDecks[this.activeMusicDeck];
-    if (active?.key?.startsWith('game-')) {
-      this.startMusicTrack(GAME_TRACKS.find(track => track.key === active.key)!, 0.18, false);
-      return;
-    }
-    const track = GAME_TRACKS[this.nextGameTrack];
-    this.nextGameTrack = (this.nextGameTrack + 1) % GAME_TRACKS.length;
-    this.startMusicTrack(track, 0.18, false);
+    this.startMusicTrack(GAME_TRACKS[this.musicScene], 0.18, true);
   }
 
   private startMusicTrack(track: { key: string; url: string }, volume: number, loop: boolean): void {

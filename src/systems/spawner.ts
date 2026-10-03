@@ -20,13 +20,17 @@ export class Spawner {
   /** Get list of zombies that should be spawned this frame */
   update(
     dt: number, gameTime: number, currentZombieCount: number,
-    camera: Camera, playerX: number, playerY: number, survival = false
+    camera: Camera, playerX: number, playerY: number, survival = false,
+    campaignMobIds?: readonly string[], suppressTimedBosses = false
   ): { type: ZombieTypeDef; x: number; y: number; tier: DifficultyTier; isElite?: boolean }[] {
     const tier = this.getCurrentTier(gameTime);
     const spawns: { type: ZombieTypeDef; x: number; y: number; tier: DifficultyTier; isElite?: boolean }[] = [];
+    const zombieCap = campaignMobIds
+      ? Math.min(tier.maxZombies, campaignMobIds.length >= 8 ? 15 : 12)
+      : tier.maxZombies;
 
     // Check boss spawn
-    for (const bossTime of BOSS_SPAWN_TIMES) {
+    for (const bossTime of suppressTimedBosses ? [] : BOSS_SPAWN_TIMES) {
       if (gameTime >= bossTime && !this.bossesSpawned.has(bossTime)) {
         this.bossesSpawned.add(bossTime);
         // Pick appropriate boss
@@ -40,7 +44,7 @@ export class Spawner {
     }
 
     // Regular spawning
-    if (currentZombieCount >= tier.maxZombies) return spawns;
+    if (currentZombieCount >= zombieCap) return spawns;
 
     this.spawnTimer += dt * tier.spawnRate;
     while (this.spawnTimer >= 1) {
@@ -48,9 +52,9 @@ export class Spawner {
 
       const batch = tier.batchSize;
       for (let i = 0; i < batch; i++) {
-        if (currentZombieCount + spawns.length >= tier.maxZombies) break;
+        if (currentZombieCount + spawns.length >= zombieCap) break;
 
-        const type = this.pickZombieType(gameTime, survival);
+        const type = this.pickZombieType(gameTime, survival, campaignMobIds);
         if (type) {
           const pos = this.getSpawnPosition(camera, playerX, playerY);
           const eliteChance = gameTime >= 45 ? Math.min(0.12, 0.04 + gameTime / 6000) : 0;
@@ -64,8 +68,11 @@ export class Spawner {
     return spawns;
   }
 
-  private pickZombieType(gameTime: number, survival = false): ZombieTypeDef | null {
-    const available = (survival ? Spawner.survivalRoster : ZOMBIE_TYPES).filter(z => !z.isBoss && gameTime >= z.minTime);
+  private pickZombieType(gameTime: number, survival = false, campaignMobIds?: readonly string[]): ZombieTypeDef | null {
+    const roster = campaignMobIds
+      ? [...ZOMBIE_TYPES, ...HORROR_TYPES].filter(z => campaignMobIds.includes(z.id))
+      : survival ? Spawner.survivalRoster : ZOMBIE_TYPES;
+    const available = roster.filter(z => !z.isBoss && (campaignMobIds ? true : gameTime >= z.minTime));
     if (available.length === 0) return null;
 
     // Weighted random

@@ -6,6 +6,7 @@ import { ZombieTypeDef } from '../data/zombies';
 import { ZombieRenderer } from '../graphics/zombie-renderer';
 import { resolveBuildingCollision } from './map-geometry';
 import { updateHorrorAI, drawHorrorWarning } from '../systems/horror-ai';
+import { drawCampaignBoss } from '../graphics/campaign-boss-renderer';
 
 let nextZombieId = 1;
 
@@ -33,6 +34,8 @@ export interface Zombie {
   facingLeft: boolean;
   // Flags
   isBoss: boolean;
+  campaignBossId: number | null;
+  campaignPhase: number;
   isGlowing: boolean;
   isElite: boolean;
   explodes: boolean;
@@ -72,7 +75,7 @@ function createZombie(): Zombie {
     slowTimer: 0, slowMult: 1,
     knockbackX: 0, knockbackY: 0,
     facingLeft: false,
-    isBoss: false, isGlowing: false, isElite: false,
+    isBoss: false, campaignBossId: null, campaignPhase: 1, isGlowing: false, isElite: false,
     explodes: false, explosionRadius: 0, explosionDamage: 0,
     ranged: false, attackRange: 0, projectileSpeed: 0, attackCooldown: 0,
     wobble: 0,
@@ -98,6 +101,8 @@ function resetZombie(z: Zombie): void {
   z.knockbackY = 0;
   z.facingLeft = false;
   z.attackCooldown = 0;
+  z.campaignBossId = null;
+  z.campaignPhase = 1;
   z.wobble = 0;
   z.animTimer = Math.random() * 100;
   z.walkDist = 0;
@@ -140,6 +145,8 @@ export class ZombieSystem {
     z.xpValue = typeDef.xpValue;
     z.typeId = typeDef.id;
     z.isBoss = !!typeDef.isBoss;
+    z.campaignBossId = null;
+    z.campaignPhase = 1;
     z.isGlowing = !!typeDef.isGlowing || isElite;
     z.isElite = isElite && !typeDef.isBoss;
     if (z.isElite) {
@@ -183,7 +190,7 @@ export class ZombieSystem {
         z.facingLeft = dx < 0;
       }
 
-      const special = updateHorrorAI(z, dt, playerX, playerY, collideBuildings);
+      const special = z.campaignBossId === null ? updateHorrorAI(z, dt, playerX, playerY, collideBuildings) : false;
       if (special) {
         // The committed attack state supplies movement and aim.
       } else if (dist > 1) {
@@ -278,7 +285,7 @@ export class ZombieSystem {
 
   drawWarnings(ctx: CanvasRenderingContext2D, camera: Camera): void {
     for (const z of this.pool.getActive()) {
-      if (z.hp <= 0 || !camera.isVisible(z.x, z.y, 260)) continue;
+      if (z.hp <= 0 || z.campaignBossId !== null || !camera.isVisible(z.x, z.y, 260)) continue;
       const [sx, sy] = camera.worldToScreen(z.x, z.y);
       drawHorrorWarning(ctx, z, sx, sy);
     }
@@ -293,7 +300,8 @@ export class ZombieSystem {
       const isFlashing = z.flashTimer > 0;
 
       // Draw procedural top-down zombie (Monster Breakout style)
-      ZombieRenderer.drawZombie(ctx, z, sx, sy, isFlashing, survival);
+      if (z.campaignBossId !== null) drawCampaignBoss(ctx, z, sx, sy, isFlashing);
+      else ZombieRenderer.drawZombie(ctx, z, sx, sy, isFlashing, survival);
 
       // Burn fire overlay
       if (z.burnTimer > 0) {
@@ -331,7 +339,7 @@ export class ZombieSystem {
       }
 
       // HP bar for bosses and damaged zombies
-      if (z.isBoss || z.hp < z.maxHp) {
+      if (z.campaignBossId === null && (z.isBoss || z.hp < z.maxHp)) {
         const barW = Math.max(28, z.size * 1.8);
         const barH = z.isBoss ? 7 : 4;
         const barY = survival ? sy - z.size * 2.1 - 16 : sy - z.size - (z.isBoss ? 16 : 10);
@@ -346,7 +354,7 @@ export class ZombieSystem {
       }
 
       // Boss crown
-      if (z.isBoss && !survival) {
+      if (z.isBoss && !survival && z.campaignBossId === null) {
         ctx.save();
         ctx.fillStyle = '#ffdd00';
         ctx.shadowColor = '#ffaa00';

@@ -13,7 +13,7 @@ export interface SolidBuilding {
 const cx = MAP_CONFIG.width / 2;
 const cy = MAP_CONFIG.height / 2;
 
-export const SOLID_BUILDINGS: SolidBuilding[] = [
+const SURVIVAL_BUILDINGS: SolidBuilding[] = [
   { x: 520, y: 720, halfWidth: 426, halfHeight: 294, kind: 'warehouse', rotation: 0, large: true },
   { x: 1680, y: 430, halfWidth: 112, halfHeight: 82, kind: 'ruin', rotation: 0.12 },
   { x: 3060, y: 970, halfWidth: 426, halfHeight: 294, kind: 'warehouse', rotation: 0, large: true },
@@ -23,6 +23,7 @@ export const SOLID_BUILDINGS: SolidBuilding[] = [
   { x: 1840, y: 3540, halfWidth: 112, halfHeight: 82, kind: 'ruin', rotation: -0.12 },
   { x: 3410, y: 3160, halfWidth: 142, halfHeight: 98, kind: 'warehouse', rotation: 0.04 },
 ];
+export const SOLID_BUILDINGS: SolidBuilding[] = [...SURVIVAL_BUILDINGS];
 
 interface SolidRect { x: number; y: number; halfWidth: number; halfHeight: number; }
 
@@ -48,9 +49,15 @@ function createSolidRects(building: SolidBuilding): SolidRect[] {
   ];
 }
 
-// Building geometry never changes during a run. Build these rectangles once
-// instead of recreating their arrays and rectangles for every entity collision.
-const BUILDING_SOLID_RECTS = SOLID_BUILDINGS.map(createSolidRects);
+// Geometry is swapped only when entering/leaving a Campaign stage; collision
+// checks continue to use precomputed wall rectangles during the game loop.
+let BUILDING_SOLID_RECTS = SOLID_BUILDINGS.map(createSolidRects);
+
+export function setCampaignGeometry(buildings?: readonly SolidBuilding[]): void {
+  const next = buildings ?? SURVIVAL_BUILDINGS;
+  SOLID_BUILDINGS.splice(0, SOLID_BUILDINGS.length, ...next);
+  BUILDING_SOLID_RECTS = SOLID_BUILDINGS.map(createSolidRects);
+}
 
 export function resolveBuildingCollision(x: number, y: number, radius: number): [number, number] {
   for (const solids of BUILDING_SOLID_RECTS) {

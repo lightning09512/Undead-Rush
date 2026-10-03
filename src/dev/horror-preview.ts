@@ -1,6 +1,7 @@
 import { HORROR_TYPES, ZOMBIE_TYPES } from '../data/zombies';
 import { openAnatomyGallery } from './anatomy-gallery';
 import { runHorrorChecks } from './horror-checks';
+import { STAGES } from '../data/meta';
 
 interface Snapshot {
   screen: string; playerHp: number; kills: number; xp: number; gems: number;
@@ -9,6 +10,7 @@ interface Snapshot {
 }
 interface PreviewHost {
   encounter(type: string, wall?: boolean): void;
+  campaign(stageIndex: number, bossPreview: boolean): void;
   shoot(): void; menu(): void; survive(): void; gameOver(): void; snapshot(): Snapshot;
 }
 
@@ -19,7 +21,7 @@ export function mountHorrorPreview(host: PreviewHost): void {
   panel.id = 'horror-preview';
   panel.style.cssText = 'position:fixed;left:10px;top:180px;z-index:30;width:min(310px,calc(100vw - 20px));max-height:52vh;overflow:auto;background:#111b20ed;border:1px solid #76b4c1;color:#edf0e9;font:12px/1.5 system-ui;padding:10px;box-sizing:border-box';
   const summary = document.createElement('summary');
-  summary.textContent = 'DEV • Quái Sinh tồn • Save tạm';
+  summary.textContent = 'DEV • Quái / Campaign • Save tạm';
   panel.append(summary);
   panel.addEventListener('toggle', () => {
     panel.style.top = panel.open ? '180px' : 'auto';
@@ -48,6 +50,10 @@ export function mountHorrorPreview(host: PreviewHost): void {
     b.onclick = action; controls.append(b); buttons.push(b);
   };
   button('Thư viện hình thể', openAnatomyGallery);
+  for (const stage of STAGES) {
+    button(`${String(stage.id).padStart(2, '0')} • map`, () => host.campaign(stage.id - 1, false));
+    button(`${String(stage.id).padStart(2, '0')} • boss`, () => host.campaign(stage.id - 1, true));
+  }
   for (const type of [...ZOMBIE_TYPES, ...HORROR_TYPES]) button(type.name, () => { chosen = type.id; host.encounter(type.id); });
   button('Sát tường', () => host.encounter(chosen, true));
   button('Đạn kiểm tra', () => host.shoot());

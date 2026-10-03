@@ -1,4 +1,4 @@
-export type TouchAction = 'fire' | 'reload' | 'grenade' | 'dash';
+export type TouchAction = 'fire' | 'reload' | 'grenade' | 'dash' | 'interact';
 
 export interface TouchActionButton {
   id: TouchAction;
@@ -9,7 +9,7 @@ export interface TouchActionButton {
   hint: string;
 }
 
-export function getTouchActionButtons(width: number, height: number): TouchActionButton[] {
+export function getTouchActionButtons(width: number, height: number, includeInteract = false): TouchActionButton[] {
   const size = Math.max(52, Math.min(72, width * 0.065, height * 0.11));
   const small = size * 0.78;
   const pad = Math.max(14, size * 0.22);
@@ -18,21 +18,24 @@ export function getTouchActionButtons(width: number, height: number): TouchActio
   // input hitboxes use this same layout, so touch and mouse controls stay aligned.
   const compactHudLift = width < 760 ? Math.min(136, Math.max(120, height * 0.22)) : 0;
   const fireY = height - pad - size - compactHudLift;
-  return [
+  const buttons: TouchActionButton[] = [
     { id: 'fire', x: fireX, y: fireY, size, label: 'BẮN', hint: 'GIỮ' },
     { id: 'reload', x: fireX + size * 0.18, y: fireY - small - 10, size: small, label: 'ĐẠN', hint: 'R' },
     { id: 'grenade', x: fireX - small - 10, y: fireY - small - 10, size: small, label: 'LỰU', hint: 'G' },
     { id: 'dash', x: fireX - small - 10, y: fireY + size - small, size: small, label: 'LƯỚT', hint: 'SHIFT' },
   ];
+  if (includeInteract) buttons.push({ id: 'interact', x: fireX - small * 2 - 18, y: fireY - small - 10, size: small, label: 'DÙNG', hint: 'Q' });
+  return buttons;
 }
 
-export function drawTouchActionButtons(ctx: CanvasRenderingContext2D, width: number, height: number): void {
-  const buttons = getTouchActionButtons(width, height);
+export function drawTouchActionButtons(ctx: CanvasRenderingContext2D, width: number, height: number, includeInteract = false): void {
+  const buttons = getTouchActionButtons(width, height, includeInteract);
   const styles: Record<TouchAction, { fill: string; stroke: string }> = {
     fire: { fill: 'rgba(125, 48, 47, 0.58)', stroke: 'rgba(224, 120, 105, 0.82)' },
     reload: { fill: 'rgba(98, 75, 43, 0.55)', stroke: 'rgba(212, 170, 99, 0.82)' },
     grenade: { fill: 'rgba(98, 75, 43, 0.55)', stroke: 'rgba(212, 170, 99, 0.82)' },
     dash: { fill: 'rgba(35, 77, 84, 0.58)', stroke: 'rgba(118, 180, 193, 0.82)' },
+    interact: { fill: 'rgba(68, 91, 66, 0.72)', stroke: 'rgba(150, 186, 119, 0.9)' },
   };
   for (const button of buttons) {
     const { x, y, size } = button;

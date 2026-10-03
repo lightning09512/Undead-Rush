@@ -9,6 +9,7 @@ import { MAP_CONFIG } from '../data/items';
 import { Camera } from '../core/camera';
 import { SOLID_BUILDINGS } from '../entities/map-geometry';
 import { UI_PALETTE as C } from './palette';
+import type { StageDef } from '../data/meta';
 
 export class HUD {
   draw(
@@ -20,7 +21,8 @@ export class HUD {
     input: Input,
     zombies: ZombieSystem,
     mapPickups: MapPickupSystem,
-    camera: Camera
+    camera: Camera,
+    campaign?: { stage: StageDef; activeNode: number; bossSpawned: boolean; exitActive: boolean; exitActivated: boolean }
   ): void {
     const pad = w < 700 ? 9 : 12;
     const compact = w < 700;
@@ -144,7 +146,7 @@ export class HUD {
     ctx.restore();
 
     // ─── 5. Top-Right: Minimap ───
-    this.drawMinimap(ctx, w, h, pad, xpBarH + 8, player, zombies, mapPickups, camera);
+    this.drawMinimap(ctx, w, h, pad, xpBarH + 8, player, zombies, mapPickups, camera, campaign);
 
     // ─── 6. Mobile Touch Joystick ───
     if (input.isJoystickVisible) {
@@ -255,7 +257,8 @@ export class HUD {
     player: Player,
     zombies: ZombieSystem,
     mapPickups: MapPickupSystem,
-    camera: Camera
+    camera: Camera,
+    campaign?: { stage: StageDef; activeNode: number; bossSpawned: boolean; exitActive: boolean; exitActivated: boolean }
   ): void {
     const size = w < 700 ? Math.min(124, Math.max(94, w * 0.26)) : Math.min(168, Math.max(112, w * 0.28));
     const frame = size + 12;
@@ -292,7 +295,12 @@ export class HUD {
     }
 
     // Fixed buildings are deliberately bright and large enough to read at this scale.
-    for (const building of SOLID_BUILDINGS) {
+    const minimapBuildings = campaign ? campaign.stage.buildings : SOLID_BUILDINGS;
+    const variantColors: Record<string, string> = {
+      suburb: '#9b8e79', fuel: '#c08a42', medical: '#89aaa0', sewer: '#738a70', military: '#a1946e',
+      mall: '#aaa191', rail: '#a07f61', lab: '#719a9c', quarantine: '#aa6559', hive: '#954f52',
+    };
+    for (const building of minimapBuildings) {
       const bw = building.halfWidth * 2 * scale;
       const bh = building.halfHeight * 2 * scale;
       const drawW = Math.max(3, bw);
@@ -300,12 +308,31 @@ export class HUD {
       ctx.save();
       ctx.translate(mapX + building.x * scale, mapY + building.y * scale);
       ctx.rotate(building.rotation);
-      ctx.fillStyle = building.kind === 'warehouse' ? '#d08a46' : '#8c949a';
+      ctx.fillStyle = campaign
+        ? variantColors[(building as typeof campaign.stage.buildings[number]).variant ?? ''] ?? '#8c949a'
+        : building.kind === 'warehouse' ? '#d08a46' : '#8c949a';
       ctx.fillRect(-drawW / 2, -drawH / 2, drawW, drawH);
       ctx.strokeStyle = '#f8d49a';
       ctx.lineWidth = 1;
       ctx.strokeRect(-drawW / 2, -drawH / 2, drawW, drawH);
       ctx.restore();
+    }
+
+    if (campaign) {
+      campaign.stage.objectiveNodes.forEach((node, index) => {
+        if (index < campaign.activeNode) return;
+        ctx.fillStyle = index === campaign.activeNode ? '#e3bd72' : '#a6a08a';
+        ctx.strokeStyle = '#22292b'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(mapX + node.x * scale, mapY + node.y * scale, index === campaign.activeNode ? 3.3 : 2.4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      });
+      if (campaign.bossSpawned) {
+        ctx.strokeStyle = '#e56b5c'; ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.arc(mapX + campaign.stage.bossSpawn.x * scale, mapY + campaign.stage.bossSpawn.y * scale, 4.5, 0, Math.PI * 2); ctx.stroke();
+      }
+      if (campaign.exitActive && campaign.stage.exitSpawn) {
+        ctx.fillStyle = campaign.exitActivated ? '#9cae9f' : '#75c1b5';
+        ctx.beginPath(); ctx.arc(mapX + campaign.stage.exitSpawn.x * scale, mapY + campaign.stage.exitSpawn.y * scale, 3.4, 0, Math.PI * 2); ctx.fill();
+      }
     }
 
     // Pickups (yellow)

@@ -4,6 +4,7 @@ import { getTouchActionButtons, type TouchAction } from '../ui/touch-controls';
 
 export class Input {
   touchButtonsEnabled = false;
+  campaignTouchEnabled = false;
   // Movement direction (normalized)
   dirX = 0;
   dirY = 0;
@@ -94,6 +95,13 @@ export class Input {
     return r;
   }
 
+  private _interactPressed = false;
+  get interactPressed() {
+    const value = this._interactPressed;
+    this._interactPressed = false;
+    return value;
+  }
+
   // Weapon slot selection (1, 2, 3)
   private _weaponSelect: number | null = null;
   get weaponSelect(): number | null {
@@ -127,7 +135,7 @@ export class Input {
 
   private findActionButton(x: number, y: number): TouchAction | null {
     if (!this.touchButtonsEnabled) return null;
-    const buttons = getTouchActionButtons(window.innerWidth, window.innerHeight);
+    const buttons = getTouchActionButtons(window.innerWidth, window.innerHeight, this.campaignTouchEnabled);
     const button = buttons.find((b) => x >= b.x && x <= b.x + b.size && y >= b.y && y <= b.y + b.size);
     return button?.id || null;
   }
@@ -137,6 +145,7 @@ export class Input {
     if (action === 'reload') this._reloadPressed = true;
     if (action === 'grenade') this._grenadePressed = true;
     if (action === 'dash') this._dashPressed = true;
+    if (action === 'interact') this._interactPressed = true;
   }
 
   constructor(canvas: HTMLCanvasElement) {
@@ -155,6 +164,7 @@ export class Input {
       if (e.code === 'KeyG') {
         this._grenadePressed = true;
       }
+      if (e.code === 'KeyQ') this._interactPressed = true;
       if (e.code === 'KeyF' || e.code === 'KeyE') {
         this._ragePressed = true;
       }
