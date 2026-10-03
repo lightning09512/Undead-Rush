@@ -1,5 +1,25 @@
 // ─── Audio: High-Fidelity Procedural Sound Synthesis System ───
 
+import menuMusic from '../assets/01. Menu Music.mp3';
+import gameMusicOne from '../assets/02. Music 1.mp3';
+import gameMusicTwo from '../assets/03. Music 2.mp3';
+import gameMusicThree from '../assets/04. Music 3.mp3';
+
+type MusicScene = 'menu' | 'game' | 'paused';
+interface MusicDeck {
+  element: HTMLAudioElement;
+  gain: GainNode;
+  key: string | null;
+  transition: number;
+}
+
+const MENU_TRACK = { key: 'menu', url: menuMusic };
+const GAME_TRACKS = [
+  { key: 'game-1', url: gameMusicOne },
+  { key: 'game-2', url: gameMusicTwo },
+  { key: 'game-3', url: gameMusicThree },
+] as const;
+
 export class Audio {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
@@ -18,6 +38,11 @@ export class Audio {
   private recordedBuffers = new Map<string, AudioBuffer>();
   private recordedBuffersPromise: Promise<void> | null = null;
   private activeZombieVoices = 0;
+  private musicDecks: MusicDeck[] = [];
+  private activeMusicDeck = -1;
+  private musicScene: MusicScene = 'menu';
+  private nextGameTrack = 0;
+  private musicWarningLogged = false;
 
   private get recordedAudioFiles(): Array<[string, string]> {
     const zombieFiles = Array.from({ length: 24 }, (_, index) => [
@@ -63,6 +88,7 @@ export class Audio {
       this.sfxGain = this.ctx.createGain();
       this.sfxGain.gain.value = 0.96;
       this.sfxGain.connect(this.masterGain);
+      this.initMusicDecks();
 
       // Pre-generate 2 seconds of high quality white noise for crack & explosions
       const sampleRate = this.ctx.sampleRate;
@@ -77,6 +103,7 @@ export class Audio {
 
       this.initialized = true;
       if (this.ctx.state === 'suspended') this.resumeFromGesture();
+      this.syncMusicScene();
     } catch (error) {
       console.error('[Undead Rush] Could not initialize Web Audio:', error);
     }
@@ -105,6 +132,120 @@ export class Audio {
     this.init();
     this.resumeFromGesture();
     this.preloadRecordedAudio();
+    this.syncMusicScene();
+  }
+
+  /** Selects the background score separately from the shared sound-effects bus. */
+  setMusicScene(scene: MusicScene): void {
+    if (this.musicScene === scene && (scene === 'paused' || this.activeMusicDeck >= 0)) return;
+    this.musicScene = scene;
+    this.syncMusicScene();
+  }
+
+  private initMusicDecks(): void {
+    if (!this.ctx || !this.masterGain || this.musicDecks.length) return;
+    for (let i = 0; i < 2; i++) {
+      const element = document.createElement('audio');
+      element.preload = 'auto';
+      const media = this.ctx.createMediaElementSource(element);
+      const gain = this.ctx.createGain();
+      gain.gain.value = 0;
+      media.connect(gain);
+      gain.connect(this.masterGain);
+      const deck: MusicDeck = { element, gain, key: null, transition: 0 };
+      element.addEventListener('playing', () => {
+        console.info(`[Undead Rush] Background music playing: ${deck.key ?? 'unknown track'}.`);
+      });
+      element.addEventListener('ended', () => {
+        if (this.musicScene === 'game' && this.musicDecks[this.activeMusicDeck] === deck) {
+          this.startMusicTrack(GAME_TRACKS[this.nextGameTrack], 0.18, false);
+          this.nextGameTrack = (this.nextGameTrack + 1) % GAME_TRACKS.length;
+        }
+      });
+      element.addEventListener('error', () => {
+        if (this.musicWarningLogged) return;
+        this.musicWarningLogged = true;
+        console.warn('[Undead Rush] Background music could not be loaded.');
+      });
+      this.musicDecks.push(deck);
+    }
+  }
+
+  private syncMusicScene(): void {
+    if (!this.ctx || !this.masterGain) return;
+    this.initMusicDecks();
+    if (this.musicScene === 'paused') {
+      if (this.activeMusicDeck >= 0) this.fadeDeck(this.activeMusicDeck, 0, true);
+      return;
+    }
+    if (this.musicScene === 'menu') {
+      this.startMusicTrack(MENU_TRACK, 0.2, true);
+      return;
+    }
+
+    const active = this.musicDecks[this.activeMusicDeck];
+    if (active?.key?.startsWith('game-')) {
+      this.startMusicTrack(GAME_TRACKS.find(track => track.key === active.key)!, 0.18, false);
+      return;
+    }
+    const track = GAME_TRACKS[this.nextGameTrack];
+    this.nextGameTrack = (this.nextGameTrack + 1) % GAME_TRACKS.length;
+    this.startMusicTrack(track, 0.18, false);
+  }
+
+  private startMusicTrack(track: { key: string; url: string }, volume: number, loop: boolean): void {
+    if (!this.ctx || !this.musicDecks.length) return;
+    const current = this.musicDecks[this.activeMusicDeck];
+    const existingIndex = this.musicDecks.findIndex(deck => deck.key === track.key);
+    if (existingIndex >= 0) {
+      this.activeMusicDeck = existingIndex;
+      const existing = this.musicDecks[existingIndex];
+      existing.element.loop = loop;
+      if (existing.element.paused) void existing.element.play().catch(() => this.warnMusicPlayback());
+      this.fadeDeck(existingIndex, volume, false);
+      for (let i = 0; i < this.musicDecks.length; i++) if (i !== existingIndex) this.fadeDeck(i, 0, true);
+      return;
+    }
+
+    const nextIndex = this.activeMusicDeck === 0 ? 1 : 0;
+    const next = this.musicDecks[nextIndex];
+    next.transition++;
+    next.element.pause();
+    next.key = track.key;
+    next.element.src = track.url;
+    next.element.loop = loop;
+    next.element.currentTime = 0;
+    next.element.load();
+    this.activeMusicDeck = nextIndex;
+    void next.element.play().catch(() => this.warnMusicPlayback());
+    this.fadeDeck(nextIndex, volume, false);
+    if (current && nextIndex !== this.musicDecks.indexOf(current)) {
+      this.fadeDeck(this.musicDecks.indexOf(current), 0, true);
+    }
+  }
+
+  private fadeDeck(index: number, volume: number, pauseAtEnd: boolean): void {
+    const deck = this.musicDecks[index];
+    if (!deck || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    const transition = ++deck.transition;
+    deck.gain.gain.cancelScheduledValues(now);
+    deck.gain.gain.setValueAtTime(deck.gain.gain.value, now);
+    deck.gain.gain.linearRampToValueAtTime(volume, now + 0.75);
+    if (pauseAtEnd) {
+      window.setTimeout(() => {
+        const pausedActiveTrack = this.musicScene === 'paused' && this.activeMusicDeck === index;
+        if (deck.transition !== transition || (this.activeMusicDeck === index && !pausedActiveTrack)) return;
+        deck.element.pause();
+        if (deck.gain.gain.value < 0.01 && this.activeMusicDeck !== index) deck.key = null;
+      }, 800);
+    }
+  }
+
+  private warnMusicPlayback(): void {
+    if (this.musicWarningLogged) return;
+    this.musicWarningLogged = true;
+    console.warn('[Undead Rush] Background music playback was blocked by the browser. Click or press a key to enable audio.');
   }
 
   private preloadRecordedAudio(): void {

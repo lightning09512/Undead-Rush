@@ -51,6 +51,9 @@ export interface Zombie {
   walkDist: number;
   attackAnim: number;
   attackTimer: number;
+  // Cosmetic cues only; never consulted by combat or movement.
+  visualWindup: number;
+  visualStrike: number;
   specialState: 'chase' | 'windup' | 'active' | 'recover';
   specialTimer: number;
   specialDuration: number;
@@ -79,6 +82,7 @@ function createZombie(): Zombie {
     walkDist: 0,
     attackAnim: 0,
     attackTimer: 0,
+    visualWindup: 0, visualStrike: 0,
     specialState: 'chase', specialTimer: 0, specialDuration: 1, specialAngle: 0,
     specialHit: false, specialStarted: false, deathHandled: false,
   };
@@ -99,6 +103,7 @@ function resetZombie(z: Zombie): void {
   z.walkDist = 0;
   z.attackAnim = 0;
   z.attackTimer = 0;
+  z.visualWindup = z.visualStrike = 0;
   z.facingAngle = 0;
   z.vx = z.vy = 0;
   z.specialState = 'chase';
@@ -236,6 +241,10 @@ export class ZombieSystem {
 
       // Flash timer for hit feedback
       if (z.flashTimer > 0) z.flashTimer -= dt;
+      z.visualStrike = Math.max(0, z.visualStrike - dt);
+      z.visualWindup = !special && !z.ranged && !z.isBoss
+        ? Math.max(0, Math.min(1, 1 - (dist - z.size - 16) / 45)) * (z.attackCooldown <= 0 ? 1 : 0)
+        : 0;
 
       // Attack cooldown
       if (z.attackCooldown > 0) z.attackCooldown -= dt;
@@ -275,16 +284,16 @@ export class ZombieSystem {
     }
   }
 
-  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+  draw(ctx: CanvasRenderingContext2D, camera: Camera, survival = false): void {
     const active = this.pool.getActive();
     for (const z of active) {
-      if (!camera.isVisible(z.x, z.y, z.size + 30)) continue;
+      if (!camera.isVisible(z.x, z.y, survival ? z.size * 3.1 : z.size + 30)) continue;
       const [sx, sy] = camera.worldToScreen(z.x, z.y);
 
       const isFlashing = z.flashTimer > 0;
 
       // Draw procedural top-down zombie (Monster Breakout style)
-      ZombieRenderer.drawZombie(ctx, z, sx, sy, isFlashing);
+      ZombieRenderer.drawZombie(ctx, z, sx, sy, isFlashing, survival);
 
       // Burn fire overlay
       if (z.burnTimer > 0) {
@@ -293,7 +302,7 @@ export class ZombieSystem {
         ctx.fillStyle = 'rgba(255, 100, 0, 0.45)';
         ctx.beginPath();
         ctx.arc(sx, sy - 4, z.size * 1.3, 0, Math.PI * 2);
-        ctx.fill();
+        if (survival) { ctx.strokeStyle = '#bc7952'; ctx.lineWidth = 1.5; ctx.stroke(); } else ctx.fill();
         ctx.restore();
       }
 
@@ -304,17 +313,17 @@ export class ZombieSystem {
         ctx.fillStyle = 'rgba(80, 160, 255, 0.4)';
         ctx.beginPath();
         ctx.arc(sx, sy - 4, z.size * 1.3, 0, Math.PI * 2);
-        ctx.fill();
+        if (survival) { ctx.strokeStyle = '#78a3ae'; ctx.lineWidth = 1.2; ctx.stroke(); } else ctx.fill();
         ctx.restore();
       }
 
       // Elite purple aura
       if (z.isElite) {
         ctx.save();
-        ctx.strokeStyle = 'rgba(200, 80, 255, 0.85)';
+        ctx.strokeStyle = survival ? '#ac8aaf' : 'rgba(200, 80, 255, 0.85)';
         ctx.lineWidth = 2.5;
         ctx.shadowColor = '#cc44ff';
-        ctx.shadowBlur = 8;
+        ctx.shadowBlur = survival ? 0 : 8;
         ctx.beginPath();
         ctx.arc(sx, sy - 4, z.size + 4, 0, Math.PI * 2);
         ctx.stroke();
@@ -325,19 +334,19 @@ export class ZombieSystem {
       if (z.isBoss || z.hp < z.maxHp) {
         const barW = Math.max(28, z.size * 1.8);
         const barH = z.isBoss ? 7 : 4;
-        const barY = sy - z.size - (z.isBoss ? 16 : 10);
+        const barY = survival ? sy - z.size * 2.1 - 16 : sy - z.size - (z.isBoss ? 16 : 10);
         const hpRatio = Math.max(0, z.hp / z.maxHp);
 
         ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
         ctx.fillRect(sx - barW / 2 - 1, barY - 1, barW + 2, barH + 2);
         ctx.fillStyle = '#222222';
         ctx.fillRect(sx - barW / 2, barY, barW, barH);
-        ctx.fillStyle = z.isBoss ? '#ff3344' : '#55ff55';
+        ctx.fillStyle = survival ? (z.isBoss ? '#ba5960' : '#9e6966') : z.isBoss ? '#ff3344' : '#55ff55';
         ctx.fillRect(sx - barW / 2, barY, barW * hpRatio, barH);
       }
 
       // Boss crown
-      if (z.isBoss) {
+      if (z.isBoss && !survival) {
         ctx.save();
         ctx.fillStyle = '#ffdd00';
         ctx.shadowColor = '#ffaa00';

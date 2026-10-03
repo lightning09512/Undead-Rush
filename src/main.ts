@@ -38,7 +38,7 @@ import { UI_PALETTE } from './ui/palette';
 import { MAP_CONFIG, PLAYER_DEFAULTS, WEAPON_PARTS } from './data/items';
 import { PERM_UPGRADES, CHARACTERS, STAGES } from './data/meta';
 import { EVOLUTIONS } from './data/upgrades';
-import { getHorrorAttack, HORROR_TYPES } from './data/zombies';
+import { getHorrorAttack, HORROR_TYPES, ZOMBIE_TYPES } from './data/zombies';
 import { horrorAttackHits } from './systems/horror-ai';
 import { HorrorRemains } from './entities/horror-remains';
 import { resolveBuildingCollision } from './entities/map-geometry';
@@ -142,6 +142,9 @@ adWrapper.init({
 function gameLoop(timestamp: number): void {
   requestAnimationFrame(gameLoop);
 
+  const menuScene = menuUI.currentScreen === 'main' || menuUI.currentScreen === 'hunter_profile' || menuUI.currentScreen === 'tutorial';
+  audio.setMusicScene(menuScene ? 'menu' : menuUI.currentScreen === 'paused' || paused ? 'paused' : 'game');
+
   const rawDt = (timestamp - lastTimestamp) / 1000;
   const dt = Math.min(rawDt, 0.1);
   lastTimestamp = timestamp;
@@ -159,6 +162,7 @@ function gameLoop(timestamp: number): void {
 
   input.update();
   menuUI.setPointer(input.mouseX, input.mouseY);
+  if (menuUI.currentScreen === 'paused' && input.pausePressed) handleMenuAction('resume');
 
   const click = input.uiClick;
 
@@ -247,6 +251,7 @@ function handleMenuAction(action: string | null): void {
 
   switch (action) {
     case 'start_endless':
+      previewEncounter = false;
       gameMode = 'endless';
       startGame();
       break;
@@ -276,6 +281,7 @@ function handleMenuAction(action: string | null): void {
       menuUI.currentScreen = 'main';
       break;
     case 'retry':
+      previewEncounter = false;
       startGame();
       break;
     case 'revive_ad':
@@ -384,6 +390,7 @@ function updateGame(dt: number): void {
         const angle = Math.atan2(dy, dx);
         enemyProjectiles.fire(z.x, z.y, angle, z.projectileSpeed, z.damage, 'poison');
         z.attackCooldown = 2.0;
+        z.visualStrike = 0.35;
       }
     }
   }
@@ -397,6 +404,7 @@ function updateGame(dt: number): void {
       if (!z.isBoss || z.hp <= 0) continue;
 
       // Alternate between attack patterns
+      z.visualStrike = 0.4;
       if (bossAttackPhase % 3 === 0) {
         // Ring of projectiles
         enemyProjectiles.fireRing(z.x, z.y, 12, 120, z.damage, 'boss_orb');
@@ -515,7 +523,7 @@ function updateGame(dt: number): void {
   const livingZombies = zombies.pool.getActive();
   for (let i = livingZombies.length - 1; i >= 0; i--) {
     const z = livingZombies[i];
-    if (z.hp <= 0) {
+    if (z && z.hp <= 0) {
       handleZombieDeath(z);
     }
   }
@@ -560,6 +568,7 @@ function updateGame(dt: number): void {
       if (z.attackCooldown <= 0) {
         z.attackAnim = 1.0;
         z.attackTimer += 0.8;
+        z.visualStrike = 0.3;
         const hit = player.takeDamage(z.damage);
         if (hit.dead) {
           handlePlayerDeath();
@@ -992,7 +1001,14 @@ function drawGame(): void {
   drawPickupRadius();
   drawDrones();
   player.draw(ctx, camera);
-  zombies.draw(ctx, camera);
+  if (gameMode === 'endless') {
+    for (const z of zombies.pool.getActive()) {
+      if (z.isBoss) z.visualWindup = Math.max(0, Math.min(1, 1 - bossAttackTimer / 0.8));
+      else if (z.ranged) z.visualWindup = Math.hypot(z.x - player.x, z.y - player.y) < z.attackRange
+        ? Math.max(0, Math.min(1, 1 - Math.max(z.attackCooldown, spitterGlobalCooldown) / 0.7)) : 0;
+    }
+  }
+  zombies.draw(ctx, camera, gameMode === 'endless');
 
   propRenderer.draw(ctx, camera, 'above', gameMode === 'endless');
 
@@ -1317,7 +1333,7 @@ requestAnimationFrame(gameLoop);
 if (import.meta.env.DEV && horrorPreview) {
   void import('./dev/horror-preview').then(({ mountHorrorPreview }) => mountHorrorPreview({
     encounter(typeId, wall) {
-      const type = HORROR_TYPES.find(t => t.id === typeId);
+      const type = [...ZOMBIE_TYPES, ...HORROR_TYPES].find(t => t.id === typeId);
       if (!type) return;
       previewEncounter = true;
       gameMode = 'endless';

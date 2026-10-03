@@ -174,7 +174,7 @@ export class MenuUI {
     const bx = (w - btnW) / 2;
 
     // Back button
-    if (x >= bx && x <= bx + btnW && y >= h * 0.85 && y <= h * 0.85 + btnH) {
+    if (x >= bx && x <= bx + btnW && y >= h - 58 && y <= h - 58 + btnH) {
       audio.menuSelect();
       return 'menu';
     }
@@ -187,7 +187,7 @@ export class MenuUI {
     const bx = (w - btnW) / 2;
 
     // Back button
-    if (x >= bx && x <= bx + btnW && y >= h * 0.85 && y <= h * 0.85 + btnH) {
+    if (x >= bx && x <= bx + btnW && y >= h - 58 && y <= h - 58 + btnH) {
       audio.menuSelect();
       return 'menu';
     }
@@ -365,140 +365,70 @@ export class MenuUI {
   }
 
   private drawHunterProfile(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
-    ctx.fillStyle = '#09090d';
-    ctx.fillRect(0, 0, w, h);
-    this.drawBloodAtmosphere(ctx, w, h, 0.42);
-
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    // Title
-    ctx.fillStyle = '#ffffff';
-    ctx.font = `bold ${Math.min(40, w * 0.06)}px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText('HỒ SƠ HUNTER', w / 2, h * 0.12);
-
-    // Profile card
-    const cardW = Math.min(500, w * 0.85);
-    const cardH = h * 0.65;
-    const cx = (w - cardW) / 2;
-    const cy = (h - cardH) / 2 + h * 0.05;
-
-    ctx.fillStyle = '#182126';
-    ctx.strokeStyle = C.border;
-    ctx.lineWidth = 2;
-    this.roundRect(ctx, cx, cy, cardW, cardH, 16);
-    ctx.fill();
-    ctx.stroke();
-
-    // Stats
-    if (save) {
-      ctx.textAlign = 'left';
-      ctx.fillStyle = '#ffffff';
-      ctx.font = `bold ${Math.min(18, Math.max(15, w * 0.04))}px 'Segoe UI', Arial, sans-serif`;
-      ctx.fillText('THỐNG KÊ', cx + 30, cy + 40);
-
-      ctx.fillStyle = '#aaaacc';
-      ctx.font = `${Math.min(14, Math.max(12, w * 0.03))}px 'Segoe UI', Arial, sans-serif`;
-      const stats = [
-        `💰 Gold: ${save.data.gold}`,
-        `⏱ Best Time: ${Math.floor(save.data.bestTime / 60)}m ${Math.floor(save.data.bestTime % 60)}s`,
-        `💀 Best Kills: ${save.data.bestKills}`,
-        `⭐ Best Level: ${save.data.bestLevel}`,
-        `🎮 Total Games: ${save.data.totalGamesPlayed}`,
-        `🧟 Total Kills: ${save.data.totalKills}`,
-      ];
-
-      let y = cy + 70;
-      for (const stat of stats) {
-        ctx.fillText(stat, cx + 30, y);
-        y += 28;
-      }
-
-      // Stages completed
-      ctx.fillStyle = '#ffffff';
-      ctx.font = `bold ${Math.min(18, Math.max(15, w * 0.04))}px 'Segoe UI', Arial, sans-serif`;
-      ctx.fillText('CỬA ẢI HOÀN THÀNH', cx + 30, y + 20);
-
-      ctx.fillStyle = '#aaaacc';
-      ctx.font = `${Math.min(14, Math.max(12, w * 0.03))}px 'Segoe UI', Arial, sans-serif`;
-      y += 50;
-      for (const stageId of save.data.completedStages) {
-        ctx.fillText(`✓ Gate ${stageId}`, cx + 30, y);
-        y += 24;
-      }
-      if (save.data.completedStages.length === 0) {
-        ctx.fillText('Chưa hoàn thành cửa ải nào', cx + 30, y);
-      }
+    ctx.fillStyle = C.background; ctx.fillRect(0, 0, w, h);
+    const panelW = Math.min(620, w - 32);
+    const panelH = Math.min(520, h - 120);
+    const x = (w - panelW) / 2, y = Math.max(58, (h - panelH - 66) / 2);
+    drawWornPanel(ctx, x, y, panelW, panelH, true);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = C.text;
+    ctx.font = `bold ${w < 480 ? 24 : 30}px 'Segoe UI', Arial, sans-serif`;
+    ctx.fillText('HỒ SƠ THỢ SĂN', w / 2, y - 27);
+    this.drawFieldButton(ctx, (w - 200) / 2, h - 58, 200, 45, 'QUAY LẠI', C.cyan);
+    if (!save) return;
+    const rows: [string, string, string][] = [
+      ['VÀNG TÍCH LŨY', `${save.data.gold}`, C.amber],
+      ['SỐNG SÓT LÂU NHẤT', `${Math.floor(save.data.bestTime / 60)}:${Math.floor(save.data.bestTime % 60).toString().padStart(2, '0')}`, C.cyan],
+      ['KỶ LỤC HẠ GỤC', `${save.data.bestKills}`, C.text],
+      ['CẤP CAO NHẤT', `${save.data.bestLevel}`, C.text],
+      ['TỔNG LƯỢT CHƠI', `${save.data.totalGamesPlayed}`, C.text],
+      ['TỔNG HẠ GỤC', `${save.data.totalKills}`, C.text],
+      ['CỬA ẢI HOÀN THÀNH', `${save.data.completedStages.length} / ${STAGES.length}`, C.health],
+    ];
+    const rowH = Math.min(64, (panelH - 24) / rows.length);
+    for (let i = 0; i < rows.length; i++) {
+      const ry = y + 22 + i * rowH;
+      ctx.textAlign = 'left'; ctx.fillStyle = C.textSoft;
+      ctx.font = `bold ${w < 480 ? 10 : 12}px 'Segoe UI', Arial, sans-serif`;
+      ctx.fillText(rows[i][0], x + 20, ry);
+      ctx.textAlign = 'right'; ctx.fillStyle = rows[i][2];
+      ctx.font = `bold ${h < 450 ? 16 : 20}px 'Segoe UI', Arial, sans-serif`;
+      ctx.fillText(rows[i][1], x + panelW - 20, ry);
+      ctx.fillStyle = C.borderSoft; ctx.fillRect(x + 20, ry + rowH * 0.42, panelW - 40, 1);
     }
-
-    // Back button
-    const btnW = 200;
-    const btnH = 45;
-    const bx = (w - btnW) / 2;
-    this.drawButton(ctx, bx, h * 0.85, btnW, btnH, '← Quay lại', '#222');
   }
 
   private drawTutorial(ctx: CanvasRenderingContext2D, w: number, h: number): void {
-    ctx.fillStyle = '#09090d';
-    ctx.fillRect(0, 0, w, h);
-    this.drawBloodAtmosphere(ctx, w, h, 0.42);
-
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    // Title
-    ctx.fillStyle = '#ffffff';
-    ctx.font = `bold ${Math.min(40, w * 0.06)}px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText('HƯỚNG DẪN', w / 2, h * 0.10);
-
-    // Tutorial card
-    const cardW = Math.min(550, w * 0.9);
-    const cardH = h * 0.70;
-    const cx = (w - cardW) / 2;
-    const cy = (h - cardH) / 2 + h * 0.03;
-
-    ctx.fillStyle = '#182126';
-    ctx.strokeStyle = C.border;
-    ctx.lineWidth = 2;
-    this.roundRect(ctx, cx, cy, cardW, cardH, 16);
-    ctx.fill();
-    ctx.stroke();
-
-    // Tutorial content
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#ffffff';
-    ctx.font = `bold ${Math.min(16, Math.max(14, w * 0.04))}px 'Segoe UI', Arial, sans-serif`;
-
+    ctx.fillStyle = C.background; ctx.fillRect(0, 0, w, h);
+    const landscape = h < 500 && w >= 620;
+    const panelW = Math.min(760, w - 32);
+    const panelH = Math.min(600, h - 120);
+    const x = (w - panelW) / 2, y = Math.max(58, (h - panelH - 66) / 2);
+    drawWornPanel(ctx, x, y, panelW, panelH, true);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = C.text;
+    ctx.font = `bold ${w < 480 ? 24 : 30}px 'Segoe UI', Arial, sans-serif`;
+    ctx.fillText('HƯỚNG DẪN', w / 2, y - 27);
+    this.drawFieldButton(ctx, (w - 200) / 2, h - 58, 200, 45, 'QUAY LẠI', C.cyan);
+    const columns = landscape || w >= 650 ? 2 : 1;
     const sections = [
-      { title: '🎮 ĐIỀU KHIỂN', content: ['WASD / Mũi tên: Di chuyển', 'ESC: Tạm dừng', 'Vũ khí tự động bắn'] },
-      { title: '⚔️ GAMEPLAY', content: ['Thu thập XP để level up', 'Chọn nâng cấp vũ khí/passive', 'Sống sót càng lâu càng tốt'] },
-      { title: '📦 THÙNG TIẾP TẾ', content: ['Thùng gỗ có dấu ★', 'Bắn vỡ để nhặt items', 'Common/Rare/Legendary tiers'] },
-      { title: '🔧 LINH KIỆN VŨ KHÍ', content: ['D: Damage (+5% sát thương)', 'F: Fire Rate (+8% tốc độ bắn)', 'M: Magazine (+10% tốc độ)', 'P: Pierce (+1 xuyên)', 'S: Split (+1 chia tia)'] },
-      { title: '💡 MẸO', content: ['Thùng tiếp tế rơi random items', 'Elite quái (viền tím) drop tốt', 'Airdrop thả XP lớn', 'Magnet hút tất cả XP'] },
+      { title: 'ĐIỀU KHIỂN', color: C.cyan, lines: ['WASD / mũi tên: di chuyển', 'Giữ chuột trái: bắn · R: nạp đạn', 'Shift: lướt · G: lựu đạn · F: nộ', '1 / 2 / 3: đổi súng · ESC: tạm dừng', 'Cảm ứng: cần trái, nút hành động phải'] },
+      { title: 'CHẾ ĐỘ SINH TỒN', color: C.text, lines: ['Cuộc chơi kết thúc khi bạn bị hạ gục.', 'Thu thập XP để chọn thẻ nâng cấp.', 'Di chuyển liên tục, giữ đường rút lui.'] },
+      { title: 'TIẾP TẾ', color: C.amber, lines: ['Xanh lục: hồi máu · Cyan: thông tin', 'Hổ phách: đạn, linh kiện và đồ hiếm', 'Bắn vỡ thùng để lấy vật phẩm.'] },
+      { title: 'ĐỌC ĐÒN QUÁI', color: C.dangerBright, lines: ['Vùng sáng báo hướng và tầm đánh.', 'Né ngang khi nhện và vua chuột lao.', 'Lùi khỏi đòn nặng rồi phản công.'] },
     ];
-
-    let y = cy + 35;
-    for (const section of sections) {
-      ctx.fillStyle = C.amber;
-      ctx.fillText(section.title, cx + 25, y);
-      y += 25;
-
-      ctx.fillStyle = '#aaaacc';
-      ctx.font = `${Math.min(13, Math.max(12, w * 0.032))}px 'Segoe UI', Arial, sans-serif`;
-      for (const line of section.content) {
-        ctx.fillText(line, cx + 25, y);
-        y += 20;
-      }
-      y += 15;
-
-      ctx.font = `bold ${Math.min(16, Math.max(14, w * 0.04))}px 'Segoe UI', Arial, sans-serif`;
-    }
-
-    // Back button
-    const btnW = 200;
-    const btnH = 45;
-    const bx = (w - btnW) / 2;
-    this.drawButton(ctx, bx, h * 0.88, btnW, btnH, '← Quay lại', '#222');
+    const rows = sections.length / columns;
+    const cellW = (panelW - 40) / columns;
+    const cellH = (panelH - 26) / rows;
+    const lineH = Math.min(20, (cellH - 26) / 5);
+    sections.forEach((section, i) => {
+      const tx = x + 20 + (i % columns) * cellW;
+      const ty = y + 22 + Math.floor(i / columns) * cellH;
+      ctx.textAlign = 'left'; ctx.fillStyle = section.color;
+      ctx.font = `bold ${w < 480 ? 11 : 12}px 'Segoe UI', Arial, sans-serif`;
+      ctx.fillText(section.title, tx, ty);
+      ctx.fillStyle = C.textSoft;
+      ctx.font = `${w < 480 || landscape ? 10.5 : 12}px 'Segoe UI', Arial, sans-serif`;
+      section.lines.forEach((line, j) => ctx.fillText(line, tx, ty + 21 + j * lineH, cellW - 12));
+    });
   }
 
   private drawBloodAtmosphere(ctx: CanvasRenderingContext2D, w: number, h: number, strength: number): void {

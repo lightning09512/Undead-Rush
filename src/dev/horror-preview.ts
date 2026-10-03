@@ -1,4 +1,5 @@
-import { HORROR_TYPES } from '../data/zombies';
+import { HORROR_TYPES, ZOMBIE_TYPES } from '../data/zombies';
+import { openAnatomyGallery } from './anatomy-gallery';
 import { runHorrorChecks } from './horror-checks';
 
 interface Snapshot {
@@ -20,6 +21,12 @@ export function mountHorrorPreview(host: PreviewHost): void {
   const summary = document.createElement('summary');
   summary.textContent = 'DEV • Quái Sinh tồn • Save tạm';
   panel.append(summary);
+  panel.addEventListener('toggle', () => {
+    panel.style.top = panel.open ? '180px' : 'auto';
+    panel.style.bottom = panel.open ? 'auto' : '8px';
+    panel.style.width = panel.open ? 'min(310px,calc(100vw - 20px))' : 'auto';
+    panel.style.maxHeight = panel.open ? '52vh' : '40px';
+  });
   const controls = document.createElement('div');
   controls.style.cssText = 'display:flex;flex-wrap:wrap;gap:5px;margin:8px 0';
   panel.append(controls);
@@ -40,7 +47,8 @@ export function mountHorrorPreview(host: PreviewHost): void {
     b.style.cssText = 'padding:6px 8px;background:#29363c;color:#edf0e9;border:1px solid #526870;border-radius:3px;cursor:pointer;font:12px system-ui';
     b.onclick = action; controls.append(b); buttons.push(b);
   };
-  for (const type of HORROR_TYPES) button(type.name, () => { chosen = type.id; host.encounter(type.id); });
+  button('Thư viện hình thể', openAnatomyGallery);
+  for (const type of [...ZOMBIE_TYPES, ...HORROR_TYPES]) button(type.name, () => { chosen = type.id; host.encounter(type.id); });
   button('Sát tường', () => host.encounter(chosen, true));
   button('Đạn kiểm tra', () => host.shoot());
   button('Menu', () => host.menu());

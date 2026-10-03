@@ -1,5 +1,4 @@
 import type { Zombie } from '../entities/zombies';
-import { anatomy, tissue, skinGrain, wound, brokenHead, sinew } from './body-horror';
 
 // Geometry is authored facing right, in a 20-unit collision radius. Limbs are
 // deliberately thin outside that radius; the opaque body matches the hit area.
@@ -25,16 +24,29 @@ function finishSkin(ctx: CanvasRenderingContext2D, color: string, flash: boolean
   ctx.fillStyle = flash ? '#e8e1ca' : color;
   ctx.fill();
   ctx.strokeStyle = INK;
-  ctx.lineWidth = 0.85;
+  ctx.lineWidth = 1.35;
   ctx.stroke();
-  ctx.save(); ctx.clip();
-  ctx.fillStyle = 'rgba(22,18,27,0.24)'; ctx.fillRect(-40, 2, 80, 40);
-  if (!flash) skinGrain(ctx);
-  ctx.restore();
 }
 
 function limb(ctx: CanvasRenderingContext2D, ax: number, ay: number, bx: number, by: number, cx: number, cy: number, width: number, color: string, flash: boolean): void {
-  sinew(ctx, ax, ay, bx, by, cx, cy, width, color, flash);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(ax, ay);
+  ctx.lineTo(bx, by);
+  ctx.lineTo(cx, cy);
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = width + 2;
+  ctx.stroke();
+  ctx.strokeStyle = flash ? '#e8e1ca' : color;
+  ctx.lineWidth = width;
+  ctx.stroke();
+  ctx.strokeStyle = flash ? '#ffffff' : '#a5a38b';
+  ctx.lineWidth = Math.max(0.65, width * 0.15);
+  ctx.beginPath();
+  ctx.moveTo(ax, ay - width * 0.2);
+  ctx.lineTo(bx, by - width * 0.2);
+  ctx.stroke();
 }
 
 function claws(ctx: CanvasRenderingContext2D, x: number, y: number, angle: number, length: number, flash: boolean): void {
@@ -76,7 +88,34 @@ function ribs(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number
 
 /** A tapered torn jaw and offset skull, rather than a circular head icon. */
 function skull(ctx: CanvasRenderingContext2D, x: number, y: number, angle: number, scale: number, skin: string, flash: boolean, open: number): void {
-  brokenHead(ctx, x, y, angle, scale, skin, flash, open);
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.scale(scale, scale);
+  ctx.beginPath();
+  ctx.moveTo(-6, -3.5);
+  ctx.bezierCurveTo(-8, -7, -1, -8.5, 3, -5.5);
+  ctx.lineTo(5, -3.3); ctx.lineTo(7.5, -1.4);
+  ctx.lineTo(5.5, 1.2); ctx.lineTo(6.5, 4.4 + open);
+  ctx.lineTo(0, 5.6); ctx.lineTo(-5.5, 4);
+  ctx.closePath();
+  finishSkin(ctx, skin, flash);
+  oval(ctx, -1.6, -3.1, 3.5, 2.5, flash ? '#fff8dc' : '#b7b39a', -0.25);
+  if (!flash) {
+    ctx.strokeStyle = '#575653'; ctx.lineWidth = 0.85;
+    ctx.beginPath(); ctx.moveTo(-4, -5); ctx.lineTo(-1, -2.5); ctx.lineTo(-2, 0); ctx.stroke();
+    oval(ctx, 3, -3, 2.2, 1.5, '#242329', -0.15);
+    oval(ctx, 2.4, 2.3, 1.8, 1.5, '#242329', 0.3);
+    oval(ctx, 3.8, -3, 0.65, 0.6, '#e3a879');
+    oval(ctx, 3.2, 2.3, 0.6, 0.6, '#e3a879');
+    oval(ctx, 5.3, 0, 1.7, 2 + open * 0.6, '#31151d');
+    ctx.fillStyle = BONE;
+    ctx.fillRect(4.7, -1.7, 1.7, 0.8);
+    ctx.fillRect(4.5, 1.1 + open * 0.2, 1.5, 0.8);
+    ctx.strokeStyle = WET; ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.moveTo(5.8, 2); ctx.lineTo(7, 4 + open); ctx.lineTo(5.9, 6 + open); ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function progress(z: Zombie): number {
@@ -98,9 +137,7 @@ function spider(ctx: CanvasRenderingContext2D, z: Zombie, flash: boolean): void 
       const toeX = 27 - i * 17 + step * 4 + crouch * 5;
       const toeY = side * (23 - Math.abs(i - 1.5) * 3 - crouch * 7);
       limb(ctx, anchorX, side * 5, kneeX, kneeY, toeX, toeY, 2.7, '#646167', flash);
-      ctx.fillStyle = flash ? '#e1d3bd' : '#928c83';
-      ctx.beginPath(); ctx.moveTo(kneeX - 2, kneeY - 1); ctx.lineTo(kneeX + 1, kneeY - 2.2);
-      ctx.lineTo(kneeX + 2.5, kneeY + 0.5); ctx.lineTo(kneeX - 1.2, kneeY + 2); ctx.closePath(); ctx.fill();
+      oval(ctx, kneeX, kneeY, 1.8, 1.6, flash ? '#ffffff' : '#b7a696');
       ctx.strokeStyle = flash ? '#ffffff' : '#cabbae';
       ctx.lineWidth = 0.85;
       ctx.beginPath(); ctx.moveTo(toeX, toeY); ctx.lineTo(toeX + 3, toeY - side * 2.5); ctx.stroke();
@@ -109,9 +146,12 @@ function spider(ctx: CanvasRenderingContext2D, z: Zombie, flash: boolean): void 
   ctx.save();
   ctx.scale(1 - crouch * 0.07, 1 + crouch * 0.1);
   // Bulging, split egg sac. The uneven silhouette is legible without a glow.
-  tissue(ctx, 'M-3 -7 Q-7 -14 -15 -13 L-22 -9 L-25 -2 Q-27 4 -21 9 L-14 13 L-7 11 L-4 7 L1 5 L0 -3 Z', '#665363', flash);
-  wound(ctx, -14, 0, 0.9, -0.5);
-  tissue(ctx, 'M-22 -5 L-20 -10 L-15 -12 L-12 -8 L-15 -4 L-20 -2 Z', '#8b7780', flash);
+  ctx.beginPath(); ctx.moveTo(-3, -7);
+  ctx.bezierCurveTo(-12, -15, -23, -12, -23, -2);
+  ctx.bezierCurveTo(-26, 9, -12, 15, -5, 9);
+  ctx.bezierCurveTo(1, 8, 2, -3, -3, -7); ctx.closePath();
+  finishSkin(ctx, '#665363', flash);
+  oval(ctx, -15, -4, 6.5, 5, flash ? '#fff5de' : '#8b7780', -0.2);
   if (!flash) {
     ctx.strokeStyle = '#342e3b'; ctx.lineWidth = 1.3;
     ctx.beginPath(); ctx.moveTo(-21, -1); ctx.lineTo(-15, 1); ctx.lineTo(-13, 5); ctx.lineTo(-9, 3); ctx.lineTo(-6, 7);
@@ -132,8 +172,8 @@ function spider(ctx: CanvasRenderingContext2D, z: Zombie, flash: boolean): void 
     ctx.beginPath(); ctx.moveTo(10, side * 2.5); ctx.lineTo(18, side * (4.5 + crouch));
     ctx.quadraticCurveTo(21, side * 1.8, 16, side * 0.6); ctx.lineTo(14, side * 2); ctx.closePath(); ctx.fill();
     oval(ctx, 9, side * 3.8, 2.2, 1.65, '#24252a');
-    oval(ctx, 9.8, side * 3.8, 1, 0.9, flash ? '#d8cbb7' : '#665456');
-    oval(ctx, 5.9, side * 5.2, 0.8, 0.75, flash ? '#d8cbb7' : '#44383e');
+    oval(ctx, 9.8, side * 3.8, 1, 0.9, flash ? '#ffffff' : '#e4ac78');
+    oval(ctx, 5.9, side * 5.2, 0.8, 0.75, flash ? '#ffffff' : '#c9a887');
   }
   ctx.restore();
 }
@@ -159,10 +199,7 @@ function rat(ctx: CanvasRenderingContext2D, x: number, y: number, angle: number,
   oval(ctx, 3.2, -3.7, 2, 2.1, flash ? '#ffffff' : '#b39088', -0.2);
   oval(ctx, 3.7, 2.4, 1.9, 1.9, flash ? '#ffffff' : '#ad857e');
   oval(ctx, 3.1, -3.8, 0.8, 1.1, '#61494c');
-  oval(ctx, 7.6, -1.15, 1, 0.75, '#241f25');
-  wound(ctx, -2, 0, 0.34, 0.2, true);
-  ctx.fillStyle = '#34212b'; ctx.fill(anatomy('M7 1 L11 0 L12 2 L8 3 Z'));
-  ctx.fillStyle = BONE; ctx.fillRect(10, 0.5, 0.8, 2.2);
+  oval(ctx, 7.6, -1.15, 0.75, 0.75, '#e8a888');
   oval(ctx, 11.2, 0, 1, 0.8, '#36292d');
   if (!flash) {
     ctx.strokeStyle = '#b9b9ab'; ctx.lineWidth = 0.45;
@@ -180,7 +217,7 @@ function ratKing(ctx: CanvasRenderingContext2D, z: Zombie, flash: boolean): void
   ctx.save(); ctx.scale(bunch, bunch);
   // A compact meaty knot ties six full bodies together; tails have both ends
   // visible so this reads as trapped rats rather than one six-headed zombie.
-  tissue(ctx, 'M-18 -3 L-13 -12 L-5 -14 L3 -10 L13 -8 L16 0 L10 11 L1 14 L-10 11 L-17 5 Z', '#49363c', flash);
+  oval(ctx, -2, 0, 17, 15, '#49363c');
   for (let i = 0; i < 6; i++) {
     const layout = RAT_LAYOUT[i];
     const motion = Math.sin(t + i * 1.6);
@@ -225,8 +262,7 @@ function mutant(ctx: CanvasRenderingContext2D, z: Zombie, flash: boolean): void 
   ctx.bezierCurveTo(7, -13, 12, -5, 9, 4);
   ctx.lineTo(5, 12); ctx.lineTo(-6, 15); ctx.lineTo(-15, 7); ctx.closePath();
   finishSkin(ctx, '#727c6b', flash);
-  tissue(ctx, 'M-17 -9 L-15 -15 L-10 -18 L-5 -14 L-8 -7 Z', '#919782', flash);
-  wound(ctx, -11, -7, 0.52, -0.3);
+  oval(ctx, -11, -10, 7.4, 5.4, flash ? '#fff9df' : '#919782', -0.3);
   if (!flash) {
     ribs(ctx, -1, 2, 0.8);
     ctx.strokeStyle = '#414b42'; ctx.lineWidth = 2;
@@ -238,7 +274,7 @@ function mutant(ctx: CanvasRenderingContext2D, z: Zombie, flash: boolean): void 
   skull(ctx, 7, 5, 0.16 + sway * 0.035, 0.77, '#a0a38d', flash, lift * 1.4);
   // Huge arm rolls back before a slam. A visible elbow, knuckles and exposed
   // tendon give its mass a readable direction even at gameplay scale.
-  ctx.save(); ctx.translate(-2, -8); ctx.scale(0.78, 0.9);
+  ctx.save(); ctx.translate(-2, -10);
   const armAngle = z.specialState === 'windup' ? -0.25 - lift * 1.5
     : z.specialState === 'active' ? -1.75 + Math.min(1, sweep * 2.3) * 2.2
       : z.specialState === 'recover' ? 0.45 * (1 - p) : -0.1 + sway * 0.08;
@@ -249,8 +285,7 @@ function mutant(ctx: CanvasRenderingContext2D, z: Zombie, flash: boolean): void 
   ctx.lineTo(24, 7); ctx.lineTo(16, 8); ctx.lineTo(10, 4);
   ctx.quadraticCurveTo(2, 6, -4, 3); ctx.closePath();
   finishSkin(ctx, '#927f75', flash);
-  wound(ctx, 6, -4, 0.67, 0.2);
-  tissue(ctx, 'M0 -7 L4 -9 L9 -6 L7 -3 L2 -4 Z', '#b19d89', flash);
+  oval(ctx, 6, -5, 6, 4, flash ? '#fff7d9' : '#b19d89', 0.1);
   if (!flash) {
     ctx.strokeStyle = '#553b3e'; ctx.lineWidth = 2.4;
     ctx.beginPath(); ctx.moveTo(9, -7); ctx.lineTo(11, -2); ctx.lineTo(18, 0); ctx.stroke();
@@ -287,7 +322,6 @@ function armed(ctx: CanvasRenderingContext2D, z: Zombie, flash: boolean): void {
       : z.specialState === 'recover' ? 1.1 * (1 - p) : -0.05 + stride * 0.09;
   ctx.save(); ctx.translate(-1, -8); ctx.rotate(angle);
   limb(ctx, 0, 0, 7, -3, 13, -1, 4, '#8b9180', flash);
-  wound(ctx, 12, -1, 0.36, 0.2);
   // Large chipped butcher's cleaver: warm rust, cold cutting edge, wrapped grip.
   ctx.lineCap = 'butt'; ctx.strokeStyle = INK; ctx.lineWidth = 5;
   ctx.beginPath(); ctx.moveTo(9, -1); ctx.lineTo(22, -1); ctx.stroke();
@@ -331,8 +365,7 @@ function multihead(ctx: CanvasRenderingContext2D, z: Zombie, flash: boolean): vo
   ctx.lineTo(11, 8); ctx.lineTo(3, 15); ctx.lineTo(-6, 13); ctx.lineTo(-13, 7);
   ctx.lineTo(-18, 2); ctx.lineTo(-15, -2); ctx.closePath();
   finishSkin(ctx, '#766571', flash);
-  tissue(ctx, 'M-15 -6 L-11 -12 L-5 -11 L-2 -6 L-6 -2 L-12 -3 Z', '#9c858d', flash);
-  wound(ctx, -9, -3, 0.5, 0.6);
+  oval(ctx, -9, -6, 6.5, 5.7, flash ? '#fff6df' : '#9c858d', -0.3);
   if (!flash) {
     ribs(ctx, -3, 3, 0.65);
     ctx.strokeStyle = '#b7b29a'; ctx.lineWidth = 1.3;
@@ -359,8 +392,8 @@ export function drawHorrorZombie(ctx: CanvasRenderingContext2D, z: Zombie, sx: n
   if (z.typeId !== 'spider' && z.typeId !== 'rat_king' && z.typeId !== 'mutant' && z.typeId !== 'armed' && z.typeId !== 'multihead') return false;
   ctx.save();
   ctx.translate(sx, sy);
-  const baseScale = z.size / 20 * 1.625 * (z.typeId === 'spider' || z.typeId === 'rat_king' ? 0.86 : z.typeId === 'multihead' ? 0.9 : 1);
-  oval(ctx, 2, 6, z.size * 1.02 * 1.625, z.size * 0.56 * 1.625, 'rgba(0,0,0,0.22)');
+  const baseScale = z.size / 20;
+  oval(ctx, 2, 4, z.size * 1.12, z.size * 0.72, 'rgba(0,0,0,0.35)');
   ctx.rotate(z.facingAngle);
   ctx.scale(baseScale, baseScale);
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -401,11 +434,11 @@ export function drawHorrorCorpse(ctx: CanvasRenderingContext2D, typeId: string, 
       limb(ctx, -6, side * 6, -12, side * 13, -18, side * 12, 4, '#545551', false);
       limb(ctx, 0, side * 7, 7, side * 16, 13, side * 13, typeId === 'mutant' && side === -1 ? 8 : 3, '#75615f', false);
     }
-    tissue(ctx, 'M-17 -4 L-11 -11 L-3 -9 L5 -7 L11 0 L5 9 L-4 8 L-12 11 L-16 3 Z', typeId === 'armed' ? '#414d50' : '#65575d');
+    oval(ctx, -3, 0, 14, 10, typeId === 'armed' ? '#414d50' : '#65575d', -0.1);
     ribs(ctx, -2, 0, 0.65);
-    brokenHead(ctx, 11, 0, 0.6, 0.8, '#8d8878', false, 2);
+    oval(ctx, 11, 0, 6, 5, '#8d8878', 0.2);
     if (typeId === 'multihead') {
-      brokenHead(ctx, 4, -11, -0.7, 0.67, '#868576', false, 1); brokenHead(ctx, 8, 10, 0.9, 0.7, '#858679', false, 1);
+      oval(ctx, 4, -11, 5, 4, '#868576', -0.4); oval(ctx, 8, 10, 5, 4, '#858679', 0.6);
     }
     if (typeId === 'armed') {
       ctx.save(); ctx.translate(12, 13); ctx.rotate(0.6);
