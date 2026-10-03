@@ -1,6 +1,9 @@
 // ─── Input: Keyboard + Mouse Aim/Fire + Mobile Twin-Stick ───
 
+import { getTouchActionButtons, type TouchAction } from '../ui/touch-controls';
+
 export class Input {
+  touchButtonsEnabled = false;
   // Movement direction (normalized)
   dirX = 0;
   dirY = 0;
@@ -115,7 +118,25 @@ export class Input {
       this.keys.has('Space') ||
       this.keys.has('KeyJ') ||
       this.keys.has('KeyZ')
+      || this.fireButtonHeld
     );
+  }
+
+  private fireButtonHeld = false;
+  private actionTouchId: number | null = null;
+
+  private findActionButton(x: number, y: number): TouchAction | null {
+    if (!this.touchButtonsEnabled) return null;
+    const buttons = getTouchActionButtons(window.innerWidth, window.innerHeight);
+    const button = buttons.find((b) => x >= b.x && x <= b.x + b.size && y >= b.y && y <= b.y + b.size);
+    return button?.id || null;
+  }
+
+  private activateAction(action: TouchAction): void {
+    if (action === 'fire') this.fireButtonHeld = true;
+    if (action === 'reload') this._reloadPressed = true;
+    if (action === 'grenade') this._grenadePressed = true;
+    if (action === 'dash') this._dashPressed = true;
   }
 
   constructor(canvas: HTMLCanvasElement) {
@@ -171,6 +192,11 @@ export class Input {
       this.mouseX = e.clientX;
       this.mouseY = e.clientY;
       if (e.button === 0) {
+        const action = this.findActionButton(e.clientX, e.clientY);
+        if (action) {
+          this.activateAction(action);
+          return;
+        }
         this.isMouseDown = true;
         this._uiClick = { x: e.clientX, y: e.clientY };
       } else if (e.button === 2) {
@@ -187,6 +213,7 @@ export class Input {
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0) {
         this.isMouseDown = false;
+        this.fireButtonHeld = false;
       }
     });
 
@@ -196,6 +223,12 @@ export class Input {
       const halfW = window.innerWidth / 2;
 
       for (const touch of Array.from(e.changedTouches)) {
+        const action = this.findActionButton(touch.clientX, touch.clientY);
+        if (action && this.actionTouchId === null) {
+          this.actionTouchId = touch.identifier;
+          this.activateAction(action);
+          continue;
+        }
         if (touch.clientX < halfW && this.leftTouchId === null) {
           // Left stick: Movement
           this.leftTouchId = touch.identifier;
@@ -224,7 +257,10 @@ export class Input {
     canvas.addEventListener('touchmove', (e) => {
       e.preventDefault();
       for (const touch of Array.from(e.changedTouches)) {
-        if (touch.identifier === this.leftTouchId) {
+        if (touch.identifier === this.actionTouchId) {
+          this.actionTouchId = null;
+          this.fireButtonHeld = false;
+        } else if (touch.identifier === this.leftTouchId) {
           this.leftCurX = touch.clientX;
           this.leftCurY = touch.clientY;
         } else if (touch.identifier === this.rightTouchId) {
@@ -263,6 +299,8 @@ export class Input {
       e.preventDefault();
       this.leftTouchId = null;
       this.leftActive = false;
+      this.actionTouchId = null;
+      this.fireButtonHeld = false;
       this.rightTouchId = null;
       this.rightTouchActive = false;
       this.hasTouchAim = false;

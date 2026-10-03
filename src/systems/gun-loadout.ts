@@ -495,7 +495,7 @@ export class GunLoadout {
         player.burnDamage,
         player.slowMultiplier < 1 ? player.slowMultiplier : 0
       );
-      audio.shoot();
+      audio.shoot(def.type);
       camera.shake(1.0 + slot.sprayHeat * 1.6, 0.05);
     }
 
@@ -555,8 +555,8 @@ export class GunLoadout {
     ctx.save();
 
     // ── 1. Main Card Container ──
-    ctx.fillStyle = 'rgba(12, 19, 14, 0.94)';
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.fillStyle = 'rgba(20, 10, 13, 0.96)';
+    ctx.strokeStyle = 'rgba(180, 48, 58, 0.72)';
     ctx.lineWidth = 1.5;
     this.roundRect(ctx, cardX, cardY, cardW, cardH, 14);
     ctx.fill();
@@ -578,7 +578,7 @@ export class GunLoadout {
 
       ctx.save();
       if (isActive) {
-        ctx.fillStyle = '#a3e635';
+        ctx.fillStyle = '#b91c2c';
         this.roundRect(ctx, px, pillY, pillW, pillH, 13);
         ctx.fill();
 
@@ -625,7 +625,7 @@ export class GunLoadout {
       ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
       this.roundRect(ctx, barX, barY, barW, barH, 3);
       ctx.fill();
-      ctx.fillStyle = '#a3e635';
+      ctx.fillStyle = '#e44d52';
       this.roundRect(ctx, barX, barY, barW * active.reloadProgress, barH, 3);
       ctx.fill();
     } else {
@@ -705,7 +705,7 @@ export class GunLoadout {
     ctx.fillText(grenadeStr, cardX + 16, botY);
 
     ctx.textAlign = 'center';
-    ctx.fillStyle = isDashReady ? '#4ade80' : '#94a3b8';
+    ctx.fillStyle = isDashReady ? '#e87979' : '#94a3b8';
     ctx.fillText(dashStr, cardX + cardW / 2 + 18, botY);
 
     ctx.textAlign = 'right';

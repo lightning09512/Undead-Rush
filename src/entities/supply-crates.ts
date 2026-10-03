@@ -3,7 +3,6 @@
 import { Pool } from '../core/pool';
 import { Camera } from '../core/camera';
 import { MAP_CONFIG } from '../data/items';
-import { EntityRenderer } from '../graphics/entity-renderer';
 import { LightingRenderer } from '../graphics/lighting';
 
 export interface SupplyCrate {
@@ -148,46 +147,57 @@ export class SupplyCrateSystem {
     for (const c of this.pool.getActive()) {
       if (!camera.isVisible(c.x, c.y, 50)) continue;
       const [sx, sy] = camera.worldToScreen(c.x, c.y);
-
       const wobbleY = Math.sin(c.wobble) * 2;
+      const tierStyle = c.tier === 'legendary'
+        ? { body: '#75513d', trim: '#edb46a', glow: '#df754f', mark: 'L' }
+        : c.tier === 'rare'
+          ? { body: '#455963', trim: '#a9d0d2', glow: '#6ca3b0', mark: 'R' }
+          : { body: '#644535', trim: '#bd8960', glow: '#a6543c', mark: 'C' };
+      const size = c.size;
+      if (c.tier !== 'common') {
+        LightingRenderer.get().drawGlow(ctx, sx, sy + wobbleY, size * 2.6, tierStyle.glow, c.tier === 'legendary' ? 0.34 : 0.25);
+      }
 
-      // Flash when hit
-      if (c.flashTimer > 0) {
-        ctx.fillStyle = '#ffffff';
-      } else {
-        // Color based on tier
-        switch (c.tier) {
-          case 'common': ctx.fillStyle = '#8B4513'; break; // Brown
-          case 'rare': ctx.fillStyle = '#4169E1'; break; // Royal Blue
-          case 'legendary': ctx.fillStyle = '#FFD700'; break; // Gold
+      ctx.save();
+      ctx.translate(sx, sy + wobbleY);
+      ctx.rotate(Math.sin(c.wobble * 0.5) * 0.025);
+      ctx.fillStyle = 'rgba(0,0,0,0.65)';
+      ctx.beginPath(); ctx.ellipse(2, size * 0.82, size * 1.14, size * 0.38, 0, 0, Math.PI * 2); ctx.fill();
+
+      // Heavy metal/wood composite crate with reinforced corners and hazard seals.
+      ctx.fillStyle = c.flashTimer > 0 ? '#f0d9d0' : tierStyle.body;
+      ctx.strokeStyle = c.flashTimer > 0 ? '#ffffff' : tierStyle.trim;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-size + 5, -size); ctx.lineTo(size - 5, -size); ctx.lineTo(size, -size + 5);
+      ctx.lineTo(size, size - 5); ctx.lineTo(size - 5, size); ctx.lineTo(-size + 5, size);
+      ctx.lineTo(-size, size - 5); ctx.lineTo(-size, -size + 5); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+
+      ctx.fillStyle = 'rgba(12,14,17,0.38)';
+      ctx.fillRect(-size * 0.64, -size * 0.62, size * 1.28, size * 1.24);
+      ctx.strokeStyle = 'rgba(245,226,206,0.36)'; ctx.lineWidth = 1;
+      ctx.strokeRect(-size * 0.64, -size * 0.62, size * 1.28, size * 1.24);
+      ctx.fillStyle = tierStyle.trim;
+      ctx.fillRect(-size * 0.13, -size, size * 0.26, size * 2);
+      ctx.fillRect(-size, -size * 0.13, size * 2, size * 0.26);
+
+      for (const corner of [-1, 1]) {
+        for (const vertical of [-1, 1]) {
+          ctx.fillStyle = '#d1b99a';
+          ctx.beginPath(); ctx.arc(corner * size * 0.78, vertical * size * 0.78, 1.8, 0, Math.PI * 2); ctx.fill();
         }
       }
 
-      // Draw crate (wooden box)
-      const size = c.size;
-      ctx.fillRect(sx - size, sy - size + wobbleY, size * 2, size * 2);
-
-      // Crate border
-      ctx.strokeStyle = c.tier === 'common' ? '#5D3A1A' : c.tier === 'rare' ? '#1E3A5F' : '#B8860B';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(sx - size, sy - size + wobbleY, size * 2, size * 2);
-
-      // Cross pattern on crate
-      ctx.beginPath();
-      ctx.moveTo(sx - size, sy - size + wobbleY);
-      ctx.lineTo(sx + size, sy + size + wobbleY);
-      ctx.moveTo(sx + size, sy - size + wobbleY);
-      ctx.lineTo(sx - size, sy + size + wobbleY);
-      ctx.stroke();
-
-      // ★ indicator (like Monster Breakout)
-      if (c.hasStar) {
-        ctx.fillStyle = '#FFD700';
-        ctx.font = 'bold 14px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('★', sx, sy - size - 10 + wobbleY);
-      }
+      // Center seal communicates quality without relying on tiny text.
+      ctx.fillStyle = '#211c1a';
+      ctx.strokeStyle = tierStyle.trim;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.roundRect(-9, -9, 18, 18, 4); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = c.hasStar ? '#f3d8b3' : tierStyle.trim;
+      ctx.font = 'bold 12px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(c.hasStar ? '★' : tierStyle.mark, 0, 0);
+      ctx.restore();
 
       // HP bar for damaged crates
       if (c.hp < c.maxHp) {
@@ -195,17 +205,12 @@ export class SupplyCrateSystem {
         const barH = 4;
         const hpRatio = c.hp / c.maxHp;
         
-        ctx.fillStyle = '#333333';
+        ctx.fillStyle = '#23191a';
         ctx.fillRect(sx - size, sy - size - 20 + wobbleY, barW, barH);
-        
-        ctx.fillStyle = hpRatio > 0.5 ? '#44ff44' : hpRatio > 0.25 ? '#ffaa00' : '#ff4444';
+        ctx.strokeStyle = '#ab5956'; ctx.lineWidth = 1;
+        ctx.strokeRect(sx - size, sy - size - 20 + wobbleY, barW, barH);
+        ctx.fillStyle = hpRatio > 0.5 ? '#bfa267' : hpRatio > 0.25 ? '#d0794e' : '#d43b43';
         ctx.fillRect(sx - size, sy - size - 20 + wobbleY, barW * hpRatio, barH);
-      }
-
-      // Glow for rare/legendary
-      if (c.tier !== 'common') {
-        const glowColor = c.tier === 'rare' ? '#4169E1' : '#FFD700';
-        LightingRenderer.get().drawGlow(ctx, sx, sy + wobbleY, size * 3, glowColor, 0.3);
       }
     }
   }

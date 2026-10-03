@@ -4,6 +4,7 @@ import { Pool } from '../core/pool';
 import { Camera } from '../core/camera';
 import { ZombieTypeDef } from '../data/zombies';
 import { ZombieRenderer } from '../graphics/zombie-renderer';
+import { resolveBuildingCollision } from './map-geometry';
 
 let nextZombieId = 1;
 
@@ -139,7 +140,7 @@ export class ZombieSystem {
     return z;
   }
 
-  update(dt: number, playerX: number, playerY: number): void {
+  update(dt: number, playerX: number, playerY: number, collideBuildings = true): void {
     this.pool.forEach((z) => {
       const dx = playerX - z.x;
       const dy = playerY - z.y;
@@ -185,8 +186,15 @@ export class ZombieSystem {
       }
 
       // Apply velocity AND knockback impulse
+      const previousX = z.x;
+      const previousY = z.y;
       z.x += (z.vx + z.knockbackX) * dt;
       z.y += (z.vy + z.knockbackY) * dt;
+      if (collideBuildings) {
+        [z.x, z.y] = resolveBuildingCollision(z.x, z.y, z.size * 0.72);
+        if (Math.abs(z.x - previousX) < 0.01) z.vx = 0;
+        if (Math.abs(z.y - previousY) < 0.01) z.vy = 0;
+      }
 
       // Exponential decay of knockback
       const decay = Math.exp(-12 * dt);

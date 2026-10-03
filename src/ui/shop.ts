@@ -123,33 +123,40 @@ export class ShopUI {
     if (!this.visible) return;
 
     // Background
-    ctx.fillStyle = '#0a0a1a';
+    ctx.fillStyle = '#09090d';
+    ctx.fillRect(0, 0, w, h);
+    const bloodShade = ctx.createLinearGradient(0, 0, w, 0);
+    bloodShade.addColorStop(0, 'rgba(130, 16, 28, 0.28)');
+    bloodShade.addColorStop(0.18, 'rgba(0, 0, 0, 0)');
+    bloodShade.addColorStop(0.82, 'rgba(0, 0, 0, 0)');
+    bloodShade.addColorStop(1, 'rgba(130, 16, 28, 0.28)');
+    ctx.fillStyle = bloodShade;
     ctx.fillRect(0, 0, w, h);
 
     // Title
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#ffcc00';
+    ctx.fillStyle = '#e85b58';
     ctx.font = `bold ${Math.min(32, w * 0.045)}px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText('⚙ UPGRADE SHOP', w / 2, 35);
+    ctx.fillText('⚙ KHO VŨ KHÍ & NÂNG CẤP', w / 2, 35);
 
     // Gold display
-    ctx.fillStyle = '#ffdd44';
+    ctx.fillStyle = '#d6aaa0';
     ctx.font = `bold ${Math.min(18, w * 0.025)}px 'Segoe UI', Arial, sans-serif`;
     ctx.textAlign = 'left';
     ctx.fillText(`💰 ${save.data.gold} Gold`, 20, 35);
 
     // Back button
     const backBtnX = w - 130;
-    this.drawButton(ctx, backBtnX, 20, 110, 36, '← Back', '#555566');
+    this.drawButton(ctx, backBtnX, 20, 110, 36, '← QUAY LẠI', '#3f272c');
 
     // Tabs
     const tabY = 70;
     const tabW = 140;
     this.drawButton(ctx, w / 2 - tabW - 10, tabY, tabW, 34,
-      '⚔ Upgrades', this.tab === 'upgrades' ? '#4466aa' : '#333344');
+      '⚔ NÂNG CẤP', this.tab === 'upgrades' ? '#70232b' : '#211519');
     this.drawButton(ctx, w / 2 + 10, tabY, tabW, 34,
-      '👤 Characters', this.tab === 'characters' ? '#4466aa' : '#333344');
+      '👤 NHÂN VẬT', this.tab === 'characters' ? '#70232b' : '#211519');
 
     // Content
     ctx.save();
@@ -180,8 +187,8 @@ export class ShopUI {
       if (iy < 80 || iy > h + 50) continue;
 
       // Background
-      ctx.fillStyle = level >= def.maxLevel ? '#1a2a1a' : '#1a1a2e';
-      ctx.strokeStyle = level >= def.maxLevel ? '#44aa44' : '#333355';
+      ctx.fillStyle = level >= def.maxLevel ? '#271317' : '#151116';
+      ctx.strokeStyle = level >= def.maxLevel ? '#8c2c33' : '#513039';
       ctx.lineWidth = 1;
       this.roundRect(ctx, startX, iy, itemW, itemH, 8);
       ctx.fill();
@@ -205,7 +212,7 @@ export class ShopUI {
 
       // Level dots
       for (let d = 0; d < def.maxLevel; d++) {
-        ctx.fillStyle = d < level ? '#44aaff' : '#333355';
+        ctx.fillStyle = d < level ? '#cf434e' : '#513039';
         ctx.beginPath();
         ctx.arc(startX + 55 + d * 14, iy + 56, 4, 0, Math.PI * 2);
         ctx.fill();
@@ -216,9 +223,9 @@ export class ShopUI {
         const cost = def.costs[level];
         const canAfford = save.data.gold >= cost;
         this.drawButton(ctx, startX + itemW - 90, iy + 20, 80, 32,
-          `${cost} 💰`, canAfford ? '#44aa55' : '#553333');
+          `${cost} 💰`, canAfford ? '#8f202b' : '#553333');
       } else {
-        ctx.fillStyle = '#44aa44';
+        ctx.fillStyle = '#cf555a';
         ctx.font = `bold 12px 'Segoe UI', Arial, sans-serif`;
         ctx.textAlign = 'center';
         ctx.fillText('MAXED', startX + itemW - 50, iy + 36);
@@ -241,8 +248,8 @@ export class ShopUI {
       if (iy < 80 || iy > h + 50) continue;
 
       // Background
-      ctx.fillStyle = isSelected ? '#1a2a3a' : '#1a1a2e';
-      ctx.strokeStyle = isSelected ? '#4488ff' : '#333355';
+      ctx.fillStyle = isSelected ? '#27171d' : '#151116';
+      ctx.strokeStyle = isSelected ? '#a8323c' : '#513039';
       ctx.lineWidth = isSelected ? 2 : 1;
       this.roundRect(ctx, startX, iy, itemW, itemH, 8);
       ctx.fill();
@@ -283,16 +290,16 @@ export class ShopUI {
 
       // Button
       if (isSelected) {
-        ctx.fillStyle = '#4488ff';
+        ctx.fillStyle = '#b53a43';
         ctx.font = `bold 12px 'Segoe UI', Arial, sans-serif`;
         ctx.textAlign = 'center';
         ctx.fillText('✓ SELECTED', startX + itemW - 55, iy + 42);
       } else if (isUnlocked) {
-        this.drawButton(ctx, startX + itemW - 100, iy + 24, 90, 32, 'Select', '#4466aa');
+        this.drawButton(ctx, startX + itemW - 100, iy + 24, 90, 32, 'CHỌN', '#70232b');
       } else {
         const canAfford = save.data.gold >= char.cost;
         this.drawButton(ctx, startX + itemW - 100, iy + 24, 90, 32,
-          `${char.cost} 💰`, canAfford ? '#44aa55' : '#553333');
+          `${char.cost} 💰`, canAfford ? '#8f202b' : '#553333');
       }
     }
   }

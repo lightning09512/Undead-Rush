@@ -6,6 +6,8 @@ import { UPGRADES, MAX_WEAPON_SLOTS, MAX_PASSIVE_SLOTS } from '../data/upgrades'
 import { ZombieSystem } from '../entities/zombies';
 import { MapPickupSystem } from '../entities/map-pickups';
 import { MAP_CONFIG } from '../data/items';
+import { Camera } from '../core/camera';
+import { SOLID_BUILDINGS } from '../entities/map-geometry';
 
 export class HUD {
   draw(
@@ -16,22 +18,23 @@ export class HUD {
     gameTime: number,
     input: Input,
     zombies: ZombieSystem,
-    mapPickups: MapPickupSystem
+    mapPickups: MapPickupSystem,
+    camera: Camera
   ): void {
     const pad = 12;
 
     // ─── 1. Vampire Survivors Full-Width Top XP Bar ───
     const xpBarH = 22;
     // Dark metallic obsidian base
-    ctx.fillStyle = '#0a0d14';
+    ctx.fillStyle = '#100b0e';
     ctx.fillRect(0, 0, w, xpBarH);
 
     const xpRatio = Math.min(1, Math.max(0, player.xp / player.xpToNext));
     if (xpRatio > 0) {
       const xpGrad = ctx.createLinearGradient(0, 0, w * xpRatio, 0);
-      xpGrad.addColorStop(0, '#0284c7');
-      xpGrad.addColorStop(0.5, '#00e5ff');
-      xpGrad.addColorStop(1, '#38bdf8');
+      xpGrad.addColorStop(0, '#6f111b');
+      xpGrad.addColorStop(0.5, '#d32936');
+      xpGrad.addColorStop(1, '#f0675e');
       ctx.fillStyle = xpGrad;
       ctx.fillRect(0, 0, w * xpRatio, xpBarH);
 
@@ -41,12 +44,12 @@ export class HUD {
     }
 
     // Bottom gold separator line
-    ctx.fillStyle = '#f59e0b';
+    ctx.fillStyle = '#a9343a';
     ctx.fillRect(0, xpBarH - 2, w, 2);
 
     // LV Badge (top-left inside XP bar)
     const lvBoxW = 60;
-    ctx.fillStyle = '#f59e0b';
+    ctx.fillStyle = '#a9343a';
     ctx.fillRect(8, 2, lvBoxW, xpBarH - 6);
     ctx.fillStyle = '#0f172a';
     ctx.font = `bold 12px 'Segoe UI', Arial, sans-serif`;
@@ -131,7 +134,7 @@ export class HUD {
     ctx.restore();
 
     // ─── 5. Top-Right: Minimap ───
-    this.drawMinimap(ctx, w, h, pad, xpBarH + 8, player, zombies, mapPickups);
+    this.drawMinimap(ctx, w, h, pad, xpBarH + 8, player, zombies, mapPickups, camera);
 
     // ─── 6. Mobile Touch Joystick ───
     if (input.isJoystickVisible) {
@@ -242,42 +245,97 @@ export class HUD {
     topY: number,
     player: Player,
     zombies: ZombieSystem,
-    mapPickups: MapPickupSystem
+    mapPickups: MapPickupSystem,
+    camera: Camera
   ): void {
-    const size = 76;
-    const mx = w - pad - size;
+    const size = Math.min(132, Math.max(96, w * 0.28));
+    const frame = size + 12;
+    const mx = w - pad - frame;
     const my = topY;
+    const mapX = mx + 6;
+    const mapY = my + 6;
+    const scale = size / MAP_CONFIG.width;
 
     ctx.save();
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-    ctx.strokeStyle = '#334155';
+    ctx.shadowColor = 'rgba(0,0,0,0.65)';
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = 'rgba(7, 12, 20, 0.96)';
+    ctx.strokeStyle = 'rgba(125, 211, 252, 0.72)';
     ctx.lineWidth = 1.5;
-    this.roundRect(ctx, mx, my, size, size, 8);
+    this.roundRect(ctx, mx, my, frame, frame, 9);
     ctx.fill();
     ctx.stroke();
 
-    const scale = size / MAP_CONFIG.width;
-    ctx.translate(mx, my);
+    ctx.shadowBlur = 0;
+    ctx.beginPath();
+    ctx.rect(mapX, mapY, size, size);
+    ctx.clip();
+    ctx.fillStyle = '#18212b';
+    ctx.fillRect(mapX, mapY, size, size);
+
+    // A clear map grid and edge make orientation easier at a glance.
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.13)';
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+      const offset = size * i / 4;
+      ctx.beginPath(); ctx.moveTo(mapX + offset, mapY); ctx.lineTo(mapX + offset, mapY + size); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(mapX, mapY + offset); ctx.lineTo(mapX + size, mapY + offset); ctx.stroke();
+    }
+
+    // Fixed buildings are deliberately bright and large enough to read at this scale.
+    for (const building of SOLID_BUILDINGS) {
+      const bw = building.halfWidth * 2 * scale;
+      const bh = building.halfHeight * 2 * scale;
+      const drawW = Math.max(3, bw);
+      const drawH = Math.max(3, bh);
+      ctx.save();
+      ctx.translate(mapX + building.x * scale, mapY + building.y * scale);
+      ctx.rotate(building.rotation);
+      ctx.fillStyle = building.kind === 'warehouse' ? '#d08a46' : '#8c949a';
+      ctx.fillRect(-drawW / 2, -drawH / 2, drawW, drawH);
+      ctx.strokeStyle = '#f8d49a';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(-drawW / 2, -drawH / 2, drawW, drawH);
+      ctx.restore();
+    }
 
     // Pickups (yellow)
-    ctx.fillStyle = '#facc15';
+    ctx.fillStyle = '#ffe66d';
     for (const p of mapPickups.pool.getActive()) {
-      ctx.fillRect(p.x * scale - 1, p.y * scale - 1, 2.5, 2.5);
+      ctx.fillRect(mapX + p.x * scale - 1.5, mapY + p.y * scale - 1.5, 3, 3);
     }
 
     // Zombies (red)
-    ctx.fillStyle = '#f43f5e';
     for (const z of zombies.pool.getActive()) {
-      ctx.fillRect(z.x * scale - 1, z.y * scale - 1, z.isBoss ? 4 : 2, z.isBoss ? 4 : 2);
+      ctx.fillStyle = z.isBoss ? '#ff9f1c' : '#ff4058';
+      const dot = z.isBoss ? 6 : 3.5;
+      ctx.beginPath();
+      ctx.arc(mapX + z.x * scale, mapY + z.y * scale, dot / 2, 0, Math.PI * 2);
+      ctx.fill();
     }
 
-    // Player (cyan dot)
-    ctx.fillStyle = '#00e5ff';
+    // Camera coverage shows which part of the full map is currently on screen.
+    ctx.strokeStyle = 'rgba(125, 211, 252, 0.9)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(mapX + camera.x * scale, mapY + camera.y * scale,
+      Math.min(size, camera.width / camera.zoom * scale), Math.min(size, camera.height / camera.zoom * scale));
+
+    // Player marker gets an outline so it stays visible over nearby icons.
+    ctx.fillStyle = '#07131b';
     ctx.beginPath();
-    ctx.arc(player.x * scale, player.y * scale, 3.5, 0, Math.PI * 2);
+    ctx.arc(mapX + player.x * scale, mapY + player.y * scale, 5.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#32e6ff';
+    ctx.beginPath();
+    ctx.arc(mapX + player.x * scale, mapY + player.y * scale, 3.5, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
+    ctx.fillStyle = '#dbeafe';
+    ctx.font = 'bold 9px Segoe UI, Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('TACTICAL MAP', mx + 8, my - 2);
   }
 
   private roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {

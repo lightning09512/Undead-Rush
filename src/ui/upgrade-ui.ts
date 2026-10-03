@@ -60,17 +60,10 @@ export class UpgradeUI {
   /** Check if a click/tap hits a card; returns selected upgrade def or null */
   handleClick(screenX: number, screenY: number, canvasWidth: number, canvasHeight: number): UpgradeDef | null {
     if (!this.visible || this.cards.length === 0) return null;
-
-    const cardW = Math.min(240, Math.max(180, canvasWidth * 0.28));
-    const cardH = Math.min(340, Math.max(260, canvasHeight * 0.54));
-    const gap = Math.min(22, canvasWidth * 0.025);
-    const totalW = this.cards.length * cardW + (this.cards.length - 1) * gap;
-    const startX = (canvasWidth - totalW) / 2;
-    const startY = (canvasHeight - cardH) / 2 + 30;
+    const layout = this.getCardLayout(canvasWidth, canvasHeight);
 
     for (let i = 0; i < this.cards.length; i++) {
-      const cx = startX + i * (cardW + gap);
-      const cy = startY;
+      const { x: cx, y: cy, w: cardW, h: cardH } = layout.cards[i];
 
       if (screenX >= cx && screenX <= cx + cardW && screenY >= cy && screenY <= cy + cardH) {
         this.selectedIndex = i;
@@ -82,52 +75,61 @@ export class UpgradeUI {
     return null;
   }
 
-  draw(ctx: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number, player?: Player): void {
+  draw(ctx: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number, player?: Player, mouseX = -1, mouseY = -1): void {
     if (!this.visible || this.cards.length === 0) return;
 
     // Dark gothic vignette backdrop
     ctx.save();
-    ctx.fillStyle = 'rgba(6, 8, 16, 0.88)';
+    ctx.fillStyle = 'rgba(15, 5, 9, 0.91)';
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    const edgeBlood = ctx.createLinearGradient(0, 0, canvasWidth, 0);
+    edgeBlood.addColorStop(0, 'rgba(142, 18, 30, 0.28)');
+    edgeBlood.addColorStop(0.22, 'rgba(0, 0, 0, 0)');
+    edgeBlood.addColorStop(0.78, 'rgba(0, 0, 0, 0)');
+    edgeBlood.addColorStop(1, 'rgba(142, 18, 30, 0.28)');
+    ctx.fillStyle = edgeBlood;
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
     // ─── Header: LEVEL UP! ───
     const titleY = canvasHeight * 0.12;
-    ctx.shadowColor = '#f59e0b';
+    ctx.shadowColor = '#b91c2c';
     ctx.shadowBlur = 18;
-    ctx.fillStyle = '#fbbf24';
+    ctx.fillStyle = '#f0c4c0';
     ctx.font = `900 ${Math.min(38, canvasWidth * 0.055)}px 'Segoe UI', Arial, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('⚔ LEVEL UP! ⚔', canvasWidth / 2, titleY);
+    ctx.fillText('⚔ LÊN CẤP — CHỌN NÂNG CẤP ⚔', canvasWidth / 2, titleY);
 
     ctx.shadowBlur = 0;
     ctx.fillStyle = '#94a3b8';
     ctx.font = `600 ${Math.min(14, canvasWidth * 0.022)}px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText('CHOOSE AN ENHANCEMENT', canvasWidth / 2, titleY + 30);
+    ctx.fillText('CHỌN MỘT NÂNG CẤP', canvasWidth / 2, titleY + 30);
 
     if (player) {
       ctx.fillStyle = '#cbd5e1';
       ctx.font = `500 ${Math.min(12, canvasWidth * 0.018)}px 'Segoe UI', Arial, sans-serif`;
       ctx.fillText(
-        `Weapons: ${player.countWeaponSlotsUsed()}/${MAX_WEAPON_SLOTS}   ·   Passives: ${player.countPassiveSlotsUsed()}/${MAX_PASSIVE_SLOTS}`,
+        `VŨ KHÍ ${player.countWeaponSlotsUsed()}/${MAX_WEAPON_SLOTS}   ·   NỘ BỊ ĐỘNG ${player.countPassiveSlotsUsed()}/${MAX_PASSIVE_SLOTS}`,
         canvasWidth / 2,
         titleY + 50
       );
     }
 
     // ─── Upgrade Cards ───
-    const cardW = Math.min(240, Math.max(180, canvasWidth * 0.28));
-    const cardH = Math.min(340, Math.max(260, canvasHeight * 0.54));
-    const gap = Math.min(22, canvasWidth * 0.025);
-    const totalW = this.cards.length * cardW + (this.cards.length - 1) * gap;
-    const startX = (canvasWidth - totalW) / 2;
-    const startY = (canvasHeight - cardH) / 2 + 30;
+    const layout = this.getCardLayout(canvasWidth, canvasHeight);
+    this.selectedIndex = -1;
 
     for (let i = 0; i < this.cards.length; i++) {
       const card = this.cards[i];
-      const cx = startX + i * (cardW + gap);
-      const cy = startY;
+      const { x: cx, y: cy, w: cardW, h: cardH } = layout.cards[i];
+      const isHovered = mouseX >= cx && mouseX <= cx + cardW && mouseY >= cy && mouseY <= cy + cardH;
+      if (isHovered) this.selectedIndex = i;
       const isNew = card.nextLevel === 1;
+
+      if (layout.compact) {
+        this.drawCompactCard(ctx, card, cx, cy, cardW, cardH, this.getCategoryColor(card.def.category), isNew, isHovered);
+        continue;
+      }
 
       // Card outer frame with gold / category accent
       ctx.save();
@@ -135,14 +137,14 @@ export class UpgradeUI {
 
       // Card background gradient
       const bgGrad = ctx.createLinearGradient(cx, cy, cx, cy + cardH);
-      bgGrad.addColorStop(0, '#1e1b4b'); // Deep indigo
-      bgGrad.addColorStop(1, '#0f172a'); // Midnight obsidian
+      bgGrad.addColorStop(0, '#35151d');
+      bgGrad.addColorStop(1, '#100d12');
       ctx.fillStyle = bgGrad;
       this.roundRect(ctx, cx, cy, cardW, cardH, 12);
       ctx.fill();
 
       // Golden ornate double border
-      ctx.strokeStyle = '#f59e0b';
+      ctx.strokeStyle = '#a9343a';
       ctx.lineWidth = 2.5;
       this.roundRect(ctx, cx, cy, cardW, cardH, 12);
       ctx.stroke();
@@ -168,7 +170,7 @@ export class UpgradeUI {
         ctx.fillText('★ NEW', cx + 42, badgeY + badgeH / 2);
       } else {
         // "LV X" Badge
-        ctx.fillStyle = '#0284c7';
+        ctx.fillStyle = '#71232e';
         this.roundRect(ctx, cx + 12, badgeY, 54, badgeH, 4);
         ctx.fill();
         ctx.fillStyle = '#ffffff';
@@ -190,7 +192,7 @@ export class UpgradeUI {
       ctx.fillStyle = accentColor;
       ctx.font = `bold 10px 'Segoe UI', Arial, sans-serif`;
       ctx.textAlign = 'center';
-      const catLabel = card.def.category === 'weapon' ? 'WEAPON' : card.def.category === 'stat' ? 'PASSIVE' : 'EFFECT';
+      const catLabel = card.def.category === 'weapon' ? 'VŨ KHÍ' : card.def.category === 'stat' ? 'CHỈ SỐ' : 'HIỆU ỨNG';
       ctx.fillText(catLabel, cx + cardW - catW / 2 - 12, badgeY + badgeH / 2);
 
       // Icon Center Medallion
@@ -200,10 +202,10 @@ export class UpgradeUI {
 
       ctx.save();
       ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-      ctx.strokeStyle = '#f59e0b';
+      ctx.strokeStyle = '#a9343a';
       ctx.lineWidth = 2;
-      ctx.shadowColor = accentColor;
-      ctx.shadowBlur = 10;
+      ctx.shadowColor = isHovered ? '#ff6562' : accentColor;
+      ctx.shadowBlur = isHovered ? 22 : 10;
       ctx.beginPath();
       ctx.arc(medalX, medalY, medalRadius, 0, Math.PI * 2);
       ctx.fill();
@@ -218,7 +220,11 @@ export class UpgradeUI {
       // Card Name
       ctx.fillStyle = '#f8fafc';
       ctx.font = `bold 15px 'Segoe UI', Arial, sans-serif`;
-      ctx.fillText(card.def.name.toUpperCase(), cx + cardW / 2, cy + cardH * 0.44);
+      ctx.fillText(card.def.name.toUpperCase(), cx + cardW / 2, cy + cardH * 0.42);
+
+      ctx.fillStyle = '#e5b4b0';
+      ctx.font = `bold 10px 'Segoe UI', Arial, sans-serif`;
+      ctx.fillText(isNew ? 'MỚI  ·  CẤP 0 → 1' : `CẤP ${card.nextLevel - 1} → ${card.nextLevel}`, cx + cardW / 2, cy + cardH * 0.475);
 
       // Level Progress Bar (Segmented pips)
       const pipH = 4;
@@ -230,9 +236,9 @@ export class UpgradeUI {
       for (let p = 0; p < totalPips; p++) {
         const px = cx + 20 + p * pipStep;
         if (p < card.nextLevel - 1) {
-          ctx.fillStyle = '#f59e0b'; // Already owned levels
+          ctx.fillStyle = '#98313a';
         } else if (p === card.nextLevel - 1) {
-          ctx.fillStyle = '#22c55e'; // Current level being acquired
+          ctx.fillStyle = '#e24d54';
         } else {
           ctx.fillStyle = '#334155'; // Future locked levels
         }
@@ -259,22 +265,110 @@ export class UpgradeUI {
       this.wrapText(ctx, card.def.description, cx + cardW / 2, descBoxY + 12, descBoxW - 14, 17);
 
       // Bottom Call-To-Action
-      ctx.fillStyle = '#f59e0b';
+      ctx.fillStyle = '#e16b68';
       ctx.font = `bold 11px 'Segoe UI', Arial, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('SELECT', cx + cardW / 2, cy + cardH - 16);
+      ctx.fillText(isHovered ? 'NHẤN ĐỂ CHỌN' : 'CHỌN NÂNG CẤP', cx + cardW / 2, cy + cardH - 16);
+
+      ctx.strokeStyle = isHovered ? '#ff7770' : '#a9343a';
+      ctx.lineWidth = isHovered ? 3 : 1.5;
+      this.roundRect(ctx, cx, cy, cardW, cardH, 12);
+      ctx.stroke();
 
       ctx.restore();
     }
     ctx.restore();
   }
 
+  private getCardLayout(width: number, height: number): {
+    compact: boolean;
+    cards: Array<{ x: number; y: number; w: number; h: number }>;
+  } {
+    const count = this.cards.length;
+    if (width < 760) {
+      const gap = 10;
+      const cardW = Math.min(width - 20, Math.max(240, width - 28));
+      const cardH = Math.max(108, Math.min(156, (height - 142 - gap * (count - 1)) / Math.max(1, count)));
+      const totalH = count * cardH + Math.max(0, count - 1) * gap;
+      const startY = Math.max(100, (height - totalH) / 2 + 60);
+      return {
+        compact: true,
+        cards: this.cards.map((_, i) => ({ x: (width - cardW) / 2, y: startY + i * (cardH + gap), w: cardW, h: cardH })),
+      };
+    }
+
+    const gap = Math.min(22, width * 0.025);
+    const cardW = Math.min(240, (width - 56 - gap * 2) / Math.max(1, count));
+    const cardH = Math.min(340, Math.max(260, height * 0.54));
+    const totalW = count * cardW + Math.max(0, count - 1) * gap;
+    const startX = (width - totalW) / 2;
+    const startY = (height - cardH) / 2 + 30;
+    return {
+      compact: false,
+      cards: this.cards.map((_, i) => ({ x: startX + i * (cardW + gap), y: startY, w: cardW, h: cardH })),
+    };
+  }
+
+  private drawCompactCard(
+    ctx: CanvasRenderingContext2D, card: UpgradeCard, x: number, y: number, w: number, h: number,
+    accent: string, isNew: boolean, hovered: boolean
+  ): void {
+    ctx.save();
+    ctx.shadowColor = hovered ? '#ff6562' : 'rgba(0,0,0,0.55)';
+    ctx.shadowBlur = hovered ? 18 : 8;
+    ctx.fillStyle = 'rgba(28, 13, 18, 0.98)';
+    ctx.strokeStyle = hovered ? '#ff7770' : '#81323a';
+    ctx.lineWidth = hovered ? 3 : 1.5;
+    this.roundRect(ctx, x, y, w, h, 10); ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    const iconX = x + 38;
+    const iconY = y + h / 2;
+    ctx.fillStyle = '#211319'; ctx.strokeStyle = accent; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(iconX, iconY, Math.min(25, h * 0.25), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.font = `${Math.min(27, h * 0.27)}px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff1e9';
+    ctx.fillText(card.def.icon, iconX, iconY);
+
+    const contentX = x + 76;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#fbf0eb'; ctx.font = `bold ${Math.min(15, h * 0.14)}px 'Segoe UI', Arial, sans-serif`;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(card.def.name.toUpperCase(), contentX, y + h * 0.25);
+    ctx.fillStyle = '#e3a9a5'; ctx.font = `bold ${Math.min(10, h * 0.095)}px 'Segoe UI', Arial, sans-serif`;
+    ctx.textAlign = 'right';
+    ctx.fillText(isNew ? 'MỚI · 0 → 1' : `CẤP ${card.nextLevel - 1} → ${card.nextLevel}`, x + w - 12, y + h * 0.25);
+
+    const category = card.def.category === 'weapon' ? 'VŨ KHÍ' : card.def.category === 'stat' ? 'CHỈ SỐ' : 'HIỆU ỨNG';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = accent; ctx.font = `bold ${Math.min(9, h * 0.085)}px 'Segoe UI', Arial, sans-serif`;
+    ctx.fillText(category, contentX, y + h * 0.43);
+
+    ctx.textAlign = 'left'; ctx.fillStyle = '#c9b7b4'; ctx.font = ` ${Math.min(12, h * 0.105)}px 'Segoe UI', Arial, sans-serif`;
+    ctx.textBaseline = 'top';
+    this.wrapText(ctx, card.def.description, contentX, y + h * 0.52, w - 94, Math.min(14, h * 0.12));
+
+    const totalPips = card.def.maxLevel;
+    const pipW = Math.min(16, (w - 102) / totalPips);
+    const pipGap = 3;
+    const pipsY = y + h - 14;
+    for (let i = 0; i < totalPips; i++) {
+      ctx.fillStyle = i < card.nextLevel ? '#d94b51' : '#473039';
+      ctx.fillRect(contentX + i * (pipW + pipGap), pipsY, pipW, 4);
+    }
+    ctx.fillStyle = hovered ? '#ff8a82' : accent;
+    ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+    ctx.font = `bold 9px 'Segoe UI', Arial, sans-serif`;
+    ctx.fillText(hovered ? 'CHỌN' : 'NÂNG CẤP', x + w - 12, y + h - 5);
+    ctx.restore();
+  }
+
   private getCategoryColor(category: string): string {
     switch (category) {
-      case 'stat': return '#38bdf8'; // Sky blue
-      case 'weapon': return '#f97316'; // Amber orange
-      case 'effect': return '#a855f7'; // Purple
+      case 'stat': return '#d17667';
+      case 'weapon': return '#ef554e';
+      case 'effect': return '#a54451';
       default: return '#94a3b8';
     }
   }

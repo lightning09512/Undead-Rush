@@ -2,6 +2,7 @@
 
 import { Pool } from '../core/pool';
 import { Camera } from '../core/camera';
+import { isInsideBuilding } from './map-geometry';
 
 export interface Bullet {
   x: number;
@@ -74,13 +75,19 @@ export class BulletSystem {
     return b;
   }
 
-  update(dt: number): void {
+  update(dt: number, collideBuildings = true): void {
     this.pool.forEach((b) => {
       b.life -= dt;
       if (b.life <= 0) return true; // release
 
-      b.x += b.vx * dt;
-      b.y += b.vy * dt;
+      const steps = Math.max(1, Math.ceil(Math.hypot(b.vx, b.vy) * dt / 12));
+      const stepX = b.vx * dt / steps;
+      const stepY = b.vy * dt / steps;
+      for (let i = 0; i < steps; i++) {
+        b.x += stepX;
+        b.y += stepY;
+        if (collideBuildings && isInsideBuilding(b.x, b.y)) return true;
+      }
       return false;
     });
   }

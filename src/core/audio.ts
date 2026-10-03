@@ -7,6 +7,8 @@ export class Audio {
   private initialized = false;
   private noiseBuffer: AudioBuffer | null = null;
   private distortionCurve: Float32Array | null = null;
+  private zombieAmbientTimer = 2.2;
+  private lastZombieDeathTime = 0;
 
   init(): void {
     if (this.initialized && this.ctx) {
@@ -109,7 +111,7 @@ export class Audio {
    * 3. Muzzle blast air roar (filtered noise decay)
    * 4. Mechanical brass casing drop / bolt cycle click
    */
-  shoot(weaponType: 'pistol' | 'rifle' | 'shotgun' | 'drone' = 'pistol'): void {
+  shoot(weaponType: 'pistol' | 'rifle' | 'smg' | 'shotgun' | 'drone' = 'pistol'): void {
     if (!this.ensureContext() || !this.ctx || !this.sfxGain) return;
 
     if (weaponType === 'shotgun') {
@@ -124,9 +126,14 @@ export class Audio {
     const ctx = this.ctx;
     const t = ctx.currentTime;
 
-    // Pitch detune (+/- 4%) so rapid shooting doesn't sound robotic
-    const pitchDetune = (Math.random() - 0.5) * 0.08;
-    const baseFreq = 230 * (1 + pitchDetune);
+    // Small variation keeps automatic fire from sounding like a perfectly repeated sample.
+    const pitchDetune = (Math.random() - 0.5) * (weaponType === 'smg' ? 0.11 : 0.075);
+    const profile = weaponType === 'rifle'
+      ? { pitch: 220, crack: 0.48, snap: 0.30, body: 0.48, roar: 0.34, tail: 0.18 }
+      : weaponType === 'smg'
+        ? { pitch: 275, crack: 0.34, snap: 0.25, body: 0.34, roar: 0.25, tail: 0.105 }
+        : { pitch: 180, crack: 0.40, snap: 0.28, body: 0.42, roar: 0.30, tail: 0.13 };
+    const baseFreq = profile.pitch * (1 + pitchDetune);
 
     // ── Layer 1: Supersonic Ballistic Crack (High-velocity sharp whip) ──
     if (this.noiseBuffer) {
@@ -136,12 +143,12 @@ export class Audio {
 
       const crackFilter = ctx.createBiquadFilter();
       crackFilter.type = 'bandpass';
-      crackFilter.frequency.setValueAtTime(2800 + Math.random() * 400, t);
-      crackFilter.Q.value = 1.3;
+      crackFilter.frequency.setValueAtTime((weaponType === 'smg' ? 3450 : 2900) + Math.random() * 500, t);
+      crackFilter.Q.value = weaponType === 'smg' ? 1.7 : 1.2;
 
       const crackGain = ctx.createGain();
-      crackGain.gain.setValueAtTime(0.48, t);
-      crackGain.gain.exponentialRampToValueAtTime(0.001, t + 0.038);
+      crackGain.gain.setValueAtTime(profile.crack, t);
+      crackGain.gain.exponentialRampToValueAtTime(0.001, t + (weaponType === 'smg' ? 0.027 : 0.042));
 
       crackSrc.connect(crackFilter);
       crackFilter.connect(crackGain);
@@ -155,11 +162,11 @@ export class Audio {
     const snapOsc = ctx.createOscillator();
     const snapGain = ctx.createGain();
     snapOsc.type = 'triangle';
-    snapOsc.frequency.setValueAtTime(1400 * (1 + pitchDetune), t);
-    snapOsc.frequency.exponentialRampToValueAtTime(170, t + 0.022);
+    snapOsc.frequency.setValueAtTime((weaponType === 'smg' ? 1750 : 1350) * (1 + pitchDetune), t);
+    snapOsc.frequency.exponentialRampToValueAtTime(weaponType === 'smg' ? 240 : 145, t + 0.025);
 
-    snapGain.gain.setValueAtTime(0.35, t);
-    snapGain.gain.exponentialRampToValueAtTime(0.001, t + 0.025);
+    snapGain.gain.setValueAtTime(profile.snap, t);
+    snapGain.gain.exponentialRampToValueAtTime(0.001, t + 0.028);
 
     snapOsc.connect(snapGain);
     snapGain.connect(this.sfxGain);
@@ -171,10 +178,10 @@ export class Audio {
     const boomGain = ctx.createGain();
     boomOsc.type = 'sawtooth';
     boomOsc.frequency.setValueAtTime(baseFreq, t);
-    boomOsc.frequency.exponentialRampToValueAtTime(42, t + 0.085);
+    boomOsc.frequency.exponentialRampToValueAtTime(weaponType === 'smg' ? 65 : 38, t + profile.tail);
 
-    boomGain.gain.setValueAtTime(0.52, t);
-    boomGain.gain.exponentialRampToValueAtTime(0.001, t + 0.11);
+    boomGain.gain.setValueAtTime(profile.body, t);
+    boomGain.gain.exponentialRampToValueAtTime(0.001, t + profile.tail + 0.025);
 
     if (this.distortionCurve) {
       const shaper = ctx.createWaveShaper();
@@ -187,7 +194,7 @@ export class Audio {
 
     boomGain.connect(this.sfxGain);
     boomOsc.start(t);
-    boomOsc.stop(t + 0.12);
+    boomOsc.stop(t + profile.tail + 0.03);
 
     // ── Layer 3: Muzzle Blast Body & Air Rumble ──
     if (this.noiseBuffer) {
@@ -196,34 +203,34 @@ export class Audio {
 
       const roarFilter = ctx.createBiquadFilter();
       roarFilter.type = 'lowpass';
-      roarFilter.frequency.setValueAtTime(950, t);
-      roarFilter.frequency.exponentialRampToValueAtTime(180, t + 0.14);
+      roarFilter.frequency.setValueAtTime(weaponType === 'rifle' ? 1150 : 1450, t);
+      roarFilter.frequency.exponentialRampToValueAtTime(150, t + profile.roar);
 
       const roarGain = ctx.createGain();
-      roarGain.gain.setValueAtTime(0.38, t);
-      roarGain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+      roarGain.gain.setValueAtTime(weaponType === 'smg' ? 0.24 : 0.34, t);
+      roarGain.gain.exponentialRampToValueAtTime(0.001, t + profile.roar + 0.015);
 
       roarSrc.connect(roarFilter);
       roarFilter.connect(roarGain);
       roarGain.connect(this.sfxGain);
 
       roarSrc.start(t, Math.random());
-      roarSrc.stop(t + 0.16);
+      roarSrc.stop(t + profile.roar + 0.02);
     }
 
     // ── Layer 4: Subtle Brass Shell Ping / Slide Action ──
     const pingOsc = ctx.createOscillator();
     const pingGain = ctx.createGain();
     pingOsc.type = 'sine';
-    pingOsc.frequency.setValueAtTime(2600 + Math.random() * 300, t + 0.055);
+    pingOsc.frequency.setValueAtTime((weaponType === 'smg' ? 3200 : 2450) + Math.random() * 450, t + 0.055);
     pingGain.gain.setValueAtTime(0.0001, t);
-    pingGain.gain.setValueAtTime(0.06, t + 0.055);
-    pingGain.gain.exponentialRampToValueAtTime(0.001, t + 0.095);
+    pingGain.gain.setValueAtTime(weaponType === 'smg' ? 0.025 : 0.045, t + 0.055);
+    pingGain.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
 
     pingOsc.connect(pingGain);
     pingGain.connect(this.sfxGain);
     pingOsc.start(t + 0.055);
-    pingOsc.stop(t + 0.1);
+    pingOsc.stop(t + 0.095);
   }
 
   /**
@@ -453,8 +460,109 @@ export class Audio {
     this.playTone(180, 0.1, 'triangle', 0.22);
   }
 
-  zombieDie(): void {
-    this.playTone(110, 0.12, 'sawtooth', 0.12);
+  /** Play one distant, spatially positioned zombie groan every few seconds. */
+  updateZombieAmbience(dt: number, distance = Infinity, pan = 0, type = 'normal'): void {
+    if (!Number.isFinite(distance)) {
+      this.zombieAmbientTimer = Math.min(this.zombieAmbientTimer, 1.4);
+      return;
+    }
+
+    this.zombieAmbientTimer -= dt;
+    if (this.zombieAmbientTimer > 0) return;
+
+    if (distance > 1150) {
+      this.zombieAmbientTimer = 1.8 + Math.random() * 1.8;
+      return;
+    }
+
+    const proximity = Math.max(0.16, 1 - distance / 1450);
+    const duration = type === 'runner' ? 0.58 : type.startsWith('boss') || type === 'tank' ? 1.2 : 0.9;
+    this.playZombieVocal(type, pan, proximity * (0.75 + Math.random() * 0.35), duration);
+    this.zombieAmbientTimer = distance < 240
+      ? 3.2 + Math.random() * 2.3
+      : 4.5 + Math.random() * 4.2;
+  }
+
+  zombieDie(pan = 0, type = 'normal'): void {
+    const now = performance.now();
+    if (now - this.lastZombieDeathTime < 75) return;
+    this.lastZombieDeathTime = now;
+    this.playZombieVocal(type, pan, 0.78, 0.48);
+  }
+
+  private playZombieVocal(type: string, pan: number, volume: number, duration: number): void {
+    if (!this.ensureContext() || !this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const isSpitter = type === 'spitter';
+    const isHeavy = type === 'tank' || type.startsWith('boss');
+    const basePitch = isHeavy ? 72 : type === 'runner' ? 142 : isSpitter ? 105 : 112;
+    const pitch = basePitch * (0.88 + Math.random() * 0.24);
+    const end = t + duration;
+
+    const voiceBus = ctx.createGain();
+    voiceBus.gain.setValueAtTime(volume * 0.25, t);
+    const panner = ctx.createStereoPanner();
+    panner.pan.setValueAtTime(Math.max(-1, Math.min(1, pan)), t);
+    voiceBus.connect(panner);
+    panner.connect(this.sfxGain);
+
+    // Two slightly detuned, falling tones create a raspy, throat-like groan.
+    const voice = ctx.createOscillator();
+    const voiceFilter = ctx.createBiquadFilter();
+    const voiceEnvelope = ctx.createGain();
+    voice.type = 'triangle';
+    voice.frequency.setValueAtTime(pitch, t);
+    voice.frequency.exponentialRampToValueAtTime(Math.max(42, pitch * (0.54 + Math.random() * 0.12)), end);
+    voiceFilter.type = 'lowpass';
+    voiceFilter.frequency.setValueAtTime(isSpitter ? 1350 : 920, t);
+    voiceFilter.frequency.exponentialRampToValueAtTime(isHeavy ? 430 : 520, end);
+    voiceEnvelope.gain.setValueAtTime(0.0001, t);
+    voiceEnvelope.gain.linearRampToValueAtTime(0.72, t + 0.07);
+    voiceEnvelope.gain.exponentialRampToValueAtTime(0.0001, end);
+    voice.connect(voiceFilter);
+    voiceFilter.connect(voiceEnvelope);
+    voiceEnvelope.connect(voiceBus);
+    voice.start(t);
+    voice.stop(end + 0.015);
+
+    const harmonics = ctx.createOscillator();
+    const harmonicFilter = ctx.createBiquadFilter();
+    const harmonicEnvelope = ctx.createGain();
+    harmonics.type = 'sawtooth';
+    harmonics.frequency.setValueAtTime(pitch * (1.86 + Math.random() * 0.12), t);
+    harmonics.frequency.exponentialRampToValueAtTime(Math.max(75, pitch * 0.95), end);
+    harmonicFilter.type = 'bandpass';
+    harmonicFilter.frequency.setValueAtTime(isSpitter ? 1500 : 620, t);
+    harmonicFilter.Q.value = 1.1;
+    harmonicEnvelope.gain.setValueAtTime(0.0001, t);
+    harmonicEnvelope.gain.linearRampToValueAtTime(isSpitter ? 0.20 : 0.28, t + 0.09);
+    harmonicEnvelope.gain.exponentialRampToValueAtTime(0.0001, end);
+    harmonics.connect(harmonicFilter);
+    harmonicFilter.connect(harmonicEnvelope);
+    harmonicEnvelope.connect(voiceBus);
+    harmonics.start(t);
+    harmonics.stop(end + 0.015);
+
+    // Breath and throat rasp, filtered differently for the spitter's wet hiss.
+    if (this.noiseBuffer) {
+      const breath = ctx.createBufferSource();
+      const breathFilter = ctx.createBiquadFilter();
+      const breathEnvelope = ctx.createGain();
+      breath.buffer = this.noiseBuffer;
+      breathFilter.type = isSpitter ? 'bandpass' : 'lowpass';
+      breathFilter.frequency.setValueAtTime(isSpitter ? 1850 : 1250, t);
+      breathFilter.frequency.exponentialRampToValueAtTime(isSpitter ? 850 : 300, end);
+      if (isSpitter) breathFilter.Q.value = 0.8;
+      breathEnvelope.gain.setValueAtTime(0.0001, t);
+      breathEnvelope.gain.linearRampToValueAtTime(isSpitter ? 0.26 : 0.16, t + 0.12);
+      breathEnvelope.gain.exponentialRampToValueAtTime(0.0001, end);
+      breath.connect(breathFilter);
+      breathFilter.connect(breathEnvelope);
+      breathEnvelope.connect(voiceBus);
+      breath.start(t, Math.random() * 1.5);
+      breath.stop(end + 0.02);
+    }
   }
 
   xpPickup(): void {

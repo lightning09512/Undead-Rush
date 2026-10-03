@@ -6,6 +6,7 @@ import type { UpgradeDef } from '../data/upgrades';
 import { Camera } from '../core/camera';
 import { EntityRenderer } from '../graphics/entity-renderer';
 import type { GunLoadout } from '../systems/gun-loadout';
+import { resolveBuildingCollision } from './map-geometry';
 
 export interface DamageResult {
   damaged: boolean;
@@ -245,7 +246,7 @@ export class Player {
     if (this.hp > this.maxHp) this.hp = this.maxHp;
   }
 
-  move(dirX: number, dirY: number, dt: number): void {
+  move(dirX: number, dirY: number, dt: number, collideBuildings = true): void {
     let targetSpeed = this.moveSpeed;
     const speedBuff = this.buffs.get('speed_boost');
     if (speedBuff) targetSpeed *= speedBuff.value;
@@ -281,6 +282,7 @@ export class Player {
     // Clamp to map
     this.x = Math.max(this.size, Math.min(MAP_CONFIG.width - this.size, this.x));
     this.y = Math.max(this.size, Math.min(MAP_CONFIG.height - this.size, this.y));
+    if (collideBuildings) [this.x, this.y] = resolveBuildingCollision(this.x, this.y, this.size * 0.72);
   }
 
   dash(dirX: number, dirY: number): void {

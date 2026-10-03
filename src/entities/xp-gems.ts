@@ -4,7 +4,6 @@ import { Pool } from '../core/pool';
 import { Camera } from '../core/camera';
 import { XP_GEMS } from '../data/items';
 import { LightingRenderer } from '../graphics/lighting';
-import { EntityRenderer } from '../graphics/entity-renderer';
 
 export interface XpGem {
   x: number;
@@ -111,24 +110,49 @@ export class XpGemSystem {
       if (!camera.isVisible(g.x, g.y)) continue;
       const [sx, sy] = camera.worldToScreen(g.x, g.y);
 
-      const wobbleY = Math.sin(g.wobble) * 2;
+      const wobbleY = Math.sin(g.wobble) * 1.5;
+      const tier = g.value >= 50 ? 2 : g.value >= 15 ? 1 : 0;
+      const radius = tier === 2 ? 12 : tier === 1 ? 9 : 7;
 
-      // Glow using LightingRenderer (cached)
-      LightingRenderer.get().drawGlow(ctx, sx, sy + wobbleY, g.size * 5, g.glowColor, 0.6);
+      LightingRenderer.get().drawGlow(ctx, sx, sy + wobbleY, radius * 2.5, g.glowColor, 0.34);
+      ctx.save();
+      ctx.translate(sx, sy + wobbleY);
+      ctx.rotate(Math.sin(g.wobble * 0.45) * 0.12);
 
-      let assetKey = 'gem_blue';
-      if (g.value >= 50) assetKey = 'gem_yellow';
-      else if (g.value >= 15) assetKey = 'gem_green';
+      // Ground shadow and crisp, tiered crystal silhouette.
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.beginPath(); ctx.ellipse(1, radius * 0.82, radius * 0.95, radius * 0.32, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowColor = g.glowColor;
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = g.color;
+      ctx.strokeStyle = tier === 2 ? '#fff1d2' : '#e7fbff';
+      ctx.lineWidth = tier === 2 ? 1.8 : 1.3;
+      ctx.beginPath();
+      ctx.moveTo(0, -radius);
+      ctx.lineTo(radius * 0.72, -radius * 0.18);
+      ctx.lineTo(radius * 0.54, radius * 0.62);
+      ctx.lineTo(0, radius);
+      ctx.lineTo(-radius * 0.54, radius * 0.62);
+      ctx.lineTo(-radius * 0.72, -radius * 0.18);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.shadowBlur = 0;
 
-      EntityRenderer.drawSprite(
-        ctx,
-        assetKey,
-        sx, sy,
-        0, // angle
-        1, // scaleMult
-        1, // alpha
-        wobbleY
-      );
+      // Facets catch light; higher-value crystals gain a second cut line.
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.beginPath();
+      ctx.moveTo(0, -radius * 0.78);
+      ctx.lineTo(radius * 0.37, -radius * 0.14);
+      ctx.lineTo(0, radius * 0.25);
+      ctx.lineTo(-radius * 0.14, -radius * 0.12);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(20,25,35,0.58)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, -radius * 0.72); ctx.lineTo(0, radius * 0.82);
+      ctx.moveTo(-radius * 0.65, -radius * 0.1); ctx.lineTo(radius * 0.65, -radius * 0.1);
+      ctx.stroke();
+      ctx.restore();
     }
   }
 }

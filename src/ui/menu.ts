@@ -46,13 +46,13 @@ export class MenuUI {
 
   private handleMainMenuClick(x: number, y: number, w: number, h: number, audio: Audio): string | null {
     const cardW = Math.min(480, w * 0.9);
-    const cardH = 480;
+    const cardH = 560;
     const cy = (h - cardH) / 2;
 
     const btnW = Math.min(320, cardW * 0.8);
-    const btnH = 46;
+    const btnH = 42;
     const bx = (w - btnW) / 2;
-    const startY = cy + 220;
+    const startY = cy + 205;
     const gap = 54;
 
     // Endless (PLAY)
@@ -184,9 +184,13 @@ export class MenuUI {
   }
 
   private drawMainMenu(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
-    // Deep dark background
-    ctx.fillStyle = '#060810';
+    const bg = ctx.createLinearGradient(0, 0, 0, h);
+    bg.addColorStop(0, '#09090d');
+    bg.addColorStop(0.55, '#120d10');
+    bg.addColorStop(1, '#050609');
+    ctx.fillStyle = bg;
     ctx.fillRect(0, 0, w, h);
+    this.drawBloodAtmosphere(ctx, w, h, 0.42);
 
     // Animated particles (floating embers / sparks)
     for (const p of this.bgParticles) {
@@ -194,7 +198,7 @@ export class MenuUI {
       p.y += p.vy * 0.016;
       if (p.x < 0 || p.x > w) p.vx *= -1;
       if (p.y < 0 || p.y > h) p.vy *= -1;
-      ctx.fillStyle = `rgba(80, 120, 200, ${0.15 + Math.sin(this.titlePulse + p.x * 0.01) * 0.1})`;
+      ctx.fillStyle = `rgba(180, 36, 42, ${0.14 + Math.sin(this.titlePulse + p.x * 0.01) * 0.1})`;
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
       ctx.fill();
@@ -208,34 +212,34 @@ export class MenuUI {
 
     // Side ambient glow
     const leftGrad = ctx.createLinearGradient(0, 0, w * 0.25, 0);
-    leftGrad.addColorStop(0, 'rgba(20, 60, 140, 0.12)');
+    leftGrad.addColorStop(0, 'rgba(120, 18, 26, 0.16)');
     leftGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
     ctx.fillStyle = leftGrad;
     ctx.fillRect(0, 0, w * 0.25, h);
 
     const rightGrad = ctx.createLinearGradient(w, 0, w * 0.75, 0);
-    rightGrad.addColorStop(0, 'rgba(140, 40, 30, 0.08)');
+    rightGrad.addColorStop(0, 'rgba(150, 24, 30, 0.14)');
     rightGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
     ctx.fillStyle = rightGrad;
     ctx.fillRect(w * 0.75, 0, w * 0.25, h);
 
     // Central Modal Card with frosted glass effect
     const cardW = Math.min(480, w * 0.9);
-    const cardH = 480;
+    const cardH = 560;
     const cx = (w - cardW) / 2;
     const cy = (h - cardH) / 2;
 
     // Card shadow
-    ctx.shadowColor = 'rgba(30, 80, 180, 0.15)';
+    ctx.shadowColor = 'rgba(180, 24, 34, 0.24)';
     ctx.shadowBlur = 40;
-    ctx.fillStyle = 'rgba(10, 14, 22, 0.95)';
+    ctx.fillStyle = 'rgba(12, 12, 16, 0.97)';
     ctx.beginPath();
     ctx.roundRect(cx, cy, cardW, cardH, 16);
     ctx.fill();
     ctx.shadowBlur = 0;
 
     // Card border (subtle glow)
-    ctx.strokeStyle = 'rgba(60, 100, 180, 0.25)';
+    ctx.strokeStyle = 'rgba(180, 48, 54, 0.52)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.roundRect(cx, cy, cardW, cardH, 16);
@@ -243,10 +247,10 @@ export class MenuUI {
 
     // Top accent line
     const accentGrad = ctx.createLinearGradient(cx, cy, cx + cardW, cy);
-    accentGrad.addColorStop(0, 'rgba(50, 120, 255, 0)');
-    accentGrad.addColorStop(0.3, 'rgba(50, 120, 255, 0.6)');
-    accentGrad.addColorStop(0.7, 'rgba(50, 120, 255, 0.6)');
-    accentGrad.addColorStop(1, 'rgba(50, 120, 255, 0)');
+    accentGrad.addColorStop(0, 'rgba(220, 35, 42, 0)');
+    accentGrad.addColorStop(0.3, 'rgba(220, 35, 42, 0.9)');
+    accentGrad.addColorStop(0.7, 'rgba(220, 35, 42, 0.9)');
+    accentGrad.addColorStop(1, 'rgba(220, 35, 42, 0)');
     ctx.fillStyle = accentGrad;
     ctx.fillRect(cx + 20, cy, cardW - 40, 2);
 
@@ -273,46 +277,46 @@ export class MenuUI {
     ctx.shadowBlur = 0;
 
     // Subtitle
-    ctx.fillStyle = '#5a6580';
+    ctx.fillStyle = '#a09a9a';
     ctx.font = `${Math.min(13, cardW * 0.032)}px 'Segoe UI', Arial, sans-serif`;
     ctx.fillText('T O P - D O W N   Z O M B I E   S U R V I V A L', w / 2, cy + 180);
 
     // Thin separator
-    ctx.fillStyle = 'rgba(60, 100, 180, 0.2)';
+    ctx.fillStyle = 'rgba(170, 48, 52, 0.38)';
     ctx.fillRect(cx + 40, cy + 200, cardW - 80, 1);
 
     // Gold display
     if (save) {
-      ctx.fillStyle = '#daa520';
+      ctx.fillStyle = '#c79055';
       ctx.font = `bold ${Math.min(14, cardW * 0.035)}px 'Segoe UI', Arial, sans-serif`;
-      ctx.fillText(`💰 ${save.data.gold} Gold`, w / 2, cy + 440);
+      ctx.fillText(`🩸 ${save.data.gold} VÀNG`, w / 2, cy + 520);
     }
 
     // Buttons
     const btnW = Math.min(320, cardW * 0.8);
-    const btnH = 46;
+    const btnH = 42;
     const bx = (w - btnW) / 2;
-    const startY = cy + 220;
+    const startY = cy + 205;
     const gap = 54;
 
-    this.drawButton(ctx, bx, startY, btnW, btnH, '▶  PLAY', '#adff2f');
-    this.drawButton(ctx, bx, startY + gap, btnW, btnH, 'STAGE MODE', '#222');
-    this.drawButton(ctx, bx, startY + gap * 2, btnW, btnH, 'UPGRADES SHOP', '#222');
-    this.drawButton(ctx, bx, startY + gap * 3, btnW, btnH, 'HUNTER PROFILE', '#222');
-    this.drawButton(ctx, bx, startY + gap * 4, btnW, btnH, 'TUTORIAL', '#222');
+    this.drawButton(ctx, bx, startY, btnW, btnH, '▶  SINH TỒN', '#b91c2c');
+    this.drawButton(ctx, bx, startY + gap, btnW, btnH, 'CHẾ ĐỘ THEO MÀN', '#222');
+    this.drawButton(ctx, bx, startY + gap * 2, btnW, btnH, 'CỬA HÀNG NÂNG CẤP', '#222');
+    this.drawButton(ctx, bx, startY + gap * 3, btnW, btnH, 'HỒ SƠ THỢ SĂN', '#222');
+    this.drawButton(ctx, bx, startY + gap * 4, btnW, btnH, 'HƯỚNG DẪN', '#222');
 
     // Best stats
     if (save && save.data.bestTime > 0) {
       const minutes = Math.floor(save.data.bestTime / 60);
       const seconds = Math.floor(save.data.bestTime % 60);
-      ctx.fillStyle = '#3a4460';
+      ctx.fillStyle = '#9a777a';
       ctx.font = `11px 'Segoe UI', Arial, sans-serif`;
       ctx.fillText(`Best: ${minutes}m ${seconds}s  ·  ${save.data.bestKills} kills  ·  Lv.${save.data.bestLevel}`, w / 2, cy + cardH + 25);
       ctx.fillText(`Total kills: ${save.data.totalKills}  ·  Games: ${save.data.totalGamesPlayed}`, w / 2, cy + cardH + 42);
     }
 
     // Controls hint
-    ctx.fillStyle = '#2d3650';
+    ctx.fillStyle = '#8e7477';
     ctx.font = `11px 'Segoe UI', Arial, sans-serif`;
     ctx.fillText('WASD di chuyển · LMB bắn · R thay đạn · ESC tạm dừng', w / 2, cy + cardH + 70);
   }
@@ -320,6 +324,7 @@ export class MenuUI {
   private drawPause(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     ctx.fillStyle = 'rgba(4, 6, 14, 0.82)';
     ctx.fillRect(0, 0, w, h);
+    this.drawBloodAtmosphere(ctx, w, h, 0.58);
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -331,13 +336,14 @@ export class MenuUI {
     const btnH = 45;
     const bx = (w - btnW) / 2;
 
-    this.drawButton(ctx, bx, h * 0.45, btnW, btnH, '▶ Tiếp tục', '#adff2f');
-    this.drawButton(ctx, bx, h * 0.55, btnW, btnH, '✕ Thoát', '#222');
+    this.drawButton(ctx, bx, h * 0.45, btnW, btnH, '▶ TIẾP TỤC', '#b91c2c');
+    this.drawButton(ctx, bx, h * 0.55, btnW, btnH, '✕ THOÁT', '#222');
   }
 
   private drawGameOver(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     ctx.fillStyle = 'rgba(6, 2, 2, 0.92)';
     ctx.fillRect(0, 0, w, h);
+    this.drawBloodAtmosphere(ctx, w, h, 0.85);
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -370,9 +376,9 @@ export class MenuUI {
     const btnH = 45;
     const bx = (w - btnW) / 2;
 
-    this.drawButton(ctx, bx, h * 0.62, btnW, btnH, '🔄 Thử lại', '#adff2f');
-    this.drawButton(ctx, bx, h * 0.70, btnW, btnH, '🏠 Menu chính', '#222');
-    this.drawButton(ctx, bx, h * 0.78, btnW, btnH, '📺 Hồi sinh (Ad)', '#222');
+    this.drawButton(ctx, bx, h * 0.62, btnW, btnH, '🔄 THỬ LẠI', '#b91c2c');
+    this.drawButton(ctx, bx, h * 0.70, btnW, btnH, '🏠 MENU CHÍNH', '#222');
+    this.drawButton(ctx, bx, h * 0.78, btnW, btnH, '📺 HỒI SINH', '#222');
 
     // Double gold hint
     ctx.fillStyle = '#3a4460';
@@ -381,15 +387,16 @@ export class MenuUI {
   }
 
   private drawStageComplete(ctx: CanvasRenderingContext2D, w: number, h: number): void {
-    ctx.fillStyle = 'rgba(0, 10, 0, 0.88)';
+    ctx.fillStyle = 'rgba(12, 5, 8, 0.9)';
     ctx.fillRect(0, 0, w, h);
+    this.drawBloodAtmosphere(ctx, w, h, 0.68);
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    ctx.shadowColor = '#44ff44';
+    ctx.shadowColor = '#a61b27';
     ctx.shadowBlur = 25;
-    ctx.fillStyle = '#44ff44';
+    ctx.fillStyle = '#e5c7c7';
     ctx.font = `bold ${Math.min(48, w * 0.07)}px 'Segoe UI', Arial, sans-serif`;
     ctx.fillText('STAGE COMPLETE!', w / 2, h * 0.15);
     ctx.shadowBlur = 0;
@@ -411,13 +418,14 @@ export class MenuUI {
     const btnH = 45;
     const bx = (w - btnW) / 2;
 
-    this.drawButton(ctx, bx, h * 0.65, btnW, btnH, '➡ Next Stage', '#44aa55');
-    this.drawButton(ctx, bx, h * 0.73, btnW, btnH, '🏠 Main Menu', '#4455aa');
+    this.drawButton(ctx, bx, h * 0.65, btnW, btnH, '➡ MÀN TIẾP THEO', '#b91c2c');
+    this.drawButton(ctx, bx, h * 0.73, btnW, btnH, '🏠 MENU CHÍNH', '#222');
   }
 
   private drawHunterProfile(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
-    ctx.fillStyle = '#0a0a1a';
+    ctx.fillStyle = '#09090d';
     ctx.fillRect(0, 0, w, h);
+    this.drawBloodAtmosphere(ctx, w, h, 0.42);
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -434,7 +442,7 @@ export class MenuUI {
     const cy = (h - cardH) / 2 + h * 0.05;
 
     ctx.fillStyle = '#0a0d0a';
-    ctx.strokeStyle = '#1d2c1c';
+    ctx.strokeStyle = '#63262c';
     ctx.lineWidth = 2;
     this.roundRect(ctx, cx, cy, cardW, cardH, 16);
     ctx.fill();
@@ -489,8 +497,9 @@ export class MenuUI {
   }
 
   private drawTutorial(ctx: CanvasRenderingContext2D, w: number, h: number): void {
-    ctx.fillStyle = '#0a0a1a';
+    ctx.fillStyle = '#09090d';
     ctx.fillRect(0, 0, w, h);
+    this.drawBloodAtmosphere(ctx, w, h, 0.42);
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -528,7 +537,7 @@ export class MenuUI {
 
     let y = cy + 35;
     for (const section of sections) {
-      ctx.fillStyle = '#ffcc00';
+      ctx.fillStyle = '#e85b58';
       ctx.fillText(section.title, cx + 25, y);
       y += 25;
 
@@ -550,6 +559,29 @@ export class MenuUI {
     this.drawButton(ctx, bx, h * 0.88, btnW, btnH, '← Quay lại', '#222');
   }
 
+  private drawBloodAtmosphere(ctx: CanvasRenderingContext2D, w: number, h: number, strength: number): void {
+    ctx.save();
+    const vignette = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.15, w / 2, h / 2, Math.max(w, h) * 0.72);
+    vignette.addColorStop(0, 'rgba(0,0,0,0)');
+    vignette.addColorStop(1, `rgba(95, 8, 16, ${strength * 0.48})`);
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, w, h);
+
+    // Stylized blood drips frame the menu without covering text or controls.
+    ctx.fillStyle = `rgba(115, 12, 22, ${strength * 0.76})`;
+    for (const [x, width, length] of [[0.08, 28, 84], [0.19, 16, 46], [0.79, 20, 68], [0.94, 34, 102]] as number[][]) {
+      const px = w * x;
+      ctx.fillRect(px, 0, width, length * 0.55);
+      ctx.beginPath();
+      ctx.moveTo(px, length * 0.45);
+      ctx.lineTo(px + width, length * 0.45);
+      ctx.lineTo(px + width / 2, length);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   private roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
     ctx.beginPath();
     ctx.moveTo(x + r, y);
@@ -565,7 +597,7 @@ export class MenuUI {
   }
 
   private drawButton(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, text: string, color: string): void {
-    const isPrimary = color === '#adff2f' || color === '#ccff00';
+    const isPrimary = color === '#b91c2c';
     const r = h / 2;
 
     ctx.save();
@@ -584,17 +616,17 @@ export class MenuUI {
     if (isPrimary) {
       // Vivid gradient fill
       const grad = ctx.createLinearGradient(x, y, x + w, y + h);
-      grad.addColorStop(0, '#78ff44');
-      grad.addColorStop(0.5, '#adff2f');
-      grad.addColorStop(1, '#66ee22');
+      grad.addColorStop(0, '#ed4547');
+      grad.addColorStop(0.5, '#b91c2c');
+      grad.addColorStop(1, '#74131e');
       ctx.fillStyle = grad;
-      ctx.shadowColor = 'rgba(120, 255, 50, 0.3)';
+      ctx.shadowColor = 'rgba(220, 38, 38, 0.35)';
       ctx.shadowBlur = 12;
       ctx.fill();
       ctx.shadowBlur = 0;
 
       // Top sheen
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+      ctx.fillStyle = 'rgba(255, 225, 225, 0.16)';
       ctx.beginPath();
       ctx.moveTo(x + r, y);
       ctx.lineTo(x + w - r, y);
@@ -605,17 +637,17 @@ export class MenuUI {
       ctx.fill();
     } else {
       // Dark glass button
-      ctx.fillStyle = 'rgba(18, 22, 32, 0.9)';
+      ctx.fillStyle = 'rgba(24, 16, 20, 0.94)';
       ctx.fill();
 
       // Subtle border
-      ctx.strokeStyle = 'rgba(70, 90, 130, 0.3)';
+      ctx.strokeStyle = 'rgba(157, 56, 63, 0.58)';
       ctx.lineWidth = 1;
       ctx.stroke();
     }
 
     // Text
-    ctx.fillStyle = isPrimary ? '#0a1a05' : '#8899bb';
+    ctx.fillStyle = isPrimary ? '#fff4f2' : '#d0bfc0';
     ctx.font = `bold ${Math.min(14, w * 0.065)}px 'Segoe UI', Arial, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';

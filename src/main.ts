@@ -32,6 +32,7 @@ import { UpgradeUI } from './ui/upgrade-ui';
 import { MenuUI } from './ui/menu';
 import { ShopUI } from './ui/shop';
 import { CrosshairRenderer } from './ui/crosshair';
+import { drawTouchActionButtons } from './ui/touch-controls';
 
 import { MAP_CONFIG, PLAYER_DEFAULTS, WEAPON_PARTS } from './data/items';
 import { PERM_UPGRADES, CHARACTERS, STAGES } from './data/meta';
@@ -40,12 +41,22 @@ import { EVOLUTIONS } from './data/upgrades';
 // ─── Canvas Setup ───
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
+let viewportWidth = window.innerWidth;
+let viewportHeight = window.innerHeight;
 
 function resizeCanvas(): void {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-  camera.resize(canvas.width, canvas.height);
-  LightingRenderer.get().resizeVignette(canvas.width, canvas.height);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  viewportWidth = window.innerWidth;
+  viewportHeight = window.innerHeight;
+  canvas.width = Math.round(viewportWidth * dpr);
+  canvas.height = Math.round(viewportHeight * dpr);
+  canvas.style.width = `${viewportWidth}px`;
+  canvas.style.height = `${viewportHeight}px`;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  camera.resize(viewportWidth, viewportHeight);
+  LightingRenderer.get().resizeVignette(viewportWidth, viewportHeight);
 }
 
 EntityRenderer.init();
@@ -123,14 +134,15 @@ function gameLoop(timestamp: number): void {
   const rawDt = (timestamp - lastTimestamp) / 1000;
   const dt = Math.min(rawDt, 0.1);
   lastTimestamp = timestamp;
+  input.touchButtonsEnabled = menuUI.currentScreen === 'playing' && !paused && !shopUI.visible;
 
   if (!spriteLoader.ready) {
     ctx.fillStyle = '#060906';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, viewportWidth, viewportHeight);
     ctx.fillStyle = '#ffffff';
     ctx.font = '24px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('Loading Assets...', canvas.width / 2, canvas.height / 2);
+    ctx.fillText('Loading Assets...', viewportWidth / 2, viewportHeight / 2);
     return;
   }
 
@@ -139,15 +151,15 @@ function gameLoop(timestamp: number): void {
   const click = input.uiClick;
 
   if (click && menuUI.currentScreen === 'playing' && !paused) {
-    weapons.loadout.handleClick(click.x, click.y, canvas.width, canvas.height, audio);
+    weapons.loadout.handleClick(click.x, click.y, viewportWidth, viewportHeight, audio);
   }
 
   // ─── Shop Screen ───
   if (shopUI.visible) {
     if (click) {
-      shopUI.handleClick(click.x, click.y, canvas.width, canvas.height, save, audio);
+      shopUI.handleClick(click.x, click.y, viewportWidth, viewportHeight, save, audio);
     }
-    shopUI.draw(ctx, canvas.width, canvas.height, save);
+    shopUI.draw(ctx, viewportWidth, viewportHeight, save);
     return;
   }
 
@@ -155,7 +167,7 @@ function gameLoop(timestamp: number): void {
   if (menuUI.currentScreen !== 'playing') {
     if (click) {
       if (upgradeUI.visible) {
-        const selected = upgradeUI.handleClick(click.x, click.y, canvas.width, canvas.height);
+        const selected = upgradeUI.handleClick(click.x, click.y, viewportWidth, viewportHeight);
         if (selected) {
           player.applyUpgrade(selected.id);
           audio.menuSelect();
@@ -167,7 +179,7 @@ function gameLoop(timestamp: number): void {
           paused = false;
         }
       } else {
-        const action = menuUI.handleClick(click.x, click.y, canvas.width, canvas.height, audio);
+        const action = menuUI.handleClick(click.x, click.y, viewportWidth, viewportHeight, audio);
         handleMenuAction(action);
       }
     }
@@ -175,27 +187,27 @@ function gameLoop(timestamp: number): void {
     // Draw appropriate screen
     canvas.style.cursor = 'default';
     if (menuUI.currentScreen === 'main') {
-      menuUI.draw(ctx, canvas.width, canvas.height, save);
+      menuUI.draw(ctx, viewportWidth, viewportHeight, save);
       return;
     }
     if (menuUI.currentScreen === 'paused') {
       drawGame();
-      menuUI.draw(ctx, canvas.width, canvas.height, save);
+      menuUI.draw(ctx, viewportWidth, viewportHeight, save);
       return;
     }
     if (menuUI.currentScreen === 'gameover') {
       drawGame();
-      menuUI.draw(ctx, canvas.width, canvas.height, save);
+      menuUI.draw(ctx, viewportWidth, viewportHeight, save);
       return;
     }
     if (menuUI.currentScreen === 'levelup') {
       drawGame();
-      upgradeUI.draw(ctx, canvas.width, canvas.height, player);
+      upgradeUI.draw(ctx, viewportWidth, viewportHeight, player, input.mouseX, input.mouseY);
       return;
     }
     if (menuUI.currentScreen === 'stage_complete' as any) {
       drawGame();
-      menuUI.draw(ctx, canvas.width, canvas.height, save);
+      menuUI.draw(ctx, viewportWidth, viewportHeight, save);
       return;
     }
   }
@@ -210,7 +222,7 @@ function gameLoop(timestamp: number): void {
 
   if (paused) {
     drawGame();
-    menuUI.draw(ctx, canvas.width, canvas.height, save);
+    menuUI.draw(ctx, viewportWidth, viewportHeight, save);
     return;
   }
 
@@ -280,7 +292,7 @@ function updateGame(dt: number): void {
   }
 
   // ─── Player Movement ───
-  player.move(input.dirX, input.dirY, dt);
+  player.move(input.dirX, input.dirY, dt, gameMode === 'endless');
   player.update(dt);
 
   // Dash input
@@ -313,15 +325,33 @@ function updateGame(dt: number): void {
   weapons.update(dt, player, input, zombies.pool, bullets, audio, camera);
 
   // ─── Bullets ───
-  bullets.update(dt);
+  bullets.update(dt, gameMode === 'endless');
 
   // ─── Zombies ───
-  zombies.update(dt, player.x, player.y);
+  zombies.update(dt, player.x, player.y, gameMode === 'endless');
 
   // ─── Spatial Grid ───
   zombieGrid.clear();
+  let nearestZombie: Zombie | null = null;
+  let nearestZombieDistanceSq = Infinity;
   for (const z of zombies.pool.getActive()) {
     zombieGrid.insert(z);
+    if (z.hp <= 0) continue;
+    const dx = z.x - player.x;
+    const dy = z.y - player.y;
+    const distanceSq = dx * dx + dy * dy;
+    if (distanceSq < nearestZombieDistanceSq) {
+      nearestZombie = z;
+      nearestZombieDistanceSq = distanceSq;
+    }
+  }
+  if (nearestZombie) {
+    const [zombieScreenX] = camera.worldToWindowScreen(nearestZombie.x, nearestZombie.y);
+    const [playerScreenX] = camera.worldToWindowScreen(player.x, player.y);
+    const pan = Math.max(-1, Math.min(1, (zombieScreenX - playerScreenX) / (window.innerWidth * 0.48)));
+    audio.updateZombieAmbience(dt, Math.sqrt(nearestZombieDistanceSq), pan, nearestZombie.typeId);
+  } else {
+    audio.updateZombieAmbience(dt);
   }
 
   // ─── Spitter AI ───
@@ -804,7 +834,10 @@ function handleZombieDeath(z: Zombie): void {
     // Normal / Elite zombie death
     particles.burst(z.x, z.y, z.isBoss ? 16 : 5, '#bb1122', Math.random() * Math.PI * 2, Math.PI * 2, 90, 0.25);
     particles.emit(z.x, z.y, 3, z.color, 60, 0.2, 2.5);
-    audio.zombieDie();
+    const [zombieScreenX] = camera.worldToWindowScreen(z.x, z.y);
+    const [playerScreenX] = camera.worldToWindowScreen(player.x, player.y);
+    const pan = Math.max(-1, Math.min(1, (zombieScreenX - playerScreenX) / (window.innerWidth * 0.48)));
+    audio.zombieDie(pan, z.typeId);
     camera.shake(z.isBoss ? 8 : z.isElite ? 1.8 : 0.6, z.isBoss ? 0.3 : 0.05);
   }
 
@@ -873,14 +906,14 @@ function handleExplosion(x: number, y: number, radius: number, damage: number): 
 
 function drawGame(): void {
   ctx.fillStyle = '#08090e';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, viewportWidth, viewportHeight);
 
   ctx.save();
 
   // Apply camera zoom centered at the viewport center
   if (camera.zoom !== 1) {
-    const cx = canvas.width / 2;
-    const cy = canvas.height / 2;
+    const cx = viewportWidth / 2;
+    const cy = viewportHeight / 2;
     ctx.translate(cx, cy);
     ctx.scale(camera.zoom, camera.zoom);
     ctx.translate(-cx, -cy);
@@ -889,7 +922,7 @@ function drawGame(): void {
   groundRenderer.draw(ctx, camera);
   drawMapBorder();
 
-  propRenderer.draw(ctx, camera, 'ground');
+  propRenderer.draw(ctx, camera, 'ground', gameMode === 'endless');
 
   // Draw entities
   mapPickups.draw(ctx, camera);
@@ -902,7 +935,7 @@ function drawGame(): void {
   player.draw(ctx, camera);
   zombies.draw(ctx, camera);
 
-  propRenderer.draw(ctx, camera, 'above');
+  propRenderer.draw(ctx, camera, 'above', gameMode === 'endless');
 
   particles.draw(ctx, camera);
   damageNumbers.draw(ctx, camera);
@@ -915,7 +948,7 @@ function drawGame(): void {
   LightingRenderer.get().drawVignette(ctx);
 
   // HUD
-  hud.draw(ctx, canvas.width, canvas.height, player, gameTime, input, zombies, mapPickups);
+  hud.draw(ctx, viewportWidth, viewportHeight, player, gameTime, input, zombies, mapPickups, camera);
 
   // Active buffs display
   drawActiveBuffs();
@@ -927,7 +960,8 @@ function drawGame(): void {
 
   // ─── Tactical Gun Loadout Bottom HUD Card (Matches User Spec) ───
   if (menuUI.currentScreen === 'playing') {
-    weapons.loadout.drawHUD(ctx, canvas.width, canvas.height, player);
+    weapons.loadout.drawHUD(ctx, viewportWidth, viewportHeight, player);
+    drawTouchActionButtons(ctx, viewportWidth, viewportHeight);
   }
 
   // ─── Custom Shooter Crosshair (Directional Arrow & Reticle) ───
@@ -967,7 +1001,7 @@ function drawPickupRadius(): void {
 function drawActiveBuffs(): void {
   if (player.buffs.size === 0) return;
 
-  const x = canvas.width - 12;
+  const x = viewportWidth - 12;
   let y = 125;
 
   ctx.textAlign = 'right';
@@ -1001,8 +1035,8 @@ function drawStageObjective(): void {
   if (currentStageIndex >= STAGES.length) return;
   const stage = STAGES[currentStageIndex];
 
-  const x = canvas.width / 2;
-  const y = canvas.height - 146; // Above tactical weapon card
+  const x = viewportWidth / 2;
+  const y = viewportHeight - 146; // Above tactical weapon card
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
