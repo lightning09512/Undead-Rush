@@ -67,17 +67,17 @@ export const ZOMBIE_TYPES: ZombieTypeDef[] = [
   {
     id: 'exploder',
     name: 'Boomer',
-    hp: 40,
-    speed: 90,
+    hp: 35,
+    speed: 80,
     damage: 5,
     xpValue: 15,
     size: 16,
     color: '#d94a38',
-    weight: 10,
+    weight: 7,
     minTime: 45,
     explodes: true,
-    explosionRadius: 80,
-    explosionDamage: 30,
+    explosionRadius: 60,
+    explosionDamage: 20,
   },
   {
     id: 'spitter',
@@ -135,7 +135,7 @@ export const ZOMBIE_TYPES: ZombieTypeDef[] = [
   },
 ];
 
-// ─── Difficulty Scaling ───
+// ─── Difficulty Scaling (Clean, responsive wave population like Monster Breakout) ───
 export interface DifficultyTier {
   time: number;           // game seconds
   spawnRate: number;       // spawns per second
@@ -147,16 +147,16 @@ export interface DifficultyTier {
 }
 
 export const DIFFICULTY_CURVE: DifficultyTier[] = [
-  { time: 0,    spawnRate: 0.8,  maxZombies: 30,  hpMultiplier: 1.0, speedMultiplier: 1.0, damageMultiplier: 1.0, batchSize: 1 },
-  { time: 30,   spawnRate: 1.2,  maxZombies: 50,  hpMultiplier: 1.1, speedMultiplier: 1.05, damageMultiplier: 1.0, batchSize: 2 },
-  { time: 60,   spawnRate: 1.6,  maxZombies: 80,  hpMultiplier: 1.3, speedMultiplier: 1.1, damageMultiplier: 1.1, batchSize: 3 },
-  { time: 90,   spawnRate: 2.0,  maxZombies: 100, hpMultiplier: 1.5, speedMultiplier: 1.15, damageMultiplier: 1.2, batchSize: 4 },
-  { time: 120,  spawnRate: 2.5,  maxZombies: 130, hpMultiplier: 1.8, speedMultiplier: 1.2, damageMultiplier: 1.3, batchSize: 5 },
-  { time: 180,  spawnRate: 3.0,  maxZombies: 160, hpMultiplier: 2.2, speedMultiplier: 1.25, damageMultiplier: 1.5, batchSize: 6 },
-  { time: 240,  spawnRate: 3.5,  maxZombies: 200, hpMultiplier: 2.8, speedMultiplier: 1.3, damageMultiplier: 1.7, batchSize: 7 },
-  { time: 300,  spawnRate: 4.0,  maxZombies: 250, hpMultiplier: 3.5, speedMultiplier: 1.35, damageMultiplier: 2.0, batchSize: 8 },
-  { time: 420,  spawnRate: 5.0,  maxZombies: 300, hpMultiplier: 5.0, speedMultiplier: 1.4, damageMultiplier: 2.5, batchSize: 10 },
-  { time: 600,  spawnRate: 6.0,  maxZombies: 400, hpMultiplier: 8.0, speedMultiplier: 1.5, damageMultiplier: 3.0, batchSize: 12 },
+  { time: 0,    spawnRate: 0.5,  maxZombies: 15,  hpMultiplier: 1.0, speedMultiplier: 1.0, damageMultiplier: 1.0, batchSize: 1 },
+  { time: 30,   spawnRate: 0.7,  maxZombies: 22,  hpMultiplier: 1.1, speedMultiplier: 1.05, damageMultiplier: 1.0, batchSize: 1 },
+  { time: 60,   spawnRate: 0.9,  maxZombies: 28,  hpMultiplier: 1.25, speedMultiplier: 1.08, damageMultiplier: 1.1, batchSize: 2 },
+  { time: 90,   spawnRate: 1.1,  maxZombies: 35,  hpMultiplier: 1.4, speedMultiplier: 1.12, damageMultiplier: 1.15, batchSize: 2 },
+  { time: 120,  spawnRate: 1.3,  maxZombies: 40,  hpMultiplier: 1.6, speedMultiplier: 1.15, damageMultiplier: 1.2, batchSize: 2 },
+  { time: 180,  spawnRate: 1.4,  maxZombies: 45,  hpMultiplier: 1.9, speedMultiplier: 1.18, damageMultiplier: 1.3, batchSize: 2 },
+  { time: 240,  spawnRate: 1.5,  maxZombies: 50,  hpMultiplier: 2.2, speedMultiplier: 1.2, damageMultiplier: 1.4, batchSize: 3 },
+  { time: 300,  spawnRate: 1.6,  maxZombies: 55,  hpMultiplier: 2.6, speedMultiplier: 1.22, damageMultiplier: 1.5, batchSize: 3 },
+  { time: 420,  spawnRate: 1.7,  maxZombies: 60,  hpMultiplier: 3.2, speedMultiplier: 1.25, damageMultiplier: 1.6, batchSize: 3 },
+  { time: 600,  spawnRate: 1.8,  maxZombies: 65,  hpMultiplier: 4.0, speedMultiplier: 1.3, damageMultiplier: 1.8, batchSize: 3 },
 ];
 
 /** Boss spawn times in seconds */

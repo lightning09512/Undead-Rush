@@ -1,6 +1,6 @@
-// ─── Upgrade Selection UI ───
+// ─── Upgrade Selection UI: Vampire Survivors / Dark Fantasy Roguelite style cards ───
 
-import { UPGRADES, UpgradeDef } from '../data/upgrades';
+import { UPGRADES, UpgradeDef, MAX_WEAPON_SLOTS, MAX_PASSIVE_SLOTS } from '../data/upgrades';
 import { Player } from '../entities/player';
 
 export interface UpgradeCard {
@@ -13,24 +13,46 @@ export class UpgradeUI {
   selectedIndex = -1;
   visible = false;
 
-  /** Generate 3 random upgrade choices, excluding maxed-out ones */
+  /** Generate 3 upgrade choices respecting 6 weapon + 6 passive slots */
   generateChoices(player: Player): void {
-    const available: UpgradeCard[] = [];
+    const weightedPool: UpgradeCard[] = [];
 
     for (const def of UPGRADES) {
+      if (!player.canPickUpgrade(def)) continue;
       const currentLevel = player.upgrades.get(def.id) || 0;
-      if (currentLevel < def.maxLevel) {
-        available.push({ def, nextLevel: currentLevel + 1 });
+      const card: UpgradeCard = { def, nextLevel: currentLevel + 1 };
+      weightedPool.push(card);
+      // Give weight boost to currently owned upgrades for synergy
+      if (currentLevel > 0) {
+        weightedPool.push(card, card);
       }
     }
 
-    // Shuffle and pick 3
-    for (let i = available.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [available[i], available[j]] = [available[j], available[i]];
+    const picked: UpgradeCard[] = [];
+    const usedIds = new Set<string>();
+
+    for (let n = 0; n < 3 && weightedPool.length > 0; n++) {
+      const idx = Math.floor(Math.random() * weightedPool.length);
+      const card = weightedPool[idx];
+      if (!usedIds.has(card.def.id)) {
+        usedIds.add(card.def.id);
+        picked.push(card);
+      }
+      weightedPool.splice(idx, 1);
     }
 
-    this.cards = available.slice(0, Math.min(3, available.length));
+    if (picked.length < 3) {
+      for (const def of UPGRADES) {
+        if (picked.length >= 3) break;
+        if (usedIds.has(def.id)) continue;
+        if (!player.canPickUpgrade(def)) continue;
+        const currentLevel = player.upgrades.get(def.id) || 0;
+        usedIds.add(def.id);
+        picked.push({ def, nextLevel: currentLevel + 1 });
+      }
+    }
+
+    this.cards = picked;
     this.selectedIndex = -1;
     this.visible = true;
   }
@@ -39,12 +61,12 @@ export class UpgradeUI {
   handleClick(screenX: number, screenY: number, canvasWidth: number, canvasHeight: number): UpgradeDef | null {
     if (!this.visible || this.cards.length === 0) return null;
 
-    const cardW = Math.min(200, canvasWidth * 0.28);
-    const cardH = Math.min(280, canvasHeight * 0.45);
-    const gap = Math.min(20, canvasWidth * 0.02);
+    const cardW = Math.min(240, Math.max(180, canvasWidth * 0.28));
+    const cardH = Math.min(340, Math.max(260, canvasHeight * 0.54));
+    const gap = Math.min(22, canvasWidth * 0.025);
     const totalW = this.cards.length * cardW + (this.cards.length - 1) * gap;
     const startX = (canvasWidth - totalW) / 2;
-    const startY = (canvasHeight - cardH) / 2;
+    const startY = (canvasHeight - cardH) / 2 + 30;
 
     for (let i = 0; i < this.cards.length; i++) {
       const cx = startX + i * (cardW + gap);
@@ -60,106 +82,200 @@ export class UpgradeUI {
     return null;
   }
 
-  draw(ctx: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number): void {
+  draw(ctx: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number, player?: Player): void {
     if (!this.visible || this.cards.length === 0) return;
 
-    // Dim overlay
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    // Dark gothic vignette backdrop
+    ctx.save();
+    ctx.fillStyle = 'rgba(6, 8, 16, 0.88)';
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-    // Title
-    ctx.fillStyle = '#ffcc00';
-    ctx.font = `bold ${Math.min(36, canvasWidth * 0.05)}px 'Segoe UI', Arial, sans-serif`;
+    // ─── Header: LEVEL UP! ───
+    const titleY = canvasHeight * 0.12;
+    ctx.shadowColor = '#f59e0b';
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = '#fbbf24';
+    ctx.font = `900 ${Math.min(38, canvasWidth * 0.055)}px 'Segoe UI', Arial, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('⬆ LEVEL UP!', canvasWidth / 2, canvasHeight * 0.15);
+    ctx.fillText('⚔ LEVEL UP! ⚔', canvasWidth / 2, titleY);
 
-    ctx.fillStyle = '#aaaacc';
-    ctx.font = `${Math.min(18, canvasWidth * 0.025)}px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText('Choose an upgrade:', canvasWidth / 2, canvasHeight * 0.22);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = `600 ${Math.min(14, canvasWidth * 0.022)}px 'Segoe UI', Arial, sans-serif`;
+    ctx.fillText('CHOOSE AN ENHANCEMENT', canvasWidth / 2, titleY + 30);
 
-    // Cards
-    const cardW = Math.min(200, canvasWidth * 0.28);
-    const cardH = Math.min(280, canvasHeight * 0.45);
-    const gap = Math.min(20, canvasWidth * 0.02);
+    if (player) {
+      ctx.fillStyle = '#cbd5e1';
+      ctx.font = `500 ${Math.min(12, canvasWidth * 0.018)}px 'Segoe UI', Arial, sans-serif`;
+      ctx.fillText(
+        `Weapons: ${player.countWeaponSlotsUsed()}/${MAX_WEAPON_SLOTS}   ·   Passives: ${player.countPassiveSlotsUsed()}/${MAX_PASSIVE_SLOTS}`,
+        canvasWidth / 2,
+        titleY + 50
+      );
+    }
+
+    // ─── Upgrade Cards ───
+    const cardW = Math.min(240, Math.max(180, canvasWidth * 0.28));
+    const cardH = Math.min(340, Math.max(260, canvasHeight * 0.54));
+    const gap = Math.min(22, canvasWidth * 0.025);
     const totalW = this.cards.length * cardW + (this.cards.length - 1) * gap;
     const startX = (canvasWidth - totalW) / 2;
-    const startY = (canvasHeight - cardH) / 2 + 10;
+    const startY = (canvasHeight - cardH) / 2 + 30;
 
     for (let i = 0; i < this.cards.length; i++) {
       const card = this.cards[i];
       const cx = startX + i * (cardW + gap);
       const cy = startY;
+      const isNew = card.nextLevel === 1;
 
-      // Card background
-      const gradient = ctx.createLinearGradient(cx, cy, cx, cy + cardH);
-      gradient.addColorStop(0, '#2a2a4a');
-      gradient.addColorStop(1, '#1a1a3a');
-      ctx.fillStyle = gradient;
-      ctx.strokeStyle = this.getCategoryColor(card.def.category);
-      ctx.lineWidth = 2;
+      // Card outer frame with gold / category accent
+      ctx.save();
+      const accentColor = this.getCategoryColor(card.def.category);
 
-      // Rounded rect
+      // Card background gradient
+      const bgGrad = ctx.createLinearGradient(cx, cy, cx, cy + cardH);
+      bgGrad.addColorStop(0, '#1e1b4b'); // Deep indigo
+      bgGrad.addColorStop(1, '#0f172a'); // Midnight obsidian
+      ctx.fillStyle = bgGrad;
       this.roundRect(ctx, cx, cy, cardW, cardH, 12);
+      ctx.fill();
+
+      // Golden ornate double border
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 2.5;
+      this.roundRect(ctx, cx, cy, cardW, cardH, 12);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+      ctx.lineWidth = 1;
+      this.roundRect(ctx, cx + 3, cy + 3, cardW - 6, cardH - 6, 9);
+      ctx.stroke();
+
+      // Top Tag & Badge
+      const badgeH = 22;
+      const badgeY = cy + 14;
+
+      if (isNew) {
+        // "★ NEW ★" Badge
+        ctx.fillStyle = '#dc2626';
+        this.roundRect(ctx, cx + 12, badgeY, 60, badgeH, 4);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `bold 10px 'Segoe UI', Arial, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('★ NEW', cx + 42, badgeY + badgeH / 2);
+      } else {
+        // "LV X" Badge
+        ctx.fillStyle = '#0284c7';
+        this.roundRect(ctx, cx + 12, badgeY, 54, badgeH, 4);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `bold 11px 'Segoe UI', Arial, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`LV ${card.nextLevel}`, cx + 39, badgeY + badgeH / 2);
+      }
+
+      // Category Pill (Right)
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+      ctx.strokeStyle = accentColor;
+      ctx.lineWidth = 1;
+      const catW = 76;
+      this.roundRect(ctx, cx + cardW - catW - 12, badgeY, catW, badgeH, 4);
       ctx.fill();
       ctx.stroke();
 
-      // Category indicator bar
-      ctx.fillStyle = this.getCategoryColor(card.def.category);
-      this.roundRectTop(ctx, cx, cy, cardW, 6, 12);
-      ctx.fill();
-
-      // Icon
-      ctx.font = `${Math.min(40, cardW * 0.2)}px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif`;
+      ctx.fillStyle = accentColor;
+      ctx.font = `bold 10px 'Segoe UI', Arial, sans-serif`;
       ctx.textAlign = 'center';
-      ctx.fillText(card.def.icon, cx + cardW / 2, cy + cardH * 0.2);
+      const catLabel = card.def.category === 'weapon' ? 'WEAPON' : card.def.category === 'stat' ? 'PASSIVE' : 'EFFECT';
+      ctx.fillText(catLabel, cx + cardW - catW / 2 - 12, badgeY + badgeH / 2);
 
-      // Name
-      ctx.fillStyle = '#ffffff';
-      ctx.font = `bold ${Math.min(16, cardW * 0.08)}px 'Segoe UI', Arial, sans-serif`;
-      ctx.fillText(card.def.name, cx + cardW / 2, cy + cardH * 0.38);
+      // Icon Center Medallion
+      const medalRadius = 30;
+      const medalX = cx + cardW / 2;
+      const medalY = cy + cardH * 0.28;
 
-      // Level
-      ctx.fillStyle = this.getCategoryColor(card.def.category);
-      ctx.font = `bold ${Math.min(13, cardW * 0.065)}px 'Segoe UI', Arial, sans-serif`;
-      ctx.fillText(`Lv.${card.nextLevel}/${card.def.maxLevel}`, cx + cardW / 2, cy + cardH * 0.48);
+      ctx.save();
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = accentColor;
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.arc(medalX, medalY, medalRadius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
 
-      // Level dots
-      const dotSize = 6;
-      const dotsTotal = card.def.maxLevel;
-      const dotsW = dotsTotal * (dotSize + 4);
-      const dotsStartX = cx + (cardW - dotsW) / 2;
-      for (let d = 0; d < dotsTotal; d++) {
-        const dx = dotsStartX + d * (dotSize + 4) + dotSize / 2;
-        const dy = cy + cardH * 0.55;
-        ctx.beginPath();
-        ctx.arc(dx, dy, dotSize / 2, 0, Math.PI * 2);
-        if (d < card.nextLevel) {
-          ctx.fillStyle = this.getCategoryColor(card.def.category);
+      ctx.font = `34px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(card.def.icon, medalX, medalY);
+
+      // Card Name
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = `bold 15px 'Segoe UI', Arial, sans-serif`;
+      ctx.fillText(card.def.name.toUpperCase(), cx + cardW / 2, cy + cardH * 0.44);
+
+      // Level Progress Bar (Segmented pips)
+      const pipH = 4;
+      const totalPips = card.def.maxLevel;
+      const pipsW = cardW - 40;
+      const pipStep = pipsW / totalPips;
+      const pipsY = cy + cardH * 0.51;
+
+      for (let p = 0; p < totalPips; p++) {
+        const px = cx + 20 + p * pipStep;
+        if (p < card.nextLevel - 1) {
+          ctx.fillStyle = '#f59e0b'; // Already owned levels
+        } else if (p === card.nextLevel - 1) {
+          ctx.fillStyle = '#22c55e'; // Current level being acquired
         } else {
-          ctx.fillStyle = '#333355';
+          ctx.fillStyle = '#334155'; // Future locked levels
         }
-        ctx.fill();
+        ctx.fillRect(px, pipsY, pipStep - 3, pipH);
       }
 
-      // Description
-      ctx.fillStyle = '#aaaacc';
-      ctx.font = `${Math.min(12, cardW * 0.06)}px 'Segoe UI', Arial, sans-serif`;
-      this.wrapText(ctx, card.def.description, cx + cardW / 2, cy + cardH * 0.68, cardW - 20, 16);
+      // Description Box
+      const descBoxW = cardW - 24;
+      const descBoxH = cardH * 0.28;
+      const descBoxX = cx + 12;
+      const descBoxY = cy + cardH * 0.58;
 
-      // Category tag
-      ctx.fillStyle = this.getCategoryColor(card.def.category);
-      ctx.font = `bold ${Math.min(10, cardW * 0.05)}px 'Segoe UI', Arial, sans-serif`;
-      ctx.fillText(card.def.category.toUpperCase(), cx + cardW / 2, cy + cardH * 0.9);
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 1;
+      this.roundRect(ctx, descBoxX, descBoxY, descBoxW, descBoxH, 6);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#cbd5e1';
+      ctx.font = `12px 'Segoe UI', Arial, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      this.wrapText(ctx, card.def.description, cx + cardW / 2, descBoxY + 12, descBoxW - 14, 17);
+
+      // Bottom Call-To-Action
+      ctx.fillStyle = '#f59e0b';
+      ctx.font = `bold 11px 'Segoe UI', Arial, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('SELECT', cx + cardW / 2, cy + cardH - 16);
+
+      ctx.restore();
     }
+    ctx.restore();
   }
 
   private getCategoryColor(category: string): string {
     switch (category) {
-      case 'stat': return '#44aaff';
-      case 'weapon': return '#ff8844';
-      case 'effect': return '#aa44ff';
-      default: return '#888888';
+      case 'stat': return '#38bdf8'; // Sky blue
+      case 'weapon': return '#f97316'; // Amber orange
+      case 'effect': return '#a855f7'; // Purple
+      default: return '#94a3b8';
     }
   }
 
@@ -172,18 +288,6 @@ export class UpgradeUI {
     ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
     ctx.lineTo(x + r, y + h);
     ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.closePath();
-  }
-
-  private roundRectTop(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h);
-    ctx.lineTo(x, y + h);
     ctx.lineTo(x, y + r);
     ctx.quadraticCurveTo(x, y, x + r, y);
     ctx.closePath();

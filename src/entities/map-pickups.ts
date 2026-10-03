@@ -3,6 +3,8 @@
 import { Pool } from '../core/pool';
 import { Camera } from '../core/camera';
 import { MAP_ITEMS, ItemDef, MAP_CONFIG } from '../data/items';
+import { EntityRenderer } from '../graphics/entity-renderer';
+import { LightingRenderer } from '../graphics/lighting';
 
 export interface MapPickup {
   x: number;
@@ -159,6 +161,22 @@ export class MapPickupSystem {
     p.warningY = y - 200;
   }
 
+  spawnWeaponPickup(x: number, y: number, gunId: 'sg12' | 'smg9'): void {
+    const p = this.pool.acquire();
+    p.x = x;
+    p.y = y;
+    p.size = 20;
+    p.color = gunId === 'sg12' ? '#ff9933' : '#00e5ff';
+    p.glowColor = gunId === 'sg12' ? '#ff7700' : '#00b4d8';
+    p.itemId = `gun_${gunId}`;
+    p.duration = 0;
+    p.value = 0;
+    p.life = 180;
+    p.wobble = Math.random() * Math.PI * 2;
+    p.isAirdrop = false;
+    p.airdropLanded = true;
+  }
+
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
     for (const p of this.pool.getActive()) {
       if (!camera.isVisible(p.x, p.y, 40)) continue;
@@ -206,92 +224,113 @@ export class MapPickupSystem {
         continue;
       }
 
+      // ── Special Weapon Drop Crate with Light Beacon ──
+      if (p.itemId.startsWith('gun_')) {
+        const isSG = p.itemId === 'gun_sg12';
+        const labelText = isSG ? '🔫 NHẶT SÚNG: 2·SG-12' : '⚡ NHẶT SÚNG: 3·SMG-9';
+        const beaconColor = isSG ? '#ff9933' : '#00e5ff';
+        const wobbleY = Math.sin(p.wobble) * 3;
+
+        ctx.save();
+        // 1. Vertical sky laser beam
+        const beamGrad = ctx.createLinearGradient(sx, sy, sx, sy - 105);
+        beamGrad.addColorStop(0, isSG ? 'rgba(255, 153, 51, 0.45)' : 'rgba(0, 229, 255, 0.45)');
+        beamGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = beamGrad;
+        ctx.beginPath();
+        ctx.moveTo(sx - 10, sy);
+        ctx.lineTo(sx + 10, sy);
+        ctx.lineTo(sx + 24, sy - 105);
+        ctx.lineTo(sx - 24, sy - 105);
+        ctx.closePath();
+        ctx.fill();
+
+        // 2. Rotating light beacon rings
+        ctx.strokeStyle = isSG ? 'rgba(255, 153, 51, 0.65)' : 'rgba(0, 229, 255, 0.65)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.ellipse(sx, sy + wobbleY, 18, 9, 0, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // 3. Glowing weapon crate
+        ctx.fillStyle = isSG ? '#ff8800' : '#0284c7';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.fillRect(sx - 12, sy - 12 + wobbleY, 24, 24);
+        ctx.strokeRect(sx - 12, sy - 12 + wobbleY, 24, 24);
+
+        // Icon inside crate
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(isSG ? '💥' : '⚡', sx, sy + wobbleY);
+
+        // 4. Floating badge label
+        ctx.font = `bold 10px 'Segoe UI', Arial, sans-serif`;
+        const bw = ctx.measureText(labelText).width + 16;
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+        ctx.strokeStyle = beaconColor;
+        ctx.lineWidth = 1.2;
+        ctx.fillRect(sx - bw / 2, sy - 28 + wobbleY, bw, 18);
+        ctx.strokeRect(sx - bw / 2, sy - 28 + wobbleY, bw, 18);
+
+        ctx.fillStyle = beaconColor;
+        ctx.fillText(labelText, sx, sy - 19 + wobbleY);
+        ctx.restore();
+        continue;
+      }
+
       // Blinking when about to despawn
       if (p.life < 5 && Math.floor(p.life * 4) % 2 === 0) {
         ctx.globalAlpha = 0.4;
       }
 
       const wobbleY = Math.sin(p.wobble) * 3;
+      LightingRenderer.get().drawGlow(ctx, sx, sy + wobbleY, p.size * 5, p.glowColor, 0.6);
 
-      // Glow
-      ctx.shadowColor = p.glowColor;
-      ctx.shadowBlur = 12;
+      let assetKey = '';
+      if (p.itemId === 'health_pack') assetKey = 'medkit';
+      else if (p.itemId === 'magnet') assetKey = 'magnet';
+      else if (p.itemId === 'xp_chest') assetKey = 'chest';
+      else if (p.itemId === 'airdrop') assetKey = 'crate';
 
-      // Item shape depends on type
-      if (p.itemId === 'health_pack') {
-        // Red cross
-        ctx.fillStyle = p.color;
-        ctx.fillRect(sx - 3, sy - p.size / 2 + wobbleY, 6, p.size);
-        ctx.fillRect(sx - p.size / 2, sy - 3 + wobbleY, p.size, 6);
-        // White bg
-        ctx.fillStyle = '#ffffff44';
-        ctx.beginPath();
-        ctx.arc(sx, sy + wobbleY, p.size, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (p.itemId === 'magnet') {
-        // U shape
-        ctx.strokeStyle = p.color;
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(sx, sy + wobbleY, p.size * 0.6, 0, Math.PI);
-        ctx.stroke();
-        ctx.fillStyle = '#ff0000';
-        ctx.fillRect(sx - p.size * 0.6 - 2, sy + wobbleY - 8, 4, 8);
-        ctx.fillStyle = '#0000ff';
-        ctx.fillRect(sx + p.size * 0.6 - 2, sy + wobbleY - 8, 4, 8);
-      } else if (p.itemId === 'xp_chest') {
-        // Chest shape
-        ctx.fillStyle = '#8B6914';
-        ctx.fillRect(sx - p.size * 0.7, sy - p.size * 0.4 + wobbleY, p.size * 1.4, p.size * 0.8);
-        ctx.fillStyle = p.color;
-        ctx.fillRect(sx - p.size * 0.7, sy - p.size * 0.4 + wobbleY, p.size * 1.4, p.size * 0.3);
-        // Lock
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(sx - 2, sy - 2 + wobbleY, 4, 4);
-      } else if (p.itemId === 'bomb') {
-        // Bomb circle with fuse
-        ctx.fillStyle = '#222222';
-        ctx.beginPath();
-        ctx.arc(sx, sy + wobbleY, p.size * 0.7, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = p.color;
-        ctx.beginPath();
-        ctx.arc(sx, sy + wobbleY, p.size * 0.5, 0, Math.PI * 2);
-        ctx.fill();
-        // Fuse spark
-        ctx.fillStyle = '#ffff00';
-        const sparkX = sx + Math.cos(p.wobble * 2) * 2;
-        const sparkY = sy - p.size * 0.7 + wobbleY;
-        ctx.beginPath();
-        ctx.arc(sparkX, sparkY, 2, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (p.itemId === 'airdrop') {
-        // Crate
-        ctx.fillStyle = '#ffaa00';
-        ctx.fillRect(sx - p.size * 0.6, sy - p.size * 0.6 + wobbleY, p.size * 1.2, p.size * 1.2);
-        ctx.strokeStyle = '#cc8800';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(sx - p.size * 0.6, sy - p.size * 0.6 + wobbleY, p.size * 1.2, p.size * 1.2);
-        // Star
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 12px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('★', sx, sy + wobbleY);
+      if (assetKey) {
+        EntityRenderer.drawSprite(
+          ctx, assetKey, sx, sy,
+          p.itemId === 'magnet' ? p.wobble * 0.5 : 0, // rotate magnet gently
+          1, 1, wobbleY
+        );
       } else {
-        // Generic circle
-        ctx.fillStyle = p.color;
-        ctx.beginPath();
-        ctx.arc(sx, sy + wobbleY, p.size * 0.7, 0, Math.PI * 2);
-        ctx.fill();
-        // Inner highlight
-        ctx.fillStyle = '#ffffff44';
-        ctx.beginPath();
-        ctx.arc(sx - 2, sy - 2 + wobbleY, p.size * 0.3, 0, Math.PI * 2);
-        ctx.fill();
+        // Fallback for bomb or other items
+        // Glow
+        ctx.shadowColor = p.glowColor;
+        ctx.shadowBlur = 12;
+
+        if (p.itemId === 'bomb') {
+          ctx.fillStyle = '#222222';
+          ctx.beginPath();
+          ctx.arc(sx, sy + wobbleY, p.size * 0.7, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = p.color;
+          ctx.beginPath();
+          ctx.arc(sx, sy + wobbleY, p.size * 0.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#ffff00';
+          const sparkX = sx + Math.cos(p.wobble * 2) * 2;
+          const sparkY = sy - p.size * 0.7 + wobbleY;
+          ctx.beginPath();
+          ctx.arc(sparkX, sparkY, 2, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillStyle = p.color;
+          ctx.beginPath();
+          ctx.arc(sx, sy + wobbleY, p.size * 0.7, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.shadowBlur = 0;
       }
 
-      ctx.shadowBlur = 0;
       ctx.globalAlpha = 1;
 
       // Label (for non-obvious items)

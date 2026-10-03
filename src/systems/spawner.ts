@@ -20,9 +20,9 @@ export class Spawner {
   update(
     dt: number, gameTime: number, currentZombieCount: number,
     camera: Camera, playerX: number, playerY: number
-  ): { type: ZombieTypeDef; x: number; y: number; tier: DifficultyTier }[] {
+  ): { type: ZombieTypeDef; x: number; y: number; tier: DifficultyTier; isElite?: boolean }[] {
     const tier = this.getCurrentTier(gameTime);
-    const spawns: { type: ZombieTypeDef; x: number; y: number; tier: DifficultyTier }[] = [];
+    const spawns: { type: ZombieTypeDef; x: number; y: number; tier: DifficultyTier; isElite?: boolean }[] = [];
 
     // Check boss spawn
     for (const bossTime of BOSS_SPAWN_TIMES) {
@@ -52,7 +52,9 @@ export class Spawner {
         const type = this.pickZombieType(gameTime);
         if (type) {
           const pos = this.getSpawnPosition(camera, playerX, playerY);
-          spawns.push({ type, x: pos.x, y: pos.y, tier });
+          const eliteChance = gameTime >= 45 ? Math.min(0.12, 0.04 + gameTime / 6000) : 0;
+          const isElite = !type.isBoss && Math.random() < eliteChance;
+          spawns.push({ type, x: pos.x, y: pos.y, tier, isElite: isElite || undefined });
         }
       }
     }

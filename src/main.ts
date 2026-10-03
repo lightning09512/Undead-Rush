@@ -15,9 +15,12 @@ import { ParticleSystem } from './entities/particles';
 import { DamageNumbers } from './entities/damage-numbers';
 import { EnemyProjectileSystem } from './entities/enemy-projectiles';
 import { MapPickupSystem } from './entities/map-pickups';
+import { SupplyCrateSystem } from './entities/supply-crates';
 import { GroundRenderer } from './graphics/ground';
 import { PropRenderer } from './graphics/props';
 import { LightingRenderer } from './graphics/lighting';
+import { spriteLoader } from './graphics/assets-config';
+import { EntityRenderer } from './graphics/entity-renderer';
 
 import { Spawner } from './systems/spawner';
 import { WeaponSystem } from './systems/weapons';
@@ -28,8 +31,9 @@ import { HUD } from './ui/hud';
 import { UpgradeUI } from './ui/upgrade-ui';
 import { MenuUI } from './ui/menu';
 import { ShopUI } from './ui/shop';
+import { CrosshairRenderer } from './ui/crosshair';
 
-import { MAP_CONFIG, PLAYER_DEFAULTS } from './data/items';
+import { MAP_CONFIG, PLAYER_DEFAULTS, WEAPON_PARTS } from './data/items';
 import { PERM_UPGRADES, CHARACTERS, STAGES } from './data/meta';
 import { EVOLUTIONS } from './data/upgrades';
 
@@ -44,6 +48,8 @@ function resizeCanvas(): void {
   LightingRenderer.get().resizeVignette(canvas.width, canvas.height);
 }
 
+EntityRenderer.init();
+
 // ─── Systems ───
 const camera = new Camera();
 const input = new Input(canvas);
@@ -56,6 +62,7 @@ const particles = new ParticleSystem();
 const damageNumbers = new DamageNumbers();
 const enemyProjectiles = new EnemyProjectileSystem();
 const mapPickups = new MapPickupSystem();
+const supplyCrates = new SupplyCrateSystem();
 const spawner = new Spawner();
 const weapons = new WeaponSystem();
 const zombieGrid = new SpatialGrid<Zombie>(64);
@@ -117,9 +124,23 @@ function gameLoop(timestamp: number): void {
   const dt = Math.min(rawDt, 0.1);
   lastTimestamp = timestamp;
 
+  if (!spriteLoader.ready) {
+    ctx.fillStyle = '#060906';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '24px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Loading Assets...', canvas.width / 2, canvas.height / 2);
+    return;
+  }
+
   input.update();
 
   const click = input.uiClick;
+
+  if (click && menuUI.currentScreen === 'playing' && !paused) {
+    weapons.loadout.handleClick(click.x, click.y, canvas.width, canvas.height, audio);
+  }
 
   // ─── Shop Screen ───
   if (shopUI.visible) {
@@ -152,6 +173,7 @@ function gameLoop(timestamp: number): void {
     }
 
     // Draw appropriate screen
+    canvas.style.cursor = 'default';
     if (menuUI.currentScreen === 'main') {
       menuUI.draw(ctx, canvas.width, canvas.height, save);
       return;
@@ -168,7 +190,7 @@ function gameLoop(timestamp: number): void {
     }
     if (menuUI.currentScreen === 'levelup') {
       drawGame();
-      upgradeUI.draw(ctx, canvas.width, canvas.height);
+      upgradeUI.draw(ctx, canvas.width, canvas.height, player);
       return;
     }
     if (menuUI.currentScreen === 'stage_complete' as any) {
@@ -211,6 +233,12 @@ function handleMenuAction(action: string | null): void {
       break;
     case 'open_shop':
       shopUI.visible = true;
+      break;
+    case 'open_hunter_profile':
+      menuUI.currentScreen = 'hunter_profile';
+      break;
+    case 'open_tutorial':
+      menuUI.currentScreen = 'tutorial';
       break;
     case 'resume':
       menuUI.currentScreen = 'playing';
@@ -255,13 +283,22 @@ function updateGame(dt: number): void {
   player.move(input.dirX, input.dirY, dt);
   player.update(dt);
 
+  // Dash input
+  if (input.dashPressed) {
+    player.dash(input.dirX, input.dirY);
+  }
+
   // ─── Camera ───
-  camera.follow(player.x, player.y, dt);
+  camera.follow(player.x, player.y, input.mouseX, input.mouseY, dt);
 
   // ─── Spawning ───
   const toSpawn = spawner.update(dt, gameTime, zombies.pool.activeCount, camera, player.x, player.y);
   for (const s of toSpawn) {
-    const z = zombies.spawn(s.type, s.x, s.y, s.tier.hpMultiplier, s.tier.speedMultiplier, s.tier.damageMultiplier);
+    const z = zombies.spawn(
+      s.type, s.x, s.y,
+      s.tier.hpMultiplier, s.tier.speedMultiplier, s.tier.damageMultiplier,
+      s.isElite
+    );
 
     // Stage mode difficulty multiplier
     if (gameMode === 'stage' && currentStageIndex < STAGES.length) {
@@ -273,7 +310,7 @@ function updateGame(dt: number): void {
   }
 
   // ─── Weapons ───
-  weapons.update(dt, player, zombies.pool, bullets, audio);
+  weapons.update(dt, player, input, zombies.pool, bullets, audio, camera);
 
   // ─── Bullets ───
   bullets.update(dt);
@@ -339,15 +376,16 @@ function updateGame(dt: number): void {
     const dist = dx * dx + dy * dy;
     const radii = player.size + p.size;
     if (dist < radii * radii) {
-      const dead = player.takeDamage(p.damage);
-      if (dead) {
+      const hit = player.takeDamage(p.damage);
+      if (hit.dead) {
         handlePlayerDeath();
         return true;
-      } else if (player.invulnTimer > 0) {
+      }
+      if (hit.damaged) {
         audio.playerHit();
-        camera.shake(4, 0.15);
-        damageNumbers.spawn(player.x, player.y, p.damage, '#44ff66');
-        particles.emit(player.x, player.y, 4, '#44ff66', 80, 0.3, 3);
+        camera.shake(1.5, 0.08);
+        damageNumbers.spawn(player.x, player.y, hit.actualDamage, '#ff4444', false, '-');
+        particles.emit(player.x, player.y, 3, '#44ff66', 60, 0.2, 2.5);
       }
       return true; // release projectile
     }
@@ -370,6 +408,14 @@ function updateGame(dt: number): void {
         z.flashTimer = 0.08;
         b.hitIds.add(z.id);
 
+        // Apply knockback impulse
+        const kDist = Math.sqrt(dx * dx + dy * dy);
+        if (kDist > 0.1) {
+          const kForce = z.isBoss ? 35 : z.isElite ? 85 : 180;
+          z.knockbackX = (-dx / kDist) * kForce;
+          z.knockbackY = (-dy / kDist) * kForce;
+        }
+
         if (b.burn > 0) {
           z.burnTimer = 3;
           z.burnDamage = b.burn;
@@ -380,8 +426,8 @@ function updateGame(dt: number): void {
         }
 
         damageNumbers.spawn(z.x, z.y, b.damage, '#ffdd44');
-        particles.burst(z.x, z.y, 3, z.color,
-          Math.atan2(-dy, -dx), Math.PI * 0.5, 80, 0.3);
+        particles.burst(z.x, z.y, 4, z.color,
+          Math.atan2(-dy, -dx), Math.PI * 0.5, 90, 0.35);
         audio.hit();
 
         if (b.explosive > 0) {
@@ -399,6 +445,17 @@ function updateGame(dt: number): void {
         }
       }
     }
+
+    // Bullet-Crate collision
+    const crateHit = supplyCrates.damageCrate(b.x, b.y, b.damage);
+    if (crateHit) {
+      const crate = supplyCrates.getCrateAt(b.x, b.y);
+      if (crate) {
+        handleCrateDestruction(crate);
+      }
+      return true; // destroy bullet
+    }
+
     return false;
   });
 
@@ -419,21 +476,26 @@ function updateGame(dt: number): void {
     const radii = player.size + z.size;
     if (dist < radii * radii) {
       if (z.explodes && z.hp > 0) {
-        handleExplosion(z.x, z.y, z.explosionRadius, z.explosionDamage);
         z.hp = 0;
         handleZombieDeath(z);
         continue;
       }
 
-      const dead = player.takeDamage(z.damage);
-      if (dead) {
-        handlePlayerDeath();
-        return;
-      } else if (player.invulnTimer > 0) {
-        audio.playerHit();
-        camera.shake(5, 0.2);
-        damageNumbers.spawn(player.x, player.y, z.damage, '#ff4444');
-        particles.emit(player.x, player.y, 5, '#ff4444', 100, 0.3, 3);
+      if (z.attackCooldown <= 0) {
+        z.attackAnim = 1.0;
+        z.attackTimer += 0.8;
+        const hit = player.takeDamage(z.damage);
+        if (hit.dead) {
+          handlePlayerDeath();
+          return;
+        }
+        if (hit.damaged) {
+          z.attackCooldown = 0.5;
+          audio.playerHit();
+          camera.shake(1.6, 0.08);
+          damageNumbers.spawn(player.x, player.y, hit.actualDamage, '#ff3b30', false, '-');
+          particles.emit(player.x, player.y, 3, '#ff3b30', 60, 0.18, 2.5);
+        }
       }
     }
   }
@@ -455,6 +517,9 @@ function updateGame(dt: number): void {
       }
     }
   }
+
+  // ─── Supply Crates ───
+  supplyCrates.update(dt, gameTime, player.x, player.y);
 
   // ─── Map Pickups ───
   const pickedUp = mapPickups.update(dt, gameTime, player.x, player.y);
@@ -522,7 +587,87 @@ function handlePickup(itemId: string, value: number, duration: number): void {
       particles.emit(player.x, player.y, 25, '#ffaa00', 150, 0.8, 6);
       camera.shake(5, 0.2);
       break;
+    case 'weapon_part':
+      // Apply weapon part effect
+      handleWeaponPart();
+      break;
+    case 'gun_sg12':
+      weapons.loadout.unlockGun('sg12', audio);
+      damageNumbers.spawn(player.x, player.y - 35, 0, '#a3e635');
+      particles.emit(player.x, player.y, 25, '#ff9933', 140, 0.7, 5);
+      audio.levelUp();
+      break;
+    case 'gun_smg9':
+      weapons.loadout.unlockGun('smg9', audio);
+      damageNumbers.spawn(player.x, player.y - 35, 0, '#a3e635');
+      particles.emit(player.x, player.y, 25, '#00e5ff', 140, 0.7, 5);
+      audio.levelUp();
+      break;
   }
+}
+
+function handleCrateDestruction(crate: any): void {
+  audio.explosion();
+  camera.shake(5, 0.2);
+  particles.emit(crate.x, crate.y, 15, '#ffaa00', 100, 0.5, 4);
+
+  // Chance to drop an unowned weapon from crate!
+  if (!weapons.loadout.hasGun('sg12') && Math.random() < 0.45) {
+    mapPickups.spawnWeaponPickup(crate.x, crate.y, 'sg12');
+    return;
+  }
+  if (!weapons.loadout.hasGun('smg9') && Math.random() < 0.45) {
+    mapPickups.spawnWeaponPickup(crate.x, crate.y, 'smg9');
+    return;
+  }
+
+  // Get drop type from crate
+  const dropType = supplyCrates.getDropType(crate);
+
+  // Spawn the appropriate pickup
+  if (dropType === 'weapon_part') {
+    handleWeaponPart();
+  } else if (dropType === 'health_pack') {
+    player.heal(30);
+    particles.emit(crate.x, crate.y, 8, '#ff4444', 60, 0.4, 3);
+    damageNumbers.spawn(crate.x, crate.y, 30, '#44ff44');
+  } else if (dropType === 'xp_chest') {
+    player.addXp(100);
+    particles.emit(crate.x, crate.y, 20, '#ffdd00', 120, 0.6, 5);
+  } else if (dropType === 'shield') {
+    player.buffs.set('shield', { duration: 8, value: 1 });
+    particles.emit(crate.x, crate.y, 10, '#8888ff', 80, 0.4, 3);
+  } else if (dropType === 'magnet') {
+    xpGems.magnetizeAll();
+    particles.emit(crate.x, crate.y, 15, '#ff8800', 100, 0.5, 4);
+  }
+}
+
+function handleWeaponPart(): void {
+  // Randomly select a weapon part type
+  const part = WEAPON_PARTS[Math.floor(Math.random() * WEAPON_PARTS.length)];
+
+  // Apply the effect
+  switch (part.id) {
+    case 'part_damage':
+      player.bulletDamage = Math.round(player.bulletDamage * 1.05);
+      break;
+    case 'part_fire_rate':
+    case 'part_magazine':
+      player.fireRate *= 1.08;
+      break;
+    case 'part_pierce':
+      player.pierceCount += 1;
+      break;
+    case 'part_split':
+      // Split effect - handled in weapon system
+      break;
+  }
+
+  // Show notification
+  damageNumbers.spawn(player.x, player.y - 30, 0, '#ff00ff');
+  particles.emit(player.x, player.y, 15, '#ff00ff', 100, 0.6, 4);
+  audio.levelUp();
 }
 
 function handleScreenBomb(): void {
@@ -628,11 +773,21 @@ function handleZombieDeath(z: Zombie): void {
   if (z.hp > 0) return;
 
   player.kills++;
+  weapons.loadout.addRageOnKill();
 
   if (z.isBoss) {
     bossKilledThisRun = true;
-    camera.shake(12, 0.5);
-    particles.emit(z.x, z.y, 30, '#ff44ff', 200, 1.0, 6);
+    camera.shake(8, 0.3);
+    particles.emit(z.x, z.y, 16, '#ff44ff', 140, 0.6, 4);
+  }
+
+  // Elite and Boss zombies drop unowned weapons!
+  if (z.isBoss || z.isElite) {
+    if (!weapons.loadout.hasGun('sg12')) {
+      mapPickups.spawnWeaponPickup(z.x, z.y, 'sg12');
+    } else if (!weapons.loadout.hasGun('smg9')) {
+      mapPickups.spawnWeaponPickup(z.x, z.y, 'smg9');
+    }
   }
 
   if (player.lifestealAmount > 0) {
@@ -640,12 +795,17 @@ function handleZombieDeath(z: Zombie): void {
   }
 
   xpGems.drop(z.x, z.y, z.xpValue);
-  particles.emit(z.x, z.y, 8, z.color, 120, 0.5, 4);
-  audio.zombieDie();
 
   // Exploder death explosion
   if (z.explodes) {
+    z.explodes = false; // Prevent any duplicate explosions
     handleExplosion(z.x, z.y, z.explosionRadius, z.explosionDamage);
+  } else {
+    // Normal / Elite zombie death
+    particles.burst(z.x, z.y, z.isBoss ? 16 : 5, '#bb1122', Math.random() * Math.PI * 2, Math.PI * 2, 90, 0.25);
+    particles.emit(z.x, z.y, 3, z.color, 60, 0.2, 2.5);
+    audio.zombieDie();
+    camera.shake(z.isBoss ? 8 : z.isElite ? 1.8 : 0.6, z.isBoss ? 0.3 : 0.05);
   }
 
   zombies.pool.release(z);
@@ -653,24 +813,45 @@ function handleZombieDeath(z: Zombie): void {
 
 function handleExplosion(x: number, y: number, radius: number, damage: number): void {
   audio.explosion();
-  camera.shake(8, 0.3);
-  particles.emit(x, y, 20, '#ff6600', 150, 0.6, 5);
-  particles.emit(x, y, 10, '#ffcc00', 100, 0.4, 3);
+  camera.shake(1.8, 0.09);
+  particles.emit(x, y, 5, '#ff6600', 65, 0.22, 2.8);
+  particles.emit(x, y, 3, '#ffcc00', 45, 0.18, 2.2);
 
   const nearby = zombieGrid.query(x, y, radius);
+  const dyingZombies: Zombie[] = [];
+  let numbersSpawned = 0;
+
   for (const z of nearby) {
+    if (z.hp <= 0) continue;
     const dx = z.x - x;
     const dy = z.y - y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < radius) {
+    const distSq = dx * dx + dy * dy;
+    if (distSq < radius * radius) {
+      const dist = Math.sqrt(distSq);
       const falloff = 1 - dist / radius;
       const dmg = Math.round(damage * falloff);
       z.hp -= dmg;
-      z.flashTimer = 0.1;
-      damageNumbers.spawn(z.x, z.y, dmg, '#ff8844');
-      if (z.hp <= 0) {
-        handleZombieDeath(z);
+      z.flashTimer = 0.08;
+
+      if (numbersSpawned < 4) {
+        damageNumbers.spawn(z.x, z.y, dmg, '#ff8844');
+        numbersSpawned++;
       }
+
+      if (dist > 0.1) {
+        const expForce = (z.isBoss ? 45 : 180) * falloff;
+        z.knockbackX = (dx / dist) * expForce;
+        z.knockbackY = (dy / dist) * expForce;
+      }
+      if (z.hp <= 0) {
+        dyingZombies.push(z);
+      }
+    }
+  }
+
+  for (const dz of dyingZombies) {
+    if (dz.hp <= 0) {
+      handleZombieDeath(dz);
     }
   }
 
@@ -678,15 +859,32 @@ function handleExplosion(x: number, y: number, radius: number, damage: number): 
   const pdy = player.y - y;
   const pDist = Math.sqrt(pdx * pdx + pdy * pdy);
   if (pDist < radius) {
-    player.takeDamage(Math.round(damage * 0.3 * (1 - pDist / radius)));
+    const hit = player.takeDamage(Math.round(damage * 0.3 * (1 - pDist / radius)));
+    if (hit.dead) {
+      handlePlayerDeath();
+    } else if (hit.damaged) {
+      audio.playerHit();
+      camera.shake(1.8, 0.09);
+      damageNumbers.spawn(player.x, player.y, hit.actualDamage, '#ff3b30', false, '-');
+      particles.emit(player.x, player.y, 3, '#ff4444', 60, 0.18, 2.5);
+    }
   }
 }
 
 function drawGame(): void {
-  ctx.fillStyle = '#0a0a1a';
+  ctx.fillStyle = '#08090e';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   ctx.save();
+
+  // Apply camera zoom centered at the viewport center
+  if (camera.zoom !== 1) {
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    ctx.translate(cx, cy);
+    ctx.scale(camera.zoom, camera.zoom);
+    ctx.translate(-cx, -cy);
+  }
 
   groundRenderer.draw(ctx, camera);
   drawMapBorder();
@@ -695,9 +893,11 @@ function drawGame(): void {
 
   // Draw entities
   mapPickups.draw(ctx, camera);
+  supplyCrates.draw(ctx, camera);
   xpGems.draw(ctx, camera);
   bullets.draw(ctx, camera);
   enemyProjectiles.draw(ctx, camera);
+  drawPickupRadius();
   drawDrones();
   player.draw(ctx, camera);
   zombies.draw(ctx, camera);
@@ -706,6 +906,9 @@ function drawGame(): void {
 
   particles.draw(ctx, camera);
   damageNumbers.draw(ctx, camera);
+
+  // Floating reload indicator in world coordinates
+  weapons.loadout.drawInWorld(ctx, camera, player);
 
   ctx.restore();
   
@@ -721,13 +924,51 @@ function drawGame(): void {
   if (gameMode === 'stage' && currentStageIndex < STAGES.length) {
     drawStageObjective();
   }
+
+  // ─── Tactical Gun Loadout Bottom HUD Card (Matches User Spec) ───
+  if (menuUI.currentScreen === 'playing') {
+    weapons.loadout.drawHUD(ctx, canvas.width, canvas.height, player);
+  }
+
+  // ─── Custom Shooter Crosshair (Directional Arrow & Reticle) ───
+  if (!paused && menuUI.currentScreen === 'playing') {
+    canvas.style.cursor = 'none';
+
+    // Target lock detection on hovering zombies in world coordinates
+    let isTargetLocked = false;
+    const [mouseWorldX, mouseWorldY] = camera.windowScreenToWorld(input.mouseX, input.mouseY);
+    for (const z of zombies.pool.getActive()) {
+      if (z.hp <= 0) continue;
+      const distToCursor = Math.hypot(mouseWorldX - z.x, mouseWorldY - z.y);
+      if (distToCursor < z.size + 24) {
+        isTargetLocked = true;
+        break;
+      }
+    }
+
+    const [psx, psy] = camera.worldToWindowScreen(player.x, player.y);
+    CrosshairRenderer.draw(ctx, input.mouseX, input.mouseY, psx, psy, input.isFiring, isTargetLocked);
+  } else {
+    canvas.style.cursor = 'default';
+  }
+}
+
+function drawPickupRadius(): void {
+  const [sx, sy] = camera.worldToScreen(player.x, player.y);
+  ctx.strokeStyle = 'rgba(0, 229, 255, 0.18)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([6, 8]);
+  ctx.beginPath();
+  ctx.arc(sx, sy, player.pickupRadius, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
 }
 
 function drawActiveBuffs(): void {
   if (player.buffs.size === 0) return;
 
   const x = canvas.width - 12;
-  let y = 60;
+  let y = 125;
 
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
@@ -761,7 +1002,7 @@ function drawStageObjective(): void {
   const stage = STAGES[currentStageIndex];
 
   const x = canvas.width / 2;
-  const y = canvas.height - 40;
+  const y = canvas.height - 146; // Above tactical weapon card
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -795,17 +1036,56 @@ function drawStageObjective(): void {
 function drawMapBorder(): void {
   const { width, height, borderColor } = MAP_CONFIG;
 
-  ctx.strokeStyle = borderColor;
-  ctx.lineWidth = 4;
-
   const [x1, y1] = camera.worldToScreen(0, 0);
   const [x2, y2] = camera.worldToScreen(width, height);
 
-  ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+  // Outer glow zone
   ctx.shadowColor = borderColor;
-  ctx.shadowBlur = 15;
+  ctx.shadowBlur = 20;
+  ctx.strokeStyle = borderColor;
+  ctx.lineWidth = 3;
   ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+  // Inner electric line
+  ctx.shadowBlur = 8;
+  ctx.strokeStyle = '#aaccff';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x1 + 4, y1 + 4, x2 - x1 - 8, y2 - y1 - 8);
   ctx.shadowBlur = 0;
+
+  // Danger zone gradient on each edge (fades inward)
+  const fadeW = 30;
+  ctx.save();
+
+  // Top edge fade
+  const topGrad = ctx.createLinearGradient(0, y1, 0, y1 + fadeW);
+  topGrad.addColorStop(0, 'rgba(50, 130, 255, 0.12)');
+  topGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = topGrad;
+  ctx.fillRect(x1, y1, x2 - x1, fadeW);
+
+  // Bottom edge fade
+  const botGrad = ctx.createLinearGradient(0, y2, 0, y2 - fadeW);
+  botGrad.addColorStop(0, 'rgba(50, 130, 255, 0.12)');
+  botGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = botGrad;
+  ctx.fillRect(x1, y2 - fadeW, x2 - x1, fadeW);
+
+  // Left edge fade
+  const leftGrad = ctx.createLinearGradient(x1, 0, x1 + fadeW, 0);
+  leftGrad.addColorStop(0, 'rgba(50, 130, 255, 0.12)');
+  leftGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = leftGrad;
+  ctx.fillRect(x1, y1, fadeW, y2 - y1);
+
+  // Right edge fade
+  const rightGrad = ctx.createLinearGradient(x2, 0, x2 - fadeW, 0);
+  rightGrad.addColorStop(0, 'rgba(50, 130, 255, 0.12)');
+  rightGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = rightGrad;
+  ctx.fillRect(x2 - fadeW, y1, fadeW, y2 - y1);
+
+  ctx.restore();
 }
 
 function drawDrones(): void {
@@ -884,6 +1164,7 @@ function applyPermUpgrades(): void {
 
 function startGame(): void {
   resetGame();
+  player.loadout = weapons.loadout;
   audio.init();
   applyPermUpgrades();
   adWrapper.gameplayStart();
@@ -891,6 +1172,9 @@ function startGame(): void {
   paused = false;
   stageComplete = false;
   bossKilledThisRun = false;
+
+  // Spawn initial discoverable weapon drop (SG-12) 220px from player!
+  mapPickups.spawnWeaponPickup(player.x + 220, player.y + 45, 'sg12');
 }
 
 function resetGame(): void {
@@ -904,6 +1188,7 @@ function resetGame(): void {
   spawner.reset();
   weapons.reset();
   mapPickups.reset();
+  supplyCrates.reset();
   upgradeUI.visible = false;
   gameTime = 0;
   paused = false;
@@ -917,6 +1202,16 @@ function resetGame(): void {
 // ─── Initialization ───
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
+
+// User gesture unlock for WebAudio
+const unlockAudioContext = () => {
+  audio.init();
+  audio.ensureContext();
+};
+window.addEventListener('pointerdown', unlockAudioContext, { passive: true });
+window.addEventListener('mousedown', unlockAudioContext, { passive: true });
+window.addEventListener('keydown', unlockAudioContext, { passive: true });
+window.addEventListener('touchstart', unlockAudioContext, { passive: true });
 
 lastTimestamp = performance.now();
 requestAnimationFrame(gameLoop);

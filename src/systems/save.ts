@@ -21,6 +21,7 @@ export interface SaveData {
 
   // Level mode progress
   stagesCompleted: number;
+  completedStages: number[]; // Array of completed stage IDs
 
   // Settings
   soundEnabled: boolean;
@@ -40,6 +41,7 @@ const DEFAULT_SAVE: SaveData = {
   unlockedCharacters: ['survivor'],
   selectedCharacter: 'survivor',
   stagesCompleted: 0,
+  completedStages: [],
   soundEnabled: true,
 };
 
@@ -120,8 +122,11 @@ export class SaveSystem {
   completeStage(stageNum: number): void {
     if (stageNum > this.data.stagesCompleted) {
       this.data.stagesCompleted = stageNum;
-      this.save();
     }
+    if (!this.data.completedStages.includes(stageNum)) {
+      this.data.completedStages.push(stageNum);
+    }
+    this.save();
   }
 
   resetAll(): void {

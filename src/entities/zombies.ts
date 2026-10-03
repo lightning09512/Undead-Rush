@@ -3,7 +3,7 @@
 import { Pool } from '../core/pool';
 import { Camera } from '../core/camera';
 import { ZombieTypeDef } from '../data/zombies';
-import { AssetManager, SpriteId } from '../graphics/sprites';
+import { ZombieRenderer } from '../graphics/zombie-renderer';
 
 let nextZombieId = 1;
 
@@ -25,9 +25,14 @@ export interface Zombie {
   burnDamage: number;
   slowTimer: number;
   slowMult: number;
+  // Kinetic / Knockback
+  knockbackX: number;
+  knockbackY: number;
+  facingLeft: boolean;
   // Flags
   isBoss: boolean;
   isGlowing: boolean;
+  isElite: boolean;
   explodes: boolean;
   explosionRadius: number;
   explosionDamage: number;
@@ -38,6 +43,12 @@ export interface Zombie {
   // Animation
   wobble: number;
   animTimer: number;
+  vx: number;
+  vy: number;
+  facingAngle: number;
+  walkDist: number;
+  attackAnim: number;
+  attackTimer: number;
 }
 
 function createZombie(): Zombie {
@@ -47,11 +58,18 @@ function createZombie(): Zombie {
     typeId: 'normal',
     flashTimer: 0, burnTimer: 0, burnDamage: 0,
     slowTimer: 0, slowMult: 1,
-    isBoss: false, isGlowing: false,
+    knockbackX: 0, knockbackY: 0,
+    facingLeft: false,
+    isBoss: false, isGlowing: false, isElite: false,
     explodes: false, explosionRadius: 0, explosionDamage: 0,
     ranged: false, attackRange: 0, projectileSpeed: 0, attackCooldown: 0,
     wobble: 0,
     animTimer: 0,
+    vx: 0, vy: 0,
+    facingAngle: 0,
+    walkDist: 0,
+    attackAnim: 0,
+    attackTimer: 0,
   };
 }
 
@@ -61,9 +79,16 @@ function resetZombie(z: Zombie): void {
   z.burnTimer = 0;
   z.slowTimer = 0;
   z.slowMult = 1;
+  z.knockbackX = 0;
+  z.knockbackY = 0;
+  z.facingLeft = false;
   z.attackCooldown = 0;
   z.wobble = 0;
   z.animTimer = Math.random() * 100;
+  z.walkDist = 0;
+  z.attackAnim = 0;
+  z.attackTimer = 0;
+  z.facingAngle = 0;
 }
 
 export class ZombieSystem {
@@ -76,7 +101,8 @@ export class ZombieSystem {
   spawn(
     typeDef: ZombieTypeDef,
     x: number, y: number,
-    hpMult: number, speedMult: number, damageMult: number
+    hpMult: number, speedMult: number, damageMult: number,
+    isElite = false
   ): Zombie {
     const z = this.pool.acquire();
     z.id = nextZombieId++;
@@ -91,7 +117,15 @@ export class ZombieSystem {
     z.xpValue = typeDef.xpValue;
     z.typeId = typeDef.id;
     z.isBoss = !!typeDef.isBoss;
-    z.isGlowing = !!typeDef.isGlowing;
+    z.isGlowing = !!typeDef.isGlowing || isElite;
+    z.isElite = isElite && !typeDef.isBoss;
+    if (z.isElite) {
+      z.hp = Math.round(z.hp * 2.2);
+      z.maxHp = z.hp;
+      z.damage = Math.round(z.damage * 1.15);
+      z.xpValue = Math.round(z.xpValue * 2.5);
+      z.size = Math.round(z.size * 1.12);
+    }
     z.explodes = !!typeDef.explodes;
     z.explosionRadius = typeDef.explosionRadius || 0;
     z.explosionDamage = Math.round((typeDef.explosionDamage || 0) * damageMult);
@@ -99,48 +133,97 @@ export class ZombieSystem {
     z.attackRange = typeDef.attackRange || 0;
     z.projectileSpeed = typeDef.projectileSpeed || 0;
     z.wobble = Math.random() * Math.PI * 2;
+    z.knockbackX = 0;
+    z.knockbackY = 0;
+    z.facingLeft = false;
     return z;
   }
 
   update(dt: number, playerX: number, playerY: number): void {
     this.pool.forEach((z) => {
-      // Chase player
       const dx = playerX - z.x;
       const dy = playerY - z.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
+      // Facing orientation (left / right)
+      // Smooth facing angle towards player / movement
+      const targetAngle = Math.atan2(dy, dx);
+      let diff = targetAngle - z.facingAngle;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      const turnSpeed = z.isBoss ? 8 : z.typeId === 'runner' ? 14 : 10;
+      const turnK = 1 - Math.exp(-turnSpeed * dt);
+      z.facingAngle += diff * turnK;
+
+      if (Math.abs(dx) > 1.5) {
+        z.facingLeft = dx < 0;
+      }
+
       if (dist > 1) {
         let speed = z.speed;
-        // Apply slow
+        // Apply slow debuff
         if (z.slowTimer > 0) {
           speed *= z.slowMult;
           z.slowTimer -= dt;
         }
 
-        // Ranged zombies stop at attack range
+        // Ranged spitters keep distance
         if (z.ranged && dist < z.attackRange) {
-          // Don't move closer
+          const k = 1 - Math.exp(-6 * dt);
+          z.vx *= (1 - k);
+          z.vy *= (1 - k);
         } else {
-          z.x += (dx / dist) * speed * dt;
-          z.y += (dy / dist) * speed * dt;
+          const targetVx = (dx / dist) * speed;
+          const targetVy = (dy / dist) * speed;
+          const k = 1 - Math.exp(-8 * dt);
+          z.vx += (targetVx - z.vx) * k;
+          z.vy += (targetVy - z.vy) * k;
         }
+      } else {
+        z.vx *= 0.5;
+        z.vy *= 0.5;
       }
 
-      // Burn damage
+      // Apply velocity AND knockback impulse
+      z.x += (z.vx + z.knockbackX) * dt;
+      z.y += (z.vy + z.knockbackY) * dt;
+
+      // Exponential decay of knockback
+      const decay = Math.exp(-12 * dt);
+      z.knockbackX *= decay;
+      z.knockbackY *= decay;
+
+      // Burn damage over time
       if (z.burnTimer > 0) {
         z.burnTimer -= dt;
         z.hp -= z.burnDamage * dt;
       }
 
-      // Flash timer
+      // Flash timer for hit feedback
       if (z.flashTimer > 0) z.flashTimer -= dt;
 
       // Attack cooldown
       if (z.attackCooldown > 0) z.attackCooldown -= dt;
 
-      // Wobble animation
+      // Footstep locomotion distance
+      const movingSpeed = Math.sqrt(z.vx * z.vx + z.vy * z.vy);
+      if (movingSpeed > 5) {
+        z.walkDist += movingSpeed * dt * 0.08;
+      }
+
+      // Attack / Claw scratching animation when close to player
+      const inAttackRange = dist < (z.size + 36);
+      if (inAttackRange || z.attackCooldown > 0.25) {
+        z.attackAnim = Math.min(1, z.attackAnim + dt * 6);
+        z.attackTimer += dt * 10;
+      } else {
+        z.attackAnim = Math.max(0, z.attackAnim - dt * 3);
+        z.attackTimer += dt * 2;
+      }
+
+      // Animation & bobbing cadence
       z.wobble += dt * 5;
-      z.animTimer += dt * 8; // Adjust animation speed
+      z.animTimer += dt * (movingSpeed > 10 ? 1.0 : 0.4);
 
       // Release if dead
       if (z.hp <= 0) return true;
@@ -151,82 +234,82 @@ export class ZombieSystem {
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
     const active = this.pool.getActive();
     for (const z of active) {
-      if (!camera.isVisible(z.x, z.y, z.size + 10)) continue;
+      if (!camera.isVisible(z.x, z.y, z.size + 30)) continue;
       const [sx, sy] = camera.worldToScreen(z.x, z.y);
 
-      // Wobble
-      const wobbleX = Math.sin(z.wobble) * 2;
-      const wobbleY = Math.cos(z.wobble * 0.7) * 1;
+      const isFlashing = z.flashTimer > 0;
 
-      // Burn and slow glow overlays
+      // Draw procedural top-down zombie (Monster Breakout style)
+      ZombieRenderer.drawZombie(ctx, z, sx, sy, isFlashing);
+
+      // Burn fire overlay
       if (z.burnTimer > 0) {
+        ctx.save();
         ctx.globalCompositeOperation = 'lighter';
-        ctx.fillStyle = 'rgba(255, 100, 0, 0.5)';
+        ctx.fillStyle = 'rgba(255, 100, 0, 0.45)';
         ctx.beginPath();
-        ctx.arc(sx + wobbleX, sy + wobbleY, z.size * 1.5, 0, Math.PI * 2);
+        ctx.arc(sx, sy - 4, z.size * 1.3, 0, Math.PI * 2);
         ctx.fill();
-        ctx.globalCompositeOperation = 'source-over';
+        ctx.restore();
       }
 
+      // Slow ice overlay
       if (z.slowTimer > 0) {
+        ctx.save();
         ctx.globalCompositeOperation = 'lighter';
-        ctx.fillStyle = 'rgba(100, 150, 255, 0.4)';
+        ctx.fillStyle = 'rgba(80, 160, 255, 0.4)';
         ctx.beginPath();
-        ctx.arc(sx + wobbleX, sy + wobbleY, z.size * 1.5, 0, Math.PI * 2);
+        ctx.arc(sx, sy - 4, z.size * 1.3, 0, Math.PI * 2);
         ctx.fill();
-        ctx.globalCompositeOperation = 'source-over';
+        ctx.restore();
       }
 
-      // Draw sprite
-      const frameIndex = Math.floor(z.animTimer) % 4;
-      let spriteId = z.typeId as SpriteId;
-      if (z.isBoss) spriteId = 'boss';
-      
-      // Map 'normal' to 'shambler' as fallback
-      if (spriteId as string === 'normal') spriteId = 'shambler';
-
-      const sprite = AssetManager.get().getSprite(spriteId, z.color, frameIndex);
-      
-      ctx.save();
-      ctx.translate(sx, sy);
-      ctx.rotate(z.wobble * 0.1);
-
-      if (z.flashTimer > 0) {
-        ctx.globalCompositeOperation = 'lighter';
+      // Elite purple aura
+      if (z.isElite) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(200, 80, 255, 0.85)';
+        ctx.lineWidth = 2.5;
+        ctx.shadowColor = '#cc44ff';
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.arc(sx, sy - 4, z.size + 4, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
       }
-
-      ctx.drawImage(sprite, -sprite.width / 2, -sprite.height / 2);
-      ctx.restore();
-
-      ctx.globalAlpha = 1;
-      ctx.globalCompositeOperation = 'source-over';
 
       // HP bar for bosses and damaged zombies
       if (z.isBoss || z.hp < z.maxHp) {
-        const barW = z.size * 2;
-        const barH = z.isBoss ? 6 : 3;
-        const barY = sy - z.size - 8;
+        const barW = Math.max(28, z.size * 1.8);
+        const barH = z.isBoss ? 7 : 4;
+        const barY = sy - z.size - (z.isBoss ? 16 : 10);
         const hpRatio = Math.max(0, z.hp / z.maxHp);
-        ctx.fillStyle = '#333333';
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+        ctx.fillRect(sx - barW / 2 - 1, barY - 1, barW + 2, barH + 2);
+        ctx.fillStyle = '#222222';
         ctx.fillRect(sx - barW / 2, barY, barW, barH);
-        ctx.fillStyle = z.isBoss ? '#ff4444' : '#44ff44';
+        ctx.fillStyle = z.isBoss ? '#ff3344' : '#55ff55';
         ctx.fillRect(sx - barW / 2, barY, barW * hpRatio, barH);
       }
 
       // Boss crown
       if (z.isBoss) {
-        ctx.fillStyle = '#ffcc00';
+        ctx.save();
+        ctx.fillStyle = '#ffdd00';
+        ctx.shadowColor = '#ffaa00';
+        ctx.shadowBlur = 6;
         ctx.beginPath();
-        const crownY = sy - z.size - 14;
-        ctx.moveTo(sx - 10, crownY);
-        ctx.lineTo(sx - 8, crownY - 8);
-        ctx.lineTo(sx - 4, crownY - 3);
-        ctx.lineTo(sx, crownY - 10);
-        ctx.lineTo(sx + 4, crownY - 3);
-        ctx.lineTo(sx + 8, crownY - 8);
-        ctx.lineTo(sx + 10, crownY);
+        const crownY = sy - z.size - 22;
+        ctx.moveTo(sx - 12, crownY);
+        ctx.lineTo(sx - 10, crownY - 10);
+        ctx.lineTo(sx - 5, crownY - 4);
+        ctx.lineTo(sx, crownY - 12);
+        ctx.lineTo(sx + 5, crownY - 4);
+        ctx.lineTo(sx + 10, crownY - 10);
+        ctx.lineTo(sx + 12, crownY);
         ctx.closePath();
         ctx.fill();
+        ctx.restore();
       }
     }
   }

@@ -26,9 +26,10 @@ export class LightingRenderer {
     const cx = width / 2;
     const cy = height / 2;
     
-    const grad = ctx.createRadialGradient(cx, cy, maxRadius * 0.4, cx, cy, maxRadius);
+    const grad = ctx.createRadialGradient(cx, cy, maxRadius * 0.35, cx, cy, maxRadius);
     grad.addColorStop(0, 'rgba(0, 0, 0, 0)');
-    grad.addColorStop(1, 'rgba(0, 10, 5, 0.7)');
+    grad.addColorStop(0.7, 'rgba(5, 5, 15, 0.35)');
+    grad.addColorStop(1, 'rgba(0, 2, 8, 0.8)');
     
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, width, height);

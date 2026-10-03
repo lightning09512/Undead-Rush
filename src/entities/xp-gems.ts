@@ -4,6 +4,7 @@ import { Pool } from '../core/pool';
 import { Camera } from '../core/camera';
 import { XP_GEMS } from '../data/items';
 import { LightingRenderer } from '../graphics/lighting';
+import { EntityRenderer } from '../graphics/entity-renderer';
 
 export interface XpGem {
   x: number;
@@ -115,25 +116,19 @@ export class XpGemSystem {
       // Glow using LightingRenderer (cached)
       LightingRenderer.get().drawGlow(ctx, sx, sy + wobbleY, g.size * 5, g.glowColor, 0.6);
 
-      // Diamond shape
-      ctx.fillStyle = g.color;
-      ctx.beginPath();
-      const s = g.size;
-      ctx.moveTo(sx, sy - s + wobbleY);
-      ctx.lineTo(sx + s * 0.7, sy + wobbleY);
-      ctx.lineTo(sx, sy + s + wobbleY);
-      ctx.lineTo(sx - s * 0.7, sy + wobbleY);
-      ctx.closePath();
-      ctx.fill();
+      let assetKey = 'gem_blue';
+      if (g.value >= 50) assetKey = 'gem_yellow';
+      else if (g.value >= 15) assetKey = 'gem_green';
 
-      // Sparkle
-      ctx.fillStyle = '#ffffff';
-      ctx.globalAlpha = 0.6 + Math.sin(g.wobble * 2) * 0.3;
-      ctx.beginPath();
-      ctx.arc(sx, sy - s * 0.3 + wobbleY, s * 0.2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-
+      EntityRenderer.drawSprite(
+        ctx,
+        assetKey,
+        sx, sy,
+        0, // angle
+        1, // scaleMult
+        1, // alpha
+        wobbleY
+      );
     }
   }
 }

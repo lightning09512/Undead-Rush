@@ -132,6 +132,17 @@ export const MAP_ITEMS: ItemDef[] = [
     weight: 2,
     minTime: 90,
   },
+  {
+    id: 'weapon_part',
+    name: 'Weapon Part',
+    color: '#ff00ff',
+    glowColor: '#cc00cc',
+    size: 10,
+    duration: 0,
+    value: 0,
+    weight: 3,
+    minTime: 45,
+  },
 ];
 
 // ─── Player Defaults ───
@@ -141,11 +152,11 @@ export const PLAYER_DEFAULTS = {
   size: 14,               // radius
   color: '#4488ff',
   bulletDamage: 15,
-  bulletSpeed: 450,
+  bulletSpeed: 1100,
   bulletSize: 4,
   bulletColor: '#ffdd44',
   fireRate: 3.0,           // shots per second
-  fireRange: 350,
+  fireRange: 620,
   pickupRadius: 60,
   invulnDuration: 0.5,     // seconds after being hit
 };
@@ -155,12 +166,59 @@ export function xpForLevel(level: number): number {
   return Math.floor(20 + level * 15 + level * level * 2);
 }
 
+// ─── Weapon Parts System (like Monster Breakout) ───
+export interface WeaponPartDef {
+  id: string;
+  name: string;
+  icon: string;
+  description: string;
+  effect: string; // What stat it boosts
+}
+
+export const WEAPON_PARTS: WeaponPartDef[] = [
+  {
+    id: 'part_damage',
+    name: 'Damage Part',
+    icon: 'D',
+    description: 'Tăng sát thương vũ khí',
+    effect: '+5% damage',
+  },
+  {
+    id: 'part_fire_rate',
+    name: 'Fire Rate Part',
+    icon: 'F',
+    description: 'Tăng tốc độ bắn',
+    effect: '+8% fire rate',
+  },
+  {
+    id: 'part_magazine',
+    name: 'Magazine Part',
+    icon: 'M',
+    description: 'Tăng băng đạn/tốc độ hồi',
+    effect: '+10% fire rate',
+  },
+  {
+    id: 'part_pierce',
+    name: 'Pierce Part',
+    icon: 'P',
+    description: 'Đạn xuyên mục tiêu',
+    effect: '+1 pierce',
+  },
+  {
+    id: 'part_split',
+    name: 'Split Part',
+    icon: 'S',
+    description: 'Đạn chia tia',
+    effect: '+1 split',
+  },
+];
+
 // ─── Map ───
 export const MAP_CONFIG = {
   width: 4000,
   height: 4000,
   tileSize: 64,
-  tileColor1: '#1a1a2e',
-  tileColor2: '#16213e',
-  borderColor: '#ff4444',
+  tileColor1: '#12141a',
+  tileColor2: '#181b24',
+  borderColor: '#3388ff',
 };

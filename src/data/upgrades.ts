@@ -1,52 +1,172 @@
 // ─── Game Data: Upgrades ───
+
+export const MAX_WEAPON_SLOTS = 6;
+export const MAX_PASSIVE_SLOTS = 6;
+
 export interface UpgradeDef {
   id: string;
   name: string;
   description: string;
-  icon: string; // emoji or color code
+  icon: string; // emoji or icon code
   maxLevel: number;
   category: 'stat' | 'weapon' | 'effect';
-  /** Per-level values: damage mult, count, etc. */
   values: number[];
-  /** Evolution combo: [upgradeA_id, upgradeB_id] => evolution_id */
+  /** If specified, only available if player currently possesses this gun ('ar7', 'sg12', 'smg9') */
+  gunReq?: string;
   evolvesFrom?: [string, string];
-  /** Required level of each component to trigger evolution */
   evolveReqLevel?: number;
 }
 
 export const UPGRADES: UpgradeDef[] = [
-  // ─── Stats ───
+  // ─── AR-7 Specific Upgrades (Available by default) ───
   {
-    id: 'damage',
-    name: 'Power Up',
-    description: '+15% bullet damage',
-    icon: '⚔️',
-    maxLevel: 8,
-    category: 'stat',
-    values: [1.15, 1.30, 1.45, 1.60, 1.80, 2.0, 2.25, 2.5],
+    id: 'ar7_drum_mag',
+    name: 'Băng Đạn Trống AR-7',
+    description: '+10 viên đạn băng AR-7 (sấy lâu hơn)',
+    icon: '📦',
+    maxLevel: 3,
+    category: 'weapon',
+    gunReq: 'ar7',
+    values: [10, 20, 30],
   },
   {
-    id: 'fire_rate',
-    name: 'Rapid Fire',
-    description: '+12% fire rate',
+    id: 'ar7_recoil_brake',
+    name: 'Ống Hãm Nảy AR-7',
+    description: '-35% độ giật súng, đường đạn chụm thẳng',
+    icon: '🎯',
+    maxLevel: 3,
+    category: 'weapon',
+    gunReq: 'ar7',
+    values: [0.35, 0.60, 0.80],
+  },
+  {
+    id: 'ar7_heavy_caliber',
+    name: 'Đầu Đạn 7.62mm AR-7',
+    description: '+25% sát thương đạn trường AR-7',
+    icon: '⚡',
+    maxLevel: 4,
+    category: 'weapon',
+    gunReq: 'ar7',
+    values: [1.25, 1.50, 1.75, 2.0],
+  },
+  {
+    id: 'ar7_rapid_trigger',
+    name: 'Tăng Tốc Sấy AR-7',
+    description: '+20% tốc độ sấy liên thanh (650+ RPM)',
     icon: '🔥',
-    maxLevel: 8,
+    maxLevel: 3,
+    category: 'weapon',
+    gunReq: 'ar7',
+    values: [1.20, 1.40, 1.65],
+  },
+
+  // ─── SG-12 Shotgun Specific Upgrades (ONLY unlocked after picking up SG-12!) ───
+  {
+    id: 'sg12_buckshot_spread',
+    name: 'Đạn Ghém Tăng Cường SG-12',
+    description: '+3 viên đạn mỗi phát bắn (7 -> 10 viên)',
+    icon: '💥',
+    maxLevel: 3,
+    category: 'weapon',
+    gunReq: 'sg12',
+    values: [3, 6, 9],
+  },
+  {
+    id: 'sg12_mag_tube',
+    name: 'Ống Tiếp Đạn SG-12',
+    description: '+4 viên đạn tối đa trong băng (8 -> 12)',
+    icon: '🔋',
+    maxLevel: 3,
+    category: 'weapon',
+    gunReq: 'sg12',
+    values: [4, 8, 12],
+  },
+  {
+    id: 'sg12_choke',
+    name: 'Choke Siết Nòng SG-12',
+    description: 'Gom chụm đạn ghém 40%, tăng 30% tầm bắn',
+    icon: '🎯',
+    maxLevel: 3,
+    category: 'weapon',
+    gunReq: 'sg12',
+    values: [0.4, 0.65, 0.85],
+  },
+  {
+    id: 'sg12_frag_rounds',
+    name: 'Đạn Ghém Phá Nổ SG-12',
+    description: 'Mỗi viên đạn ghém phát nổ khi va chạm',
+    icon: '🧨',
+    maxLevel: 3,
+    category: 'weapon',
+    gunReq: 'sg12',
+    values: [35, 55, 80],
+  },
+
+  // ─── SMG-9 Submachine Specific Upgrades (ONLY unlocked after picking up SMG-9!) ───
+  {
+    id: 'smg9_cyclone',
+    name: 'Xả Đạn Cuồng Phong SMG-9',
+    description: '+30% tốc độ sấy RPM (780 -> 1014 RPM)',
+    icon: '⚡',
+    maxLevel: 3,
+    category: 'weapon',
+    gunReq: 'smg9',
+    values: [1.30, 1.60, 1.95],
+  },
+  {
+    id: 'smg9_drum_mag',
+    name: 'Băng Đạn Kép SMG-9',
+    description: '+20 viên đạn trong băng (40 -> 60 viên)',
+    icon: '📦',
+    maxLevel: 3,
+    category: 'weapon',
+    gunReq: 'smg9',
+    values: [20, 40, 60],
+  },
+  {
+    id: 'smg9_hollow_point',
+    name: 'Đạn Đầu Rỗng SMG-9',
+    description: '+30% sát thương sấy đạn SMG-9',
+    icon: '🗡️',
+    maxLevel: 3,
+    category: 'weapon',
+    gunReq: 'smg9',
+    values: [1.30, 1.60, 1.90],
+  },
+  {
+    id: 'smg9_featherweight',
+    name: 'Thân Nhẹ Tác Chiến SMG-9',
+    description: '+15% tốc độ di chuyển khi cầm SMG-9',
+    icon: '👟',
+    maxLevel: 3,
+    category: 'weapon',
+    gunReq: 'smg9',
+    values: [1.15, 1.30, 1.45],
+  },
+
+  // ─── Universal Stats (Always available) ───
+  {
+    id: 'damage',
+    name: 'Lực Bắn Tổng Thể',
+    description: '+15% sát thương toàn bộ vũ khí',
+    icon: '⚔️',
+    maxLevel: 6,
     category: 'stat',
-    values: [1.12, 1.24, 1.36, 1.50, 1.65, 1.80, 2.0, 2.2],
+    values: [1.15, 1.30, 1.45, 1.60, 1.80, 2.0],
   },
   {
     id: 'max_hp',
-    name: 'Vitality',
-    description: '+20 max HP',
+    name: 'Sinh Lực Thể Chất',
+    description: '+25 Máu tối đa và hồi phục',
     icon: '❤️',
-    maxLevel: 6,
+    maxLevel: 5,
     category: 'stat',
-    values: [120, 140, 160, 180, 200, 240],
+    values: [125, 150, 175, 200, 250],
   },
   {
     id: 'move_speed',
-    name: 'Swift Feet',
-    description: '+10% move speed',
+    name: 'Đôi Chân Thần Tốc',
+    description: '+10% tốc độ chạy',
     icon: '👟',
     maxLevel: 5,
     category: 'stat',
@@ -54,113 +174,48 @@ export const UPGRADES: UpgradeDef[] = [
   },
   {
     id: 'pickup_radius',
-    name: 'Magnetism',
-    description: '+25% XP pickup radius',
+    name: 'Từ Trường Thu Gom',
+    description: '+30% bán kính hút ngọc XP',
     icon: '🧲',
     maxLevel: 5,
     category: 'stat',
-    values: [1.25, 1.50, 1.75, 2.0, 2.5],
+    values: [1.30, 1.60, 1.90, 2.20, 2.60],
   },
   {
     id: 'armor',
-    name: 'Tough Skin',
-    description: '-10% damage taken',
+    name: 'Giáp Chống Cắn',
+    description: '-10% sát thương gánh chịu',
     icon: '🛡️',
     maxLevel: 5,
     category: 'stat',
     values: [0.90, 0.80, 0.70, 0.60, 0.50],
   },
-  // ─── Weapons ───
-  {
-    id: 'dual_pistols',
-    name: 'Dual Pistols',
-    description: 'Fire two bullets at once',
-    icon: '🔫',
-    maxLevel: 5,
-    category: 'weapon',
-    values: [2, 3, 4, 5, 6], // bullet count
-  },
-  {
-    id: 'shotgun',
-    name: 'Shotgun',
-    description: 'Spread of 5 pellets, short range',
-    icon: '💥',
-    maxLevel: 5,
-    category: 'weapon',
-    values: [5, 7, 9, 11, 14], // pellet count
-  },
-  {
-    id: 'piercing',
-    name: 'Piercing Rounds',
-    description: 'Bullets pass through enemies',
-    icon: '🗡️',
-    maxLevel: 4,
-    category: 'weapon',
-    values: [2, 3, 4, 6], // pierce count
-  },
-  {
-    id: 'grenades',
-    name: 'Grenades',
-    description: 'Lob explosive grenades periodically',
-    icon: '💣',
-    maxLevel: 5,
-    category: 'weapon',
-    values: [1, 2, 3, 4, 5], // grenade count per throw
-  },
-  {
-    id: 'mines',
-    name: 'Landmines',
-    description: 'Drop mines behind you',
-    icon: '🔻',
-    maxLevel: 4,
-    category: 'weapon',
-    values: [1, 2, 3, 4], // mine count
-  },
-  {
-    id: 'drone',
-    name: 'Combat Drone',
-    description: 'Auto-firing drone orbits you',
-    icon: '🤖',
-    maxLevel: 4,
-    category: 'weapon',
-    values: [1, 2, 3, 4], // drone count
-  },
-  // ─── Effects ───
-  {
-    id: 'explosive',
-    name: 'Explosive Rounds',
-    description: 'Bullets explode on hit',
-    icon: '🧨',
-    maxLevel: 3,
-    category: 'effect',
-    values: [30, 50, 80], // explosion radius
-  },
-  {
-    id: 'burning',
-    name: 'Incendiary',
-    description: 'Bullets set enemies on fire',
-    icon: '🔥',
-    maxLevel: 3,
-    category: 'effect',
-    values: [3, 5, 8], // burn damage per tick
-  },
-  {
-    id: 'slowing',
-    name: 'Cryo Rounds',
-    description: 'Bullets slow enemies',
-    icon: '❄️',
-    maxLevel: 3,
-    category: 'effect',
-    values: [0.7, 0.5, 0.3], // slow multiplier
-  },
   {
     id: 'lifesteal',
-    name: 'Vampiric',
-    description: 'Heal on kill',
+    name: 'Huyết Dược Sinh Tồn',
+    description: 'Hồi máu khi tiêu diệt zombie',
     icon: '🧛',
     maxLevel: 3,
     category: 'effect',
-    values: [2, 4, 7], // hp healed per kill
+    values: [2, 4, 7],
+  },
+  {
+    id: 'mines',
+    name: 'Mìn Đất Tự Động',
+    description: 'Thả mìn bẫy nổ phía sau khi di chuyển',
+    icon: '🔻',
+    maxLevel: 4,
+    category: 'weapon',
+    values: [1, 2, 3, 4],
+  },
+  {
+    id: 'drone',
+    name: 'Drone Hộ Vệ',
+    description: 'Drone chiến thuật bay quanh hỗ trợ hỏa lực',
+    icon: '🤖',
+    maxLevel: 4,
+    category: 'weapon',
+    values: [1, 2, 3, 4],
   },
 ];
 
@@ -171,40 +226,24 @@ export interface EvolutionDef {
   description: string;
   icon: string;
   requires: [string, string];
-  requireLevel: number; // min level of each component
+  requireLevel: number;
 }
 
 export const EVOLUTIONS: EvolutionDef[] = [
   {
-    id: 'flamethrower',
-    name: 'Flamethrower',
-    description: 'Shotgun + Burning = Continuous flame cone',
-    icon: '🔥',
-    requires: ['shotgun', 'burning'],
-    requireLevel: 3,
-  },
-  {
-    id: 'railgun',
-    name: 'Railgun',
-    description: 'Piercing + Damage = Devastating beam',
-    icon: '⚡',
-    requires: ['piercing', 'damage'],
-    requireLevel: 4,
-  },
-  {
     id: 'cluster_bombs',
-    name: 'Cluster Bombs',
-    description: 'Grenades + Explosive = Cluster explosions',
+    name: 'Bão Lựu Đạn Chùm',
+    description: 'Tăng gấp đôi số lượng mảnh nổ văng',
     icon: '💥',
-    requires: ['grenades', 'explosive'],
+    requires: ['damage', 'armor'],
     requireLevel: 3,
   },
   {
     id: 'frost_nova',
-    name: 'Frost Nova',
-    description: 'Mines + Cryo = Freezing mines',
+    name: 'Băng Giá Địa Ngục',
+    description: 'Mìn đóng băng diện rộng làm chậm 70%',
     icon: '🌀',
-    requires: ['mines', 'slowing'],
+    requires: ['mines', 'pickup_radius'],
     requireLevel: 3,
   },
 ];
