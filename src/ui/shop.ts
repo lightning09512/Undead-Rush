@@ -3,6 +3,7 @@
 import { PERM_UPGRADES, CHARACTERS, PermUpgradeDef, CharacterDef } from '../data/meta';
 import { SaveSystem } from '../systems/save';
 import { Audio } from '../core/audio';
+import { UI_PALETTE as C } from './palette';
 
 export class ShopUI {
   visible = false;
@@ -13,9 +14,12 @@ export class ShopUI {
     if (!this.visible) return null;
 
     // Back button
-    const backBtnX = w - 130;
-    const backBtnY = 20;
-    if (x >= backBtnX && x <= backBtnX + 110 && y >= backBtnY && y <= backBtnY + 36) {
+    const compact = w < 520;
+    const backBtnW = compact ? 96 : 110;
+    const backBtnH = compact ? 32 : 36;
+    const backBtnX = w - (compact ? 106 : 130);
+    const backBtnY = compact ? 10 : 20;
+    if (x >= backBtnX && x <= backBtnX + backBtnW && y >= backBtnY && y <= backBtnY + backBtnH) {
       audio.menuSelect();
       this.visible = false;
       return 'close_shop';
@@ -47,7 +51,7 @@ export class ShopUI {
 
   private handleUpgradeClick(x: number, y: number, w: number, h: number, save: SaveSystem, audio: Audio): string | null {
     const startY = 130;
-    const itemH = 72;
+    const itemH = w < 520 ? 82 : 72;
     const itemW = Math.min(500, w - 60);
     const startX = (w - itemW) / 2;
 
@@ -123,40 +127,35 @@ export class ShopUI {
     if (!this.visible) return;
 
     // Background
-    ctx.fillStyle = '#09090d';
-    ctx.fillRect(0, 0, w, h);
-    const bloodShade = ctx.createLinearGradient(0, 0, w, 0);
-    bloodShade.addColorStop(0, 'rgba(130, 16, 28, 0.28)');
-    bloodShade.addColorStop(0.18, 'rgba(0, 0, 0, 0)');
-    bloodShade.addColorStop(0.82, 'rgba(0, 0, 0, 0)');
-    bloodShade.addColorStop(1, 'rgba(130, 16, 28, 0.28)');
-    ctx.fillStyle = bloodShade;
+    ctx.fillStyle = C.background;
     ctx.fillRect(0, 0, w, h);
 
     // Title
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#e85b58';
-    ctx.font = `bold ${Math.min(32, w * 0.045)}px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText('⚙ KHO VŨ KHÍ & NÂNG CẤP', w / 2, 35);
+    const compact = w < 520;
+    ctx.fillStyle = C.text;
+    ctx.font = `bold ${compact ? Math.min(19, w * 0.05) : Math.min(32, w * 0.045)}px 'Segoe UI', Arial, sans-serif`;
+    ctx.fillText(compact ? 'KHO ĐỒ & NÂNG CẤP' : '⚙ KHO VŨ KHÍ & NÂNG CẤP', w / 2, compact ? 52 : 35);
 
     // Gold display
-    ctx.fillStyle = '#d6aaa0';
-    ctx.font = `bold ${Math.min(18, w * 0.025)}px 'Segoe UI', Arial, sans-serif`;
+    ctx.fillStyle = C.amberBright;
+    ctx.font = `bold ${Math.min(18, compact ? 16 : w * 0.025)}px 'Segoe UI', Arial, sans-serif`;
     ctx.textAlign = 'left';
-    ctx.fillText(`💰 ${save.data.gold} Gold`, 20, 35);
+    ctx.fillText(`💰 ${save.data.gold} Gold`, compact ? 14 : 20, compact ? 27 : 35);
 
     // Back button
-    const backBtnX = w - 130;
-    this.drawButton(ctx, backBtnX, 20, 110, 36, '← QUAY LẠI', '#3f272c');
+    const backBtnW = compact ? 96 : 110;
+    const backBtnX = w - (compact ? 106 : 130);
+    this.drawButton(ctx, backBtnX, compact ? 10 : 20, backBtnW, compact ? 32 : 36, '← QUAY LẠI', C.inactive);
 
     // Tabs
     const tabY = 70;
     const tabW = 140;
     this.drawButton(ctx, w / 2 - tabW - 10, tabY, tabW, 34,
-      '⚔ NÂNG CẤP', this.tab === 'upgrades' ? '#70232b' : '#211519');
+      '⚔ NÂNG CẤP', this.tab === 'upgrades' ? C.cyan : C.panelRaised);
     this.drawButton(ctx, w / 2 + 10, tabY, tabW, 34,
-      '👤 NHÂN VẬT', this.tab === 'characters' ? '#70232b' : '#211519');
+      '👤 NHÂN VẬT', this.tab === 'characters' ? C.cyan : C.panelRaised);
 
     // Content
     ctx.save();
@@ -175,7 +174,7 @@ export class ShopUI {
 
   private drawUpgrades(ctx: CanvasRenderingContext2D, w: number, h: number, save: SaveSystem): void {
     const startY = 130;
-    const itemH = 72;
+    const itemH = w < 520 ? 82 : 72;
     const itemW = Math.min(500, w - 60);
     const startX = (w - itemW) / 2;
 
@@ -187,8 +186,8 @@ export class ShopUI {
       if (iy < 80 || iy > h + 50) continue;
 
       // Background
-      ctx.fillStyle = level >= def.maxLevel ? '#271317' : '#151116';
-      ctx.strokeStyle = level >= def.maxLevel ? '#8c2c33' : '#513039';
+      ctx.fillStyle = level >= def.maxLevel ? '#202c28' : C.panel;
+      ctx.strokeStyle = level >= def.maxLevel ? '#627b63' : C.borderSoft;
       ctx.lineWidth = 1;
       this.roundRect(ctx, startX, iy, itemW, itemH, 8);
       ctx.fill();
@@ -205,16 +204,34 @@ export class ShopUI {
       ctx.textAlign = 'left';
       ctx.fillText(def.name, startX + 55, iy + 22);
 
-      // Effect
-      ctx.fillStyle = '#aaaacc';
-      ctx.font = `12px 'Segoe UI', Arial, sans-serif`;
-      ctx.fillText(def.effect, startX + 55, iy + 40);
+      // Effect copy wraps to stay clear of the purchase button on small screens.
+      ctx.fillStyle = C.textSoft;
+      ctx.font = `${w < 520 ? 11 : 12}px 'Segoe UI', Arial, sans-serif`;
+      const effectX = startX + 55;
+      const effectMaxWidth = itemW - 170;
+      if (w < 520) {
+        const lines: string[] = [];
+        let line = '';
+        for (const word of def.effect.split(' ')) {
+          const candidate = line ? `${line} ${word}` : word;
+          if (line && ctx.measureText(candidate).width > effectMaxWidth) {
+            lines.push(line);
+            line = word;
+          } else {
+            line = candidate;
+          }
+        }
+        if (line) lines.push(line);
+        lines.slice(0, 2).forEach((text, lineIndex) => ctx.fillText(text, effectX, iy + 40 + lineIndex * 13));
+      } else {
+        ctx.fillText(def.effect, effectX, iy + 40);
+      }
 
       // Level dots
       for (let d = 0; d < def.maxLevel; d++) {
-        ctx.fillStyle = d < level ? '#cf434e' : '#513039';
+        ctx.fillStyle = d < level ? C.amber : C.inactive;
         ctx.beginPath();
-        ctx.arc(startX + 55 + d * 14, iy + 56, 4, 0, Math.PI * 2);
+        ctx.arc(startX + 55 + d * 14, iy + itemH - 13, 4, 0, Math.PI * 2);
         ctx.fill();
       }
 
@@ -223,9 +240,9 @@ export class ShopUI {
         const cost = def.costs[level];
         const canAfford = save.data.gold >= cost;
         this.drawButton(ctx, startX + itemW - 90, iy + 20, 80, 32,
-          `${cost} 💰`, canAfford ? '#8f202b' : '#553333');
+          `${cost} 💰`, canAfford ? '#647f54' : C.inactive);
       } else {
-        ctx.fillStyle = '#cf555a';
+        ctx.fillStyle = C.health;
         ctx.font = `bold 12px 'Segoe UI', Arial, sans-serif`;
         ctx.textAlign = 'center';
         ctx.fillText('MAXED', startX + itemW - 50, iy + 36);
@@ -248,8 +265,8 @@ export class ShopUI {
       if (iy < 80 || iy > h + 50) continue;
 
       // Background
-      ctx.fillStyle = isSelected ? '#27171d' : '#151116';
-      ctx.strokeStyle = isSelected ? '#a8323c' : '#513039';
+      ctx.fillStyle = isSelected ? '#1d3033' : C.panel;
+      ctx.strokeStyle = isSelected ? C.cyan : C.borderSoft;
       ctx.lineWidth = isSelected ? 2 : 1;
       this.roundRect(ctx, startX, iy, itemW, itemH, 8);
       ctx.fill();
@@ -278,28 +295,28 @@ export class ShopUI {
       }
 
       // Name
-      ctx.fillStyle = isUnlocked ? '#ffffff' : '#888888';
+      ctx.fillStyle = isUnlocked ? C.text : C.textMuted;
       ctx.font = `bold 14px 'Segoe UI', Arial, sans-serif`;
       ctx.textAlign = 'left';
       ctx.fillText(char.name, startX + 65, iy + 26);
 
       // Description
-      ctx.fillStyle = '#aaaacc';
+      ctx.fillStyle = C.textSoft;
       ctx.font = `12px 'Segoe UI', Arial, sans-serif`;
       ctx.fillText(char.description, startX + 65, iy + 44);
 
       // Button
       if (isSelected) {
-        ctx.fillStyle = '#b53a43';
+        ctx.fillStyle = C.cyanBright;
         ctx.font = `bold 12px 'Segoe UI', Arial, sans-serif`;
         ctx.textAlign = 'center';
         ctx.fillText('✓ SELECTED', startX + itemW - 55, iy + 42);
       } else if (isUnlocked) {
-        this.drawButton(ctx, startX + itemW - 100, iy + 24, 90, 32, 'CHỌN', '#70232b');
+        this.drawButton(ctx, startX + itemW - 100, iy + 24, 90, 32, 'CHỌN', '#477e87');
       } else {
         const canAfford = save.data.gold >= char.cost;
         this.drawButton(ctx, startX + itemW - 100, iy + 24, 90, 32,
-          `${char.cost} 💰`, canAfford ? '#8f202b' : '#553333');
+          `${char.cost} 💰`, canAfford ? '#647f54' : C.inactive);
       }
     }
   }
@@ -309,7 +326,7 @@ export class ShopUI {
     this.roundRect(ctx, x, y, w, h, 6);
     ctx.fill();
 
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = color === C.cyan || color === '#477e87' || color === '#647f54' ? '#10181b' : C.text;
     ctx.font = `bold ${Math.min(13, w * 0.12)}px 'Segoe UI', Arial, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';

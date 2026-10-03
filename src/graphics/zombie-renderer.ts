@@ -1,6 +1,7 @@
 // ─── Zombie Procedural 2.5D Volumetric Horror Renderer ───
 
-import { Zombie } from '../entities/zombies';
+import type { Zombie } from '../entities/zombies';
+import { drawHorrorZombie } from './horror-renderer';
 
 export class ZombieRenderer {
   private static shadowCanvas: HTMLCanvasElement;
@@ -29,6 +30,7 @@ export class ZombieRenderer {
     sy: number,
     isFlashing: boolean
   ): void {
+    if (drawHorrorZombie(ctx, z, sx, sy, isFlashing)) return;
     if (!this.shadowCanvas) this.initShadow();
 
     const scale = z.isBoss ? 2.28 : z.typeId === 'tank' ? 1.58 : z.typeId === 'runner' ? 0.96 : z.isElite ? 1.25 : 1.12;

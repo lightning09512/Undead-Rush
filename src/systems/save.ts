@@ -48,9 +48,9 @@ const DEFAULT_SAVE: SaveData = {
 export class SaveSystem {
   data: SaveData;
 
-  constructor() {
-    this.data = { ...DEFAULT_SAVE };
-    this.load();
+  constructor(private readonly persistent = true) {
+    this.data = { ...DEFAULT_SAVE, permUpgrades: {}, unlockedCharacters: ['survivor'], completedStages: [] };
+    if (persistent) this.load();
   }
 
   load(): void {
@@ -67,6 +67,7 @@ export class SaveSystem {
   }
 
   save(): void {
+    if (!this.persistent) return;
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify(this.data));
     } catch {

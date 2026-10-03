@@ -8,6 +8,7 @@ import { MapPickupSystem } from '../entities/map-pickups';
 import { MAP_CONFIG } from '../data/items';
 import { Camera } from '../core/camera';
 import { SOLID_BUILDINGS } from '../entities/map-geometry';
+import { UI_PALETTE as C } from './palette';
 
 export class HUD {
   draw(
@@ -21,37 +22,41 @@ export class HUD {
     mapPickups: MapPickupSystem,
     camera: Camera
   ): void {
-    const pad = 12;
+    const pad = w < 700 ? 9 : 12;
+    const compact = w < 700;
+    const slotSize = compact ? 24 : 32;
+    const hpRatio = Math.min(1, Math.max(0, player.hp / player.maxHp));
+    this.drawDamageFeedback(ctx, w, h, hpRatio, player.flashTimer);
 
     // ─── 1. Vampire Survivors Full-Width Top XP Bar ───
     const xpBarH = 22;
     // Dark metallic obsidian base
-    ctx.fillStyle = '#100b0e';
+    ctx.fillStyle = C.background;
     ctx.fillRect(0, 0, w, xpBarH);
 
     const xpRatio = Math.min(1, Math.max(0, player.xp / player.xpToNext));
     if (xpRatio > 0) {
       const xpGrad = ctx.createLinearGradient(0, 0, w * xpRatio, 0);
-      xpGrad.addColorStop(0, '#6f111b');
-      xpGrad.addColorStop(0.5, '#d32936');
-      xpGrad.addColorStop(1, '#f0675e');
+      xpGrad.addColorStop(0, '#477e8b');
+      xpGrad.addColorStop(0.72, C.cyan);
+      xpGrad.addColorStop(1, C.cyanBright);
       ctx.fillStyle = xpGrad;
       ctx.fillRect(0, 0, w * xpRatio, xpBarH);
 
       // Top sheen highlight for glassmorphism juice
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.32)';
+      ctx.fillStyle = 'rgba(239, 247, 242, 0.2)';
       ctx.fillRect(0, 0, w * xpRatio, xpBarH * 0.38);
     }
 
     // Bottom gold separator line
-    ctx.fillStyle = '#a9343a';
+    ctx.fillStyle = C.border;
     ctx.fillRect(0, xpBarH - 2, w, 2);
 
     // LV Badge (top-left inside XP bar)
     const lvBoxW = 60;
-    ctx.fillStyle = '#a9343a';
+    ctx.fillStyle = C.amber;
     ctx.fillRect(8, 2, lvBoxW, xpBarH - 6);
-    ctx.fillStyle = '#0f172a';
+    ctx.fillStyle = C.black;
     ctx.font = `bold 12px 'Segoe UI', Arial, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -72,16 +77,16 @@ export class HUD {
     const seconds = Math.floor(gameTime % 60);
     const timeStr = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 
-    const clockW = 160;
-    const clockH = 34;
-    const clockX = (w - clockW) / 2;
-    const clockY = xpBarH + 6;
+    const clockW = compact ? 144 : 160;
+    const clockH = compact ? 29 : 34;
+    const clockX = compact ? pad : (w - clockW) / 2;
+    const clockY = compact ? 126 : xpBarH + 6;
 
     ctx.save();
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-    ctx.strokeStyle = '#334155';
+    ctx.fillStyle = 'rgba(27, 36, 41, 0.96)';
+    ctx.strokeStyle = C.border;
     ctx.lineWidth = 1.5;
-    this.roundRect(ctx, clockX, clockY, clockW, clockH, 8);
+    this.roundRect(ctx, clockX, clockY, clockW, clockH, 3);
     ctx.fill();
     ctx.stroke();
 
@@ -93,44 +98,49 @@ export class HUD {
     ctx.fillText(timeStr, clockX + 14, clockY + clockH / 2);
 
     // Kill Counter
-    ctx.fillStyle = '#f43f5e';
+    ctx.fillStyle = C.dangerBright;
     ctx.font = `14px sans-serif`;
-    ctx.fillText('💀', clockX + 80, clockY + clockH / 2);
+    // A simple etched tally avoids brightly colored platform emoji in the combat HUD.
+    ctx.strokeStyle = C.dangerBright; ctx.lineWidth = 1.5;
+    for (let k = 0; k < 3; k++) {
+      ctx.beginPath(); ctx.moveTo(clockX + 82 + k * 4, clockY + 11); ctx.lineTo(clockX + 82 + k * 4, clockY + clockH - 10); ctx.stroke();
+    }
     ctx.fillStyle = '#f8fafc';
     ctx.font = `bold 14px 'Segoe UI', Arial, sans-serif`;
     ctx.fillText(`${player.kills}`, clockX + 104, clockY + clockH / 2);
     ctx.restore();
 
     // ─── 3. Top-Left: Equipment Slots (6 Weapons + 6 Passives) ───
-    this.drawEquipmentSlots(ctx, pad, xpBarH + 8, player);
+    this.drawEquipmentSlots(ctx, pad, xpBarH + 8, player, slotSize);
 
     // ─── 4. Player HP Bar (Below Equipment Slots) ───
     const hpX = pad;
-    const hpY = xpBarH + 8 + 36 * 2 + 10;
-    const hpBarW = 216;
-    const hpBarH = 14;
+    const hpY = xpBarH + 8 + (slotSize + 4) * 2 + 6;
+    const hpBarW = (slotSize + 4) * 6 - 4;
+    const hpBarH = 26;
 
     ctx.save();
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
-    ctx.strokeStyle = '#334155';
+    ctx.fillStyle = 'rgba(27, 36, 41, 0.96)';
+    ctx.strokeStyle = hpRatio <= 0.25 ? C.dangerBright : C.border;
     ctx.lineWidth = 1.5;
-    this.roundRect(ctx, hpX, hpY, hpBarW, hpBarH, 6);
+    this.roundRect(ctx, hpX, hpY, hpBarW, hpBarH, 3);
     ctx.fill();
     ctx.stroke();
 
-    const hpRatio = Math.max(0, player.hp / player.maxHp);
-    const hpColor = hpRatio > 0.5 ? '#22c55e' : hpRatio > 0.25 ? '#f59e0b' : '#ef4444';
+    const hpColor = hpRatio > 0.5 ? C.health : hpRatio > 0.25 ? C.healthWarning : C.dangerBright;
     if (hpRatio > 0) {
-      this.roundRect(ctx, hpX + 2, hpY + 2, (hpBarW - 4) * hpRatio, hpBarH - 4, 4);
       ctx.fillStyle = hpColor;
-      ctx.fill();
+      ctx.fillRect(hpX + 4, hpY + 18, (hpBarW - 8) * hpRatio, 4);
     }
 
-    ctx.fillStyle = '#ffffff';
-    ctx.font = `bold 10px 'Segoe UI', Arial, sans-serif`;
-    ctx.textAlign = 'center';
+    ctx.fillStyle = hpColor;
+    ctx.font = `bold 9px 'Segoe UI', Arial, sans-serif`;
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`HP: ${Math.ceil(player.hp)} / ${player.maxHp}`, hpX + hpBarW / 2, hpY + hpBarH / 2);
+    ctx.fillText(hpRatio <= 0.25 ? 'NGUY KỊCH' : 'SINH LỰC', hpX + 6, hpY + 9);
+    ctx.fillStyle = C.text; ctx.font = `bold 10px 'Segoe UI', Arial, sans-serif`;
+    ctx.textAlign = 'right';
+    ctx.fillText(`${Math.ceil(player.hp)} / ${player.maxHp}`, hpX + hpBarW - 6, hpY + 9);
     ctx.restore();
 
     // ─── 5. Top-Right: Minimap ───
@@ -140,14 +150,14 @@ export class HUD {
     if (input.isJoystickVisible) {
       ctx.save();
       ctx.globalAlpha = 0.25;
-      ctx.strokeStyle = '#38bdf8';
+      ctx.strokeStyle = C.cyan;
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.arc(input.joystickBaseX, input.joystickBaseY, input.joystickRadius, 0, Math.PI * 2);
       ctx.stroke();
 
       ctx.globalAlpha = 0.6;
-      ctx.fillStyle = '#38bdf8';
+      ctx.fillStyle = C.cyan;
       ctx.beginPath();
       ctx.arc(input.joystickKnobX, input.joystickKnobY, 22, 0, Math.PI * 2);
       ctx.fill();
@@ -156,8 +166,7 @@ export class HUD {
   }
 
   /** Render 6 Weapon slots (top row) and 6 Passive slots (bottom row) */
-  private drawEquipmentSlots(ctx: CanvasRenderingContext2D, startX: number, startY: number, player: Player): void {
-    const slotSize = 32;
+  private drawEquipmentSlots(ctx: CanvasRenderingContext2D, startX: number, startY: number, player: Player, slotSize: number): void {
     const gap = 4;
 
     const weapons: { icon: string; level: number; maxLevel: number }[] = [];
@@ -173,23 +182,23 @@ export class HUD {
       }
     }
 
-    // Row 1: Weapons (Orange/Red theme)
+    // Row 1: weapons use amber; passive systems use cyan.
     for (let i = 0; i < MAX_WEAPON_SLOTS; i++) {
       const sx = startX + i * (slotSize + gap);
       const sy = startY;
       const item = weapons[i];
 
       ctx.save();
-      ctx.fillStyle = item ? 'rgba(30, 41, 59, 0.92)' : 'rgba(15, 23, 42, 0.55)';
-      ctx.strokeStyle = item ? '#f97316' : '#1e293b';
+      ctx.fillStyle = item ? 'rgba(37, 47, 53, 0.96)' : 'rgba(18, 24, 28, 0.66)';
+      ctx.strokeStyle = item ? C.amber : C.borderSoft;
       ctx.lineWidth = item ? 1.5 : 1;
-      this.roundRect(ctx, sx, sy, slotSize, slotSize, 6);
+      this.roundRect(ctx, sx, sy, slotSize, slotSize, 3);
       ctx.fill();
       ctx.stroke();
 
       if (item) {
         // Icon
-        ctx.font = '16px sans-serif';
+        ctx.font = `${slotSize < 30 ? 13 : 16}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(item.icon, sx + slotSize / 2, sy + slotSize / 2 - 2);
@@ -197,7 +206,7 @@ export class HUD {
         // Level pips at bottom of slot
         const pipW = (slotSize - 6) / item.maxLevel;
         for (let p = 0; p < item.maxLevel; p++) {
-          ctx.fillStyle = p < item.level ? '#f97316' : '#334155';
+          ctx.fillStyle = p < item.level ? C.amber : C.inactive;
           ctx.fillRect(sx + 3 + p * pipW, sy + slotSize - 5, pipW - 1, 3);
         }
       }
@@ -212,16 +221,16 @@ export class HUD {
       const item = passives[i];
 
       ctx.save();
-      ctx.fillStyle = item ? 'rgba(30, 41, 59, 0.92)' : 'rgba(15, 23, 42, 0.55)';
-      ctx.strokeStyle = item ? '#0ea5e9' : '#1e293b';
+      ctx.fillStyle = item ? 'rgba(37, 47, 53, 0.96)' : 'rgba(18, 24, 28, 0.66)';
+      ctx.strokeStyle = item ? C.cyan : C.borderSoft;
       ctx.lineWidth = item ? 1.5 : 1;
-      this.roundRect(ctx, sx, sy, slotSize, slotSize, 6);
+      this.roundRect(ctx, sx, sy, slotSize, slotSize, 3);
       ctx.fill();
       ctx.stroke();
 
       if (item) {
         // Icon
-        ctx.font = '16px sans-serif';
+        ctx.font = `${slotSize < 30 ? 13 : 16}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(item.icon, sx + slotSize / 2, sy + slotSize / 2 - 2);
@@ -229,7 +238,7 @@ export class HUD {
         // Level pips at bottom of slot
         const pipW = (slotSize - 6) / item.maxLevel;
         for (let p = 0; p < item.maxLevel; p++) {
-          ctx.fillStyle = p < item.level ? '#38bdf8' : '#334155';
+          ctx.fillStyle = p < item.level ? C.cyan : C.inactive;
           ctx.fillRect(sx + 3 + p * pipW, sy + slotSize - 5, pipW - 1, 3);
         }
       }
@@ -248,7 +257,7 @@ export class HUD {
     mapPickups: MapPickupSystem,
     camera: Camera
   ): void {
-    const size = Math.min(132, Math.max(96, w * 0.28));
+    const size = w < 700 ? Math.min(124, Math.max(94, w * 0.26)) : Math.min(168, Math.max(112, w * 0.28));
     const frame = size + 12;
     const mx = w - pad - frame;
     const my = topY;
@@ -259,10 +268,10 @@ export class HUD {
     ctx.save();
     ctx.shadowColor = 'rgba(0,0,0,0.65)';
     ctx.shadowBlur = 14;
-    ctx.fillStyle = 'rgba(7, 12, 20, 0.96)';
-    ctx.strokeStyle = 'rgba(125, 211, 252, 0.72)';
+    ctx.fillStyle = 'rgba(11, 16, 19, 0.97)';
+    ctx.strokeStyle = C.cyan;
     ctx.lineWidth = 1.5;
-    this.roundRect(ctx, mx, my, frame, frame, 9);
+    this.roundRect(ctx, mx, my, frame, frame, 3);
     ctx.fill();
     ctx.stroke();
 
@@ -270,7 +279,7 @@ export class HUD {
     ctx.beginPath();
     ctx.rect(mapX, mapY, size, size);
     ctx.clip();
-    ctx.fillStyle = '#18212b';
+    ctx.fillStyle = '#202a30';
     ctx.fillRect(mapX, mapY, size, size);
 
     // A clear map grid and edge make orientation easier at a glance.
@@ -300,14 +309,14 @@ export class HUD {
     }
 
     // Pickups (yellow)
-    ctx.fillStyle = '#ffe66d';
+    ctx.fillStyle = C.amberBright;
     for (const p of mapPickups.pool.getActive()) {
       ctx.fillRect(mapX + p.x * scale - 1.5, mapY + p.y * scale - 1.5, 3, 3);
     }
 
     // Zombies (red)
     for (const z of zombies.pool.getActive()) {
-      ctx.fillStyle = z.isBoss ? '#ff9f1c' : '#ff4058';
+      ctx.fillStyle = z.isBoss ? C.amberBright : C.dangerBright;
       const dot = z.isBoss ? 6 : 3.5;
       ctx.beginPath();
       ctx.arc(mapX + z.x * scale, mapY + z.y * scale, dot / 2, 0, Math.PI * 2);
@@ -315,27 +324,45 @@ export class HUD {
     }
 
     // Camera coverage shows which part of the full map is currently on screen.
-    ctx.strokeStyle = 'rgba(125, 211, 252, 0.9)';
+    ctx.strokeStyle = C.cyanBright;
     ctx.lineWidth = 1.5;
     ctx.strokeRect(mapX + camera.x * scale, mapY + camera.y * scale,
       Math.min(size, camera.width / camera.zoom * scale), Math.min(size, camera.height / camera.zoom * scale));
 
     // Player marker gets an outline so it stays visible over nearby icons.
-    ctx.fillStyle = '#07131b';
+    ctx.fillStyle = C.black;
     ctx.beginPath();
     ctx.arc(mapX + player.x * scale, mapY + player.y * scale, 5.5, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#32e6ff';
+    ctx.fillStyle = C.cyanBright;
     ctx.beginPath();
     ctx.arc(mapX + player.x * scale, mapY + player.y * scale, 3.5, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
-    ctx.fillStyle = '#dbeafe';
+    ctx.fillStyle = C.textSoft;
     ctx.font = 'bold 9px Segoe UI, Arial, sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('TACTICAL MAP', mx + 8, my - 2);
+    ctx.fillText('BẢN ĐỒ', mx + 8, my - 2);
+  }
+
+  private drawDamageFeedback(ctx: CanvasRenderingContext2D, w: number, h: number, hpRatio: number, flashTimer: number): void {
+    if (hpRatio > 0.25 && flashTimer <= 0) return;
+    ctx.save();
+    const hit = Math.min(1, flashTimer / 0.12);
+    ctx.globalAlpha = hit > 0 ? 0.2 + hit * 0.44 : 0.3;
+    ctx.strokeStyle = '#9e4c42'; ctx.lineWidth = hit > 0 ? 7 : 3;
+    const inset = 3;
+    const reach = Math.min(52, h * 0.12);
+    // Edge brackets convey injury without covering enemies, aim or pickups.
+    for (const side of [-1, 1]) {
+      const x = side < 0 ? inset : w - inset;
+      const innerX = x - side * reach;
+      ctx.beginPath(); ctx.moveTo(innerX, 25); ctx.lineTo(x, 25); ctx.lineTo(x, 25 + reach); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(innerX, h - inset); ctx.lineTo(x, h - inset); ctx.lineTo(x, h - inset - reach); ctx.stroke();
+    }
+    ctx.restore();
   }
 
   private roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {

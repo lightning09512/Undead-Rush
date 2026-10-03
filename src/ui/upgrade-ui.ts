@@ -2,6 +2,7 @@
 
 import { UPGRADES, UpgradeDef, MAX_WEAPON_SLOTS, MAX_PASSIVE_SLOTS } from '../data/upgrades';
 import { Player } from '../entities/player';
+import { UI_PALETTE as C } from './palette';
 
 export interface UpgradeCard {
   def: UpgradeDef;
@@ -80,33 +81,26 @@ export class UpgradeUI {
 
     // Dark gothic vignette backdrop
     ctx.save();
-    ctx.fillStyle = 'rgba(15, 5, 9, 0.91)';
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-    const edgeBlood = ctx.createLinearGradient(0, 0, canvasWidth, 0);
-    edgeBlood.addColorStop(0, 'rgba(142, 18, 30, 0.28)');
-    edgeBlood.addColorStop(0.22, 'rgba(0, 0, 0, 0)');
-    edgeBlood.addColorStop(0.78, 'rgba(0, 0, 0, 0)');
-    edgeBlood.addColorStop(1, 'rgba(142, 18, 30, 0.28)');
-    ctx.fillStyle = edgeBlood;
+    ctx.fillStyle = 'rgba(8, 13, 16, 0.9)';
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
     // ─── Header: LEVEL UP! ───
     const titleY = canvasHeight * 0.12;
-    ctx.shadowColor = '#b91c2c';
-    ctx.shadowBlur = 18;
-    ctx.fillStyle = '#f0c4c0';
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = C.text;
     ctx.font = `900 ${Math.min(38, canvasWidth * 0.055)}px 'Segoe UI', Arial, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('⚔ LÊN CẤP — CHỌN NÂNG CẤP ⚔', canvasWidth / 2, titleY);
 
     ctx.shadowBlur = 0;
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillStyle = C.cyan;
     ctx.font = `600 ${Math.min(14, canvasWidth * 0.022)}px 'Segoe UI', Arial, sans-serif`;
     ctx.fillText('CHỌN MỘT NÂNG CẤP', canvasWidth / 2, titleY + 30);
 
     if (player) {
-      ctx.fillStyle = '#cbd5e1';
+      ctx.fillStyle = C.textSoft;
       ctx.font = `500 ${Math.min(12, canvasWidth * 0.018)}px 'Segoe UI', Arial, sans-serif`;
       ctx.fillText(
         `VŨ KHÍ ${player.countWeaponSlotsUsed()}/${MAX_WEAPON_SLOTS}   ·   NỘ BỊ ĐỘNG ${player.countPassiveSlotsUsed()}/${MAX_PASSIVE_SLOTS}`,
@@ -137,19 +131,19 @@ export class UpgradeUI {
 
       // Card background gradient
       const bgGrad = ctx.createLinearGradient(cx, cy, cx, cy + cardH);
-      bgGrad.addColorStop(0, '#35151d');
-      bgGrad.addColorStop(1, '#100d12');
+      bgGrad.addColorStop(0, '#28333a');
+      bgGrad.addColorStop(1, '#171f24');
       ctx.fillStyle = bgGrad;
       this.roundRect(ctx, cx, cy, cardW, cardH, 12);
       ctx.fill();
 
-      // Golden ornate double border
-      ctx.strokeStyle = '#a9343a';
-      ctx.lineWidth = 2.5;
+      // Simple steel frame with one functional accent per category.
+      ctx.strokeStyle = isHovered ? C.cyanBright : C.border;
+      ctx.lineWidth = isHovered ? 2.5 : 1.25;
       this.roundRect(ctx, cx, cy, cardW, cardH, 12);
       ctx.stroke();
 
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+      ctx.strokeStyle = 'rgba(214, 225, 224, 0.08)';
       ctx.lineWidth = 1;
       this.roundRect(ctx, cx + 3, cy + 3, cardW - 6, cardH - 6, 9);
       ctx.stroke();
@@ -160,17 +154,17 @@ export class UpgradeUI {
 
       if (isNew) {
         // "★ NEW ★" Badge
-        ctx.fillStyle = '#dc2626';
+        ctx.fillStyle = C.amber;
         this.roundRect(ctx, cx + 12, badgeY, 60, badgeH, 4);
         ctx.fill();
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = C.black;
         ctx.font = `bold 10px 'Segoe UI', Arial, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('★ NEW', cx + 42, badgeY + badgeH / 2);
       } else {
         // "LV X" Badge
-        ctx.fillStyle = '#71232e';
+        ctx.fillStyle = C.inactive;
         this.roundRect(ctx, cx + 12, badgeY, 54, badgeH, 4);
         ctx.fill();
         ctx.fillStyle = '#ffffff';
@@ -181,7 +175,7 @@ export class UpgradeUI {
       }
 
       // Category Pill (Right)
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+      ctx.fillStyle = 'rgba(13, 19, 22, 0.88)';
       ctx.strokeStyle = accentColor;
       ctx.lineWidth = 1;
       const catW = 76;
@@ -201,11 +195,11 @@ export class UpgradeUI {
       const medalY = cy + cardH * 0.28;
 
       ctx.save();
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-      ctx.strokeStyle = '#a9343a';
+      ctx.fillStyle = '#121a1e';
+      ctx.strokeStyle = accentColor;
       ctx.lineWidth = 2;
-      ctx.shadowColor = isHovered ? '#ff6562' : accentColor;
-      ctx.shadowBlur = isHovered ? 22 : 10;
+      ctx.shadowColor = isHovered ? C.cyanBright : 'transparent';
+      ctx.shadowBlur = isHovered ? 7 : 0;
       ctx.beginPath();
       ctx.arc(medalX, medalY, medalRadius, 0, Math.PI * 2);
       ctx.fill();
@@ -222,7 +216,7 @@ export class UpgradeUI {
       ctx.font = `bold 15px 'Segoe UI', Arial, sans-serif`;
       ctx.fillText(card.def.name.toUpperCase(), cx + cardW / 2, cy + cardH * 0.42);
 
-      ctx.fillStyle = '#e5b4b0';
+      ctx.fillStyle = isNew ? C.amberBright : C.textSoft;
       ctx.font = `bold 10px 'Segoe UI', Arial, sans-serif`;
       ctx.fillText(isNew ? 'MỚI  ·  CẤP 0 → 1' : `CẤP ${card.nextLevel - 1} → ${card.nextLevel}`, cx + cardW / 2, cy + cardH * 0.475);
 
@@ -236,11 +230,11 @@ export class UpgradeUI {
       for (let p = 0; p < totalPips; p++) {
         const px = cx + 20 + p * pipStep;
         if (p < card.nextLevel - 1) {
-          ctx.fillStyle = '#98313a';
+          ctx.fillStyle = accentColor;
         } else if (p === card.nextLevel - 1) {
-          ctx.fillStyle = '#e24d54';
+          ctx.fillStyle = C.text;
         } else {
-          ctx.fillStyle = '#334155'; // Future locked levels
+          ctx.fillStyle = C.inactive;
         }
         ctx.fillRect(px, pipsY, pipStep - 3, pipH);
       }
@@ -251,28 +245,28 @@ export class UpgradeUI {
       const descBoxX = cx + 12;
       const descBoxY = cy + cardH * 0.58;
 
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
-      ctx.strokeStyle = '#334155';
+      ctx.fillStyle = 'rgba(14, 21, 25, 0.88)';
+      ctx.strokeStyle = C.borderSoft;
       ctx.lineWidth = 1;
       this.roundRect(ctx, descBoxX, descBoxY, descBoxW, descBoxH, 6);
       ctx.fill();
       ctx.stroke();
 
-      ctx.fillStyle = '#cbd5e1';
+      ctx.fillStyle = C.textSoft;
       ctx.font = `12px 'Segoe UI', Arial, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
       this.wrapText(ctx, card.def.description, cx + cardW / 2, descBoxY + 12, descBoxW - 14, 17);
 
       // Bottom Call-To-Action
-      ctx.fillStyle = '#e16b68';
+      ctx.fillStyle = isHovered ? C.cyanBright : C.textMuted;
       ctx.font = `bold 11px 'Segoe UI', Arial, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(isHovered ? 'NHẤN ĐỂ CHỌN' : 'CHỌN NÂNG CẤP', cx + cardW / 2, cy + cardH - 16);
 
-      ctx.strokeStyle = isHovered ? '#ff7770' : '#a9343a';
-      ctx.lineWidth = isHovered ? 3 : 1.5;
+      ctx.strokeStyle = isHovered ? C.cyanBright : C.border;
+      ctx.lineWidth = isHovered ? 2.5 : 1.25;
       this.roundRect(ctx, cx, cy, cardW, cardH, 12);
       ctx.stroke();
 
@@ -315,28 +309,28 @@ export class UpgradeUI {
     accent: string, isNew: boolean, hovered: boolean
   ): void {
     ctx.save();
-    ctx.shadowColor = hovered ? '#ff6562' : 'rgba(0,0,0,0.55)';
-    ctx.shadowBlur = hovered ? 18 : 8;
-    ctx.fillStyle = 'rgba(28, 13, 18, 0.98)';
-    ctx.strokeStyle = hovered ? '#ff7770' : '#81323a';
-    ctx.lineWidth = hovered ? 3 : 1.5;
+    ctx.shadowColor = 'rgba(0,0,0,0.4)';
+    ctx.shadowBlur = 7;
+    ctx.fillStyle = 'rgba(29, 39, 44, 0.98)';
+    ctx.strokeStyle = hovered ? C.cyanBright : C.border;
+    ctx.lineWidth = hovered ? 2.5 : 1.25;
     this.roundRect(ctx, x, y, w, h, 10); ctx.fill(); ctx.stroke();
     ctx.shadowBlur = 0;
 
     const iconX = x + 38;
     const iconY = y + h / 2;
-    ctx.fillStyle = '#211319'; ctx.strokeStyle = accent; ctx.lineWidth = 2;
+    ctx.fillStyle = '#151d21'; ctx.strokeStyle = accent; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(iconX, iconY, Math.min(25, h * 0.25), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     ctx.font = `${Math.min(27, h * 0.27)}px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff1e9';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = C.text;
     ctx.fillText(card.def.icon, iconX, iconY);
 
     const contentX = x + 76;
     ctx.textAlign = 'left';
-    ctx.fillStyle = '#fbf0eb'; ctx.font = `bold ${Math.min(15, h * 0.14)}px 'Segoe UI', Arial, sans-serif`;
+    ctx.fillStyle = C.text; ctx.font = `bold ${Math.min(15, h * 0.14)}px 'Segoe UI', Arial, sans-serif`;
     ctx.textBaseline = 'middle';
     ctx.fillText(card.def.name.toUpperCase(), contentX, y + h * 0.25);
-    ctx.fillStyle = '#e3a9a5'; ctx.font = `bold ${Math.min(10, h * 0.095)}px 'Segoe UI', Arial, sans-serif`;
+    ctx.fillStyle = isNew ? C.amberBright : C.textSoft; ctx.font = `bold ${Math.min(10, h * 0.095)}px 'Segoe UI', Arial, sans-serif`;
     ctx.textAlign = 'right';
     ctx.fillText(isNew ? 'MỚI · 0 → 1' : `CẤP ${card.nextLevel - 1} → ${card.nextLevel}`, x + w - 12, y + h * 0.25);
 
@@ -345,7 +339,7 @@ export class UpgradeUI {
     ctx.fillStyle = accent; ctx.font = `bold ${Math.min(9, h * 0.085)}px 'Segoe UI', Arial, sans-serif`;
     ctx.fillText(category, contentX, y + h * 0.43);
 
-    ctx.textAlign = 'left'; ctx.fillStyle = '#c9b7b4'; ctx.font = ` ${Math.min(12, h * 0.105)}px 'Segoe UI', Arial, sans-serif`;
+    ctx.textAlign = 'left'; ctx.fillStyle = C.textSoft; ctx.font = ` ${Math.min(12, h * 0.105)}px 'Segoe UI', Arial, sans-serif`;
     ctx.textBaseline = 'top';
     this.wrapText(ctx, card.def.description, contentX, y + h * 0.52, w - 94, Math.min(14, h * 0.12));
 
@@ -354,10 +348,10 @@ export class UpgradeUI {
     const pipGap = 3;
     const pipsY = y + h - 14;
     for (let i = 0; i < totalPips; i++) {
-      ctx.fillStyle = i < card.nextLevel ? '#d94b51' : '#473039';
+      ctx.fillStyle = i < card.nextLevel ? accent : C.inactive;
       ctx.fillRect(contentX + i * (pipW + pipGap), pipsY, pipW, 4);
     }
-    ctx.fillStyle = hovered ? '#ff8a82' : accent;
+    ctx.fillStyle = hovered ? C.cyanBright : accent;
     ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
     ctx.font = `bold 9px 'Segoe UI', Arial, sans-serif`;
     ctx.fillText(hovered ? 'CHỌN' : 'NÂNG CẤP', x + w - 12, y + h - 5);
@@ -366,10 +360,10 @@ export class UpgradeUI {
 
   private getCategoryColor(category: string): string {
     switch (category) {
-      case 'stat': return '#d17667';
-      case 'weapon': return '#ef554e';
-      case 'effect': return '#a54451';
-      default: return '#94a3b8';
+      case 'stat': return C.cyan;
+      case 'weapon': return C.amber;
+      case 'effect': return C.health;
+      default: return C.textMuted;
     }
   }
 

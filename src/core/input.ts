@@ -284,7 +284,10 @@ export class Input {
     canvas.addEventListener('touchend', (e) => {
       e.preventDefault();
       for (const touch of Array.from(e.changedTouches)) {
-        if (touch.identifier === this.leftTouchId) {
+        if (touch.identifier === this.actionTouchId) {
+          this.actionTouchId = null;
+          this.fireButtonHeld = false;
+        } else if (touch.identifier === this.leftTouchId) {
           this.leftTouchId = null;
           this.leftActive = false;
         } else if (touch.identifier === this.rightTouchId) {

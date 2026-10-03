@@ -33,10 +33,18 @@ import { MenuUI } from './ui/menu';
 import { ShopUI } from './ui/shop';
 import { CrosshairRenderer } from './ui/crosshair';
 import { drawTouchActionButtons } from './ui/touch-controls';
+import { UI_PALETTE } from './ui/palette';
 
 import { MAP_CONFIG, PLAYER_DEFAULTS, WEAPON_PARTS } from './data/items';
 import { PERM_UPGRADES, CHARACTERS, STAGES } from './data/meta';
 import { EVOLUTIONS } from './data/upgrades';
+import { getHorrorAttack, HORROR_TYPES } from './data/zombies';
+import { horrorAttackHits } from './systems/horror-ai';
+import { HorrorRemains } from './entities/horror-remains';
+import { resolveBuildingCollision } from './entities/map-geometry';
+
+// Development encounters use an isolated, non-persistent save from the outset.
+const horrorPreview = import.meta.env.DEV && new URLSearchParams(location.search).get('horror-preview') === '1';
 
 // ─── Canvas Setup ───
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -77,7 +85,8 @@ const supplyCrates = new SupplyCrateSystem();
 const spawner = new Spawner();
 const weapons = new WeaponSystem();
 const zombieGrid = new SpatialGrid<Zombie>(64);
-const save = new SaveSystem();
+const save = new SaveSystem(!horrorPreview);
+const horrorRemains = new HorrorRemains();
 const groundRenderer = new GroundRenderer();
 const propRenderer = new PropRenderer();
 
@@ -97,6 +106,8 @@ let stageComplete = false;
 let bossKilledThisRun = false;
 let goldEarned = 0;
 let hasRevive = false;     // from perm upgrade or ad
+let previewEncounter = false;
+const previewAudit = { hits: 0, attacks: 0, deaths: 0, drops: 0, phases: new Set<string>() };
 
 // ─── Spitter attack timer (shared) ───
 let spitterGlobalCooldown = 0;
@@ -147,6 +158,7 @@ function gameLoop(timestamp: number): void {
   }
 
   input.update();
+  menuUI.setPointer(input.mouseX, input.mouseY);
 
   const click = input.uiClick;
 
@@ -186,7 +198,7 @@ function gameLoop(timestamp: number): void {
 
     // Draw appropriate screen
     canvas.style.cursor = 'default';
-    if (menuUI.currentScreen === 'main') {
+    if (menuUI.currentScreen === 'main' || menuUI.currentScreen === 'hunter_profile' || menuUI.currentScreen === 'tutorial') {
       menuUI.draw(ctx, viewportWidth, viewportHeight, save);
       return;
     }
@@ -304,13 +316,16 @@ function updateGame(dt: number): void {
   camera.follow(player.x, player.y, input.mouseX, input.mouseY, dt);
 
   // ─── Spawning ───
-  const toSpawn = spawner.update(dt, gameTime, zombies.pool.activeCount, camera, player.x, player.y);
+  const toSpawn = previewEncounter ? [] : spawner.update(dt, gameTime, zombies.pool.activeCount, camera, player.x, player.y, gameMode === 'endless');
   for (const s of toSpawn) {
     const z = zombies.spawn(
       s.type, s.x, s.y,
       s.tier.hpMultiplier, s.tier.speedMultiplier, s.tier.damageMultiplier,
       s.isElite
     );
+    if (gameMode === 'endless' && getHorrorAttack(z.typeId)) {
+      [z.x, z.y] = resolveBuildingCollision(z.x, z.y, z.size);
+    }
 
     // Stage mode difficulty multiplier
     if (gameMode === 'stage' && currentStageIndex < STAGES.length) {
@@ -329,6 +344,8 @@ function updateGame(dt: number): void {
 
   // ─── Zombies ───
   zombies.update(dt, player.x, player.y, gameMode === 'endless');
+  if (horrorPreview) for (const z of zombies.pool.getActive()) previewAudit.phases.add(z.specialState);
+  horrorRemains.update(dt);
 
   // ─── Spatial Grid ───
   zombieGrid.clear();
@@ -436,6 +453,7 @@ function updateGame(dt: number): void {
       if (dist < radii * radii) {
         z.hp -= b.damage;
         z.flashTimer = 0.08;
+        if (horrorPreview) previewAudit.hits++;
         b.hitIds.add(z.id);
 
         // Apply knockback impulse
@@ -459,6 +477,10 @@ function updateGame(dt: number): void {
         particles.burst(z.x, z.y, 4, z.color,
           Math.atan2(-dy, -dx), Math.PI * 0.5, 90, 0.35);
         audio.hit();
+        if (getHorrorAttack(z.typeId)) {
+          audio.zombieHurt(Math.max(-1, Math.min(1, (z.x - player.x) / 420)), z.typeId, Math.hypot(z.x - player.x, z.y - player.y));
+          particles.burst(z.x, z.y, 3, '#973b36', Math.atan2(-dy, -dx), 0.7, 70, 0.25);
+        }
 
         if (b.explosive > 0) {
           handleExplosion(z.x, z.y, b.explosive, b.damage);
@@ -490,16 +512,40 @@ function updateGame(dt: number): void {
   });
 
   // ─── Check burn deaths ───
-  for (const z of zombies.pool.getActive()) {
+  const livingZombies = zombies.pool.getActive();
+  for (let i = livingZombies.length - 1; i >= 0; i--) {
+    const z = livingZombies[i];
     if (z.hp <= 0) {
       handleZombieDeath(z);
     }
+  }
+
+  // Special enemies deal damage only in the committed active phase, once per attack.
+  for (const z of zombies.pool.getActive()) {
+    if (z.hp <= 0 || !getHorrorAttack(z.typeId)) continue;
+    const distance = Math.hypot(player.x - z.x, player.y - z.y);
+    const pan = Math.max(-1, Math.min(1, (z.x - player.x) / 420));
+    if (z.specialStarted) {
+      audio.zombieAttack(pan, z.typeId, distance);
+      if (horrorPreview) previewAudit.attacks++;
+    }
+    if (!horrorAttackHits(z, player.x, player.y, player.size, gameMode === 'endless')) continue;
+    z.specialHit = true;
+    const hit = player.takeDamage(z.damage);
+    if (hit.damaged) {
+      audio.playerHit();
+      camera.shake(z.typeId === 'mutant' ? 2.5 : 1.6, 0.1);
+      damageNumbers.spawn(player.x, player.y, hit.actualDamage, UI_PALETTE.dangerBright, false, '-');
+      particles.burst(player.x, player.y, 5, '#a93e38', z.specialAngle, 1.1, 80, 0.28);
+    }
+    if (hit.dead) { handlePlayerDeath(); return; }
   }
 
   // ─── Zombie-Player Collisions ───
   const nearPlayer = zombieGrid.query(player.x, player.y, player.size + 50);
   for (const z of nearPlayer) {
     if (z.hp <= 0) continue;
+    if (getHorrorAttack(z.typeId)) continue;
     const dx = player.x - z.x;
     const dy = player.y - z.y;
     const dist = dx * dx + dy * dy;
@@ -521,6 +567,10 @@ function updateGame(dt: number): void {
         }
         if (hit.damaged) {
           z.attackCooldown = 0.5;
+          const [zombieScreenX] = camera.worldToWindowScreen(z.x, z.y);
+          const [playerScreenX] = camera.worldToWindowScreen(player.x, player.y);
+          const pan = Math.max(-1, Math.min(1, (zombieScreenX - playerScreenX) / (window.innerWidth * 0.48)));
+          audio.zombieAttack(pan, z.typeId);
           audio.playerHit();
           camera.shake(1.6, 0.08);
           damageNumbers.spawn(player.x, player.y, hit.actualDamage, '#ff3b30', false, '-');
@@ -800,7 +850,9 @@ function checkStageObjective(): void {
 }
 
 function handleZombieDeath(z: Zombie): void {
-  if (z.hp > 0) return;
+  if (z.hp > 0 || z.deathHandled) return;
+  z.deathHandled = true;
+  if (gameMode === 'endless') horrorRemains.add(z);
 
   player.kills++;
   weapons.loadout.addRageOnKill();
@@ -825,6 +877,12 @@ function handleZombieDeath(z: Zombie): void {
   }
 
   xpGems.drop(z.x, z.y, z.xpValue);
+  if (horrorPreview) { previewAudit.deaths++; previewAudit.drops += z.xpValue; }
+
+  const [zombieScreenX] = camera.worldToWindowScreen(z.x, z.y);
+  const [playerScreenX] = camera.worldToWindowScreen(player.x, player.y);
+  const pan = Math.max(-1, Math.min(1, (zombieScreenX - playerScreenX) / (window.innerWidth * 0.48)));
+  audio.zombieDie(pan, z.typeId, Math.hypot(z.x - player.x, z.y - player.y));
 
   // Exploder death explosion
   if (z.explodes) {
@@ -834,10 +892,6 @@ function handleZombieDeath(z: Zombie): void {
     // Normal / Elite zombie death
     particles.burst(z.x, z.y, z.isBoss ? 16 : 5, '#bb1122', Math.random() * Math.PI * 2, Math.PI * 2, 90, 0.25);
     particles.emit(z.x, z.y, 3, z.color, 60, 0.2, 2.5);
-    const [zombieScreenX] = camera.worldToWindowScreen(z.x, z.y);
-    const [playerScreenX] = camera.worldToWindowScreen(player.x, player.y);
-    const pan = Math.max(-1, Math.min(1, (zombieScreenX - playerScreenX) / (window.innerWidth * 0.48)));
-    audio.zombieDie(pan, z.typeId);
     camera.shake(z.isBoss ? 8 : z.isElite ? 1.8 : 0.6, z.isBoss ? 0.3 : 0.05);
   }
 
@@ -923,6 +977,11 @@ function drawGame(): void {
   drawMapBorder();
 
   propRenderer.draw(ctx, camera, 'ground', gameMode === 'endless');
+
+  if (gameMode === 'endless') {
+    horrorRemains.draw(ctx, camera);
+    zombies.drawWarnings(ctx, camera);
+  }
 
   // Draw entities
   mapPickups.draw(ctx, camera);
@@ -1013,18 +1072,23 @@ function drawActiveBuffs(): void {
     const barH = 6;
     const progress = buff.duration / 15; // assume max 15s
 
-    ctx.fillStyle = '#1a1a2e88';
+    ctx.fillStyle = 'rgba(27, 36, 41, 0.86)';
     ctx.fillRect(x - barW - 5, y - 10, barW + 10, 20);
 
     // Progress bar
-    ctx.fillStyle = '#44aaff';
+    const buffColor = key === 'speed_boost'
+      ? UI_PALETTE.health
+      : key === 'double_xp'
+        ? UI_PALETTE.amber
+        : UI_PALETTE.cyan;
+    ctx.fillStyle = buffColor;
     ctx.fillRect(x - barW, y - 2, barW * Math.min(1, progress), barH);
 
     // Label
-    ctx.fillStyle = '#aaaacc';
+    ctx.fillStyle = UI_PALETTE.textSoft;
     const label = key.replace('_', ' ').toUpperCase();
     ctx.fillText(label, x - 5, y - 3);
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = UI_PALETTE.text;
     ctx.fillText(`${Math.ceil(buff.duration)}s`, x - 5, y + 8);
 
     y += 25;
@@ -1215,6 +1279,7 @@ function resetGame(): void {
   player.reset();
   bullets.pool.releaseAll();
   zombies.pool.releaseAll();
+  horrorRemains.clear();
   xpGems.pool.releaseAll();
   particles.pool.releaseAll();
   enemyProjectiles.pool.releaseAll();
@@ -1248,3 +1313,39 @@ window.addEventListener('touchstart', unlockAudioContext, { passive: true });
 
 lastTimestamp = performance.now();
 requestAnimationFrame(gameLoop);
+
+if (import.meta.env.DEV && horrorPreview) {
+  void import('./dev/horror-preview').then(({ mountHorrorPreview }) => mountHorrorPreview({
+    encounter(typeId, wall) {
+      const type = HORROR_TYPES.find(t => t.id === typeId);
+      if (!type) return;
+      previewEncounter = true;
+      gameMode = 'endless';
+      startGame();
+      previewAudit.hits = previewAudit.attacks = previewAudit.deaths = previewAudit.drops = 0;
+      previewAudit.phases.clear();
+      player.x = wall ? 995 : 2000;
+      player.y = wall ? 720 : 2000;
+      const z = zombies.spawn(type, wall ? 885 : player.x + 240, player.y, 1, 1, 1);
+      z.facingAngle = Math.PI;
+      camera.x = player.x - camera.width / 2;
+      camera.y = player.y - camera.height / 2;
+      mapPickups.reset();
+    },
+    shoot() {
+      const z = zombies.pool.getActive().find(z => z.hp > 0);
+      if (!z) return;
+      // Collision probe uses a real projectile and unchanged base player damage.
+      bullets.fire(z.x - 5, z.y, 0, player.bulletDamage, 0, player.bulletSize, player.bulletColor);
+    },
+    menu() { previewEncounter = false; resetGame(); menuUI.currentScreen = 'main'; },
+    gameOver() { player.hp = 0; handlePlayerDeath(); },
+    survive() { previewEncounter = false; gameMode = 'endless'; startGame(); },
+    snapshot() {
+      const z = zombies.pool.getActive()[0];
+      return { screen: menuUI.currentScreen, playerHp: player.hp, kills: player.kills,
+        xp: player.xp, gems: xpGems.pool.activeCount, ...previewAudit, phases: [...previewAudit.phases],
+        creature: z ? { type: z.typeId, hp: z.hp, x: z.x, y: z.y, phase: z.specialState, flash: z.flashTimer } : null };
+    },
+  }));
+}

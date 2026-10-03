@@ -203,7 +203,7 @@ export class WeaponSystem {
             Math.round(player.bulletDamage * 0.5), 400, 3, '#88ffaa',
             0, 0, 0, 0, 'drone'
           );
-          audio.droneShoot();
+          audio.droneShoot(Math.cos(this.droneAngles[i]) * 0.28);
         }
       }
     }

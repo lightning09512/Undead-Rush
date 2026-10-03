@@ -25,19 +25,6 @@ export const ASSETS_CONFIG: Record<string, AssetConfig> = {
   'zombie_spitter': { name: 'zombie_spitter', path: zombieSpitterImg, scale: 64 },
   'zombie_glowing': { name: 'zombie_glowing', path: zombieGlowingImg, scale: 64 },
 
-  // Props
-  'crate': { name: 'crate', path: '/assets/crate.png', scale: 40 },
-  'rock': { name: 'rock', path: '/assets/rock.png', scale: 35 },
-  'log': { name: 'log', path: '/assets/log.png', scale: 50 },
-  'bush': { name: 'bush', path: '/assets/bush.png', scale: 60 },
-
-  // Pickups
-  'gem_blue': { name: 'gem_blue', path: '/assets/gem_blue.png', scale: 15 },
-  'gem_green': { name: 'gem_green', path: '/assets/gem_green.png', scale: 18 },
-  'gem_yellow': { name: 'gem_yellow', path: '/assets/gem_yellow.png', scale: 22 },
-  'chest': { name: 'chest', path: '/assets/chest.png', scale: 30 },
-  'medkit': { name: 'medkit', path: '/assets/medkit.png', scale: 25 },
-  'magnet': { name: 'magnet', path: '/assets/magnet.png', scale: 25 },
 };
 
 export class SpriteLoader {
@@ -88,7 +75,7 @@ export class SpriteLoader {
 
     Promise.all(this.loadPromises).then(() => {
       this.ready = true;
-      console.log('All sprites loaded (or failed gracefully).');
+      console.info('Undead Rush sprites ready.');
     });
   }
 

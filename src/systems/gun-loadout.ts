@@ -539,7 +539,7 @@ export class GunLoadout {
     camera.shake(1.8, 0.08);
   }
 
-  // ─── Tactical HUD Card Rendering (Matches User Screenshot) ───
+  // ─── Compact weapon HUD ───
 
   drawHUD(
     ctx: CanvasRenderingContext2D,
@@ -547,29 +547,29 @@ export class GunLoadout {
     canvasH: number,
     player: Player
   ): void {
-    const cardW = 390;
-    const cardH = 118;
+    const cardW = Math.min(350, Math.max(180, canvasW - 24));
+    const cardH = 106;
     const cardX = (canvasW - cardW) / 2;
     const cardY = canvasH - cardH - 12;
 
     ctx.save();
 
     // ── 1. Main Card Container ──
-    ctx.fillStyle = 'rgba(20, 10, 13, 0.96)';
-    ctx.strokeStyle = 'rgba(180, 48, 58, 0.72)';
-    ctx.lineWidth = 1.5;
-    this.roundRect(ctx, cardX, cardY, cardW, cardH, 14);
+    ctx.fillStyle = 'rgba(22, 29, 33, 0.96)';
+    ctx.strokeStyle = 'rgba(112, 133, 139, 0.7)';
+    ctx.lineWidth = 1;
+    this.roundRect(ctx, cardX, cardY, cardW, cardH, 10);
     ctx.fill();
     ctx.stroke();
 
     // ── 2. Top Weapon Switcher Pills (Only shows UNLOCKED weapons) ──
     const unlocked = this.unlockedSlots;
-    const pillH = 26;
-    const pillGap = 8;
-    const pillW = Math.max(80, Math.min(94, (cardW - 50) / Math.max(1, unlocked.length) - pillGap));
+    const pillH = 23;
+    const pillGap = unlocked.length > 3 ? 4 : 8;
+    const pillW = Math.min(94, (cardW - 24 - pillGap * Math.max(0, unlocked.length - 1)) / Math.max(1, unlocked.length));
     const totalPillsW = unlocked.length * pillW + (unlocked.length - 1) * pillGap;
     const pillsStartX = cardX + (cardW - totalPillsW) / 2;
-    const pillY = cardY + 12;
+    const pillY = cardY + 9;
 
     for (let i = 0; i < unlocked.length; i++) {
       const slot = unlocked[i];
@@ -578,35 +578,35 @@ export class GunLoadout {
 
       ctx.save();
       if (isActive) {
-        ctx.fillStyle = '#b91c2c';
-        this.roundRect(ctx, px, pillY, pillW, pillH, 13);
+        ctx.fillStyle = '#76572f';
+        this.roundRect(ctx, px, pillY, pillW, pillH, 11);
         ctx.fill();
 
-        ctx.fillStyle = '#0f172a';
-        ctx.font = `bold 13px 'Segoe UI', Arial, sans-serif`;
+        ctx.fillStyle = '#f2eee5';
+        ctx.font = `bold ${Math.max(9, Math.min(12, pillW * 0.13))}px 'Segoe UI', Arial, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(slot.def.name, px + pillW / 2, pillY + pillH / 2);
+        ctx.fillText(slot.def.name, px + pillW / 2, pillY + pillH / 2, Math.max(8, pillW - 8));
       } else {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.035)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.09)';
         ctx.lineWidth = 1;
-        this.roundRect(ctx, px, pillY, pillW, pillH, 13);
+        this.roundRect(ctx, px, pillY, pillW, pillH, 11);
         ctx.fill();
         ctx.stroke();
 
         ctx.fillStyle = '#94a3b8';
-        ctx.font = `bold 12px 'Segoe UI', Arial, sans-serif`;
+        ctx.font = `bold ${Math.max(9, Math.min(12, pillW * 0.13))}px 'Segoe UI', Arial, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(slot.def.name, px + pillW / 2, pillY + pillH / 2);
+        ctx.fillText(slot.def.name, px + pillW / 2, pillY + pillH / 2, Math.max(8, pillW - 8));
       }
       ctx.restore();
     }
 
     // ── 3. Central Ammo Display (or Reloading Progress) ──
     const active = this.activeSlot;
-    const ammoY = cardY + 54;
+    const ammoY = cardY + 45;
 
     ctx.save();
     ctx.textAlign = 'center';
@@ -615,17 +615,17 @@ export class GunLoadout {
     if (active.isReloading) {
       const remainingSec = Math.max(0, active.def.reloadDuration - active.reloadTimer);
       ctx.fillStyle = '#fbbf24';
-      ctx.font = `bold 15px 'Segoe UI', Arial, sans-serif`;
+      ctx.font = `bold 13px 'Segoe UI', Arial, sans-serif`;
       ctx.fillText(`ĐANG THAY ĐẠN... ${remainingSec.toFixed(1)}s`, cardX + cardW / 2, ammoY - 4);
 
-      const barW = 160;
-      const barH = 5;
+      const barW = Math.min(140, cardW - 56);
+      const barH = 4;
       const barX = cardX + (cardW - barW) / 2;
       const barY = ammoY + 10;
       ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
       this.roundRect(ctx, barX, barY, barW, barH, 3);
       ctx.fill();
-      ctx.fillStyle = '#e44d52';
+      ctx.fillStyle = '#d4aa63';
       this.roundRect(ctx, barX, barY, barW * active.reloadProgress, barH, 3);
       ctx.fill();
     } else {
@@ -633,80 +633,82 @@ export class GunLoadout {
       const max = active.def.magSize;
       const isLow = current <= Math.ceil(max * 0.2);
 
-      ctx.font = `bold 28px 'Segoe UI', Arial, sans-serif`;
+      ctx.font = `bold 25px 'Segoe UI', Arial, sans-serif`;
       const curText = this.isRageActive ? '∞' : `${current}`;
       const curW = ctx.measureText(curText).width;
-      ctx.font = `bold 16px 'Segoe UI', Arial, sans-serif`;
+      ctx.font = `bold 14px 'Segoe UI', Arial, sans-serif`;
       const maxText = `/${max}`;
       const maxW = ctx.measureText(maxText).width;
       const startX = cardX + (cardW - (curW + maxW)) / 2;
 
-      ctx.fillStyle = isLow ? '#ef4444' : '#ffffff';
-      ctx.font = `bold 28px 'Segoe UI', Arial, sans-serif`;
+      ctx.fillStyle = isLow ? '#e07869' : '#f1eee7';
+      ctx.font = `bold 25px 'Segoe UI', Arial, sans-serif`;
       ctx.textAlign = 'left';
       ctx.fillText(curText, startX, ammoY);
 
       ctx.fillStyle = '#94a3b8';
-      ctx.font = `bold 16px 'Segoe UI', Arial, sans-serif`;
+      ctx.font = `bold 14px 'Segoe UI', Arial, sans-serif`;
       ctx.fillText(maxText, startX + curW, ammoY + 3);
     }
     ctx.restore();
 
     // ── 4. Thin Horizontal Divider Line ──
-    const divY = cardY + 74;
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+    const divY = cardY + 63;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.09)';
     ctx.fillRect(cardX + 24, divY, cardW - 48, 1);
 
     // ── 5. Weapon Stats Subline ──
     const damageMult = player.bulletDamage / 15.0;
     const effDmg = Math.round(active.def.baseDamage * damageMult * (this.isRageActive ? 1.3 : 1.0));
-    const pwrLevel = Math.max(0, Math.round((damageMult - 1) * 20));
-    const statText = `PWR ${pwrLevel} · ${effDmg} DMG · ${active.def.rpm} RPM`;
+    const statText = `${effDmg} sát thương · ${active.def.rpm} RPM`;
 
     ctx.save();
     ctx.fillStyle = '#94a3b8';
-    ctx.font = `11px 'Segoe UI', Arial, sans-serif`;
+    ctx.font = `${cardW < 320 ? 9 : 10}px 'Segoe UI', Arial, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(statText, cardX + cardW / 2, cardY + 86);
+    ctx.fillText(statText, cardX + cardW / 2, cardY + 73);
     ctx.restore();
 
     // ── 6. Bottom Tactical Row ──
-    const botY = cardY + 103;
+    const botY = cardY + 93;
 
     const grenadeRechargeSec = Math.ceil(this.grenadeRechargeTimer);
     const grenadeExtra =
       this.grenadesCurrent < this.maxGrenades
         ? ` (+1 sau ${grenadeRechargeSec}s)`
         : '';
-    const grenadeStr = `LỰU ĐẠN ${this.grenadesCurrent}/${this.maxGrenades}${grenadeExtra}`;
+    const compact = cardW < 320;
+    const grenadeStr = compact
+      ? `LỰU ${this.grenadesCurrent}/${this.maxGrenades}${this.grenadesCurrent < this.maxGrenades ? ` +${grenadeRechargeSec}s` : ''}`
+      : `LỰU ĐẠN ${this.grenadesCurrent}/${this.maxGrenades}${grenadeExtra}`;
 
     const isDashReady = player.dashCooldown <= 0;
     const dashStr = isDashReady
-      ? 'XUNG KÍCH SẴN SÀNG'
-      : `XUNG KÍCH (${player.dashCooldown.toFixed(1)}s)`;
+      ? compact ? 'LƯỚT SẴN' : 'LƯỚT: SẴN'
+      : `LƯỚT ${player.dashCooldown.toFixed(1)}s`;
 
-    let rageStr = `NỘ ${Math.floor(this.ragePercent)}%`;
+    let rageStr = `NỘ: ${Math.floor(this.ragePercent)}%`;
     let rageColor = '#94a3b8';
     if (this.isRageActive) {
-      rageStr = `CUỒNG NỘ (${this.rageActiveTimer.toFixed(1)}s)`;
-      rageColor = '#ef4444';
+      rageStr = `NỘ ${this.rageActiveTimer.toFixed(1)}s`;
+      rageColor = '#e07869';
     } else if (this.ragePercent >= 100) {
-      rageStr = `NỘ 100% (NHẤN F)`;
-      rageColor = '#facc15';
+      rageStr = 'NỘ ĐẦY · F';
+      rageColor = '#d4aa63';
     }
 
     ctx.save();
-    ctx.font = `bold 10.5px 'Segoe UI', Arial, sans-serif`;
+    ctx.font = `bold ${compact ? 8.5 : 9.5}px 'Segoe UI', Arial, sans-serif`;
     ctx.textBaseline = 'middle';
 
     ctx.textAlign = 'left';
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = '#d4aa63';
     ctx.fillText(grenadeStr, cardX + 16, botY);
 
     ctx.textAlign = 'center';
-    ctx.fillStyle = isDashReady ? '#e87979' : '#94a3b8';
-    ctx.fillText(dashStr, cardX + cardW / 2 + 18, botY);
+    ctx.fillStyle = isDashReady ? '#76b4c1' : '#849196';
+    ctx.fillText(dashStr, cardX + cardW / 2, botY);
 
     ctx.textAlign = 'right';
     ctx.fillStyle = rageColor;
@@ -727,18 +729,18 @@ export class GunLoadout {
     canvasH: number,
     audio?: Audio
   ): boolean {
-    const cardW = 390;
-    const cardH = 118;
+    const cardW = Math.min(350, Math.max(180, canvasW - 24));
+    const cardH = 106;
     const cardX = (canvasW - cardW) / 2;
     const cardY = canvasH - cardH - 12;
 
     const unlocked = this.unlockedSlots;
-    const pillH = 26;
-    const pillGap = 8;
-    const pillW = Math.max(80, Math.min(94, (cardW - 50) / Math.max(1, unlocked.length) - pillGap));
+    const pillH = 23;
+    const pillGap = unlocked.length > 3 ? 4 : 8;
+    const pillW = Math.min(94, (cardW - 24 - pillGap * Math.max(0, unlocked.length - 1)) / Math.max(1, unlocked.length));
     const totalPillsW = unlocked.length * pillW + (unlocked.length - 1) * pillGap;
     const pillsStartX = cardX + (cardW - totalPillsW) / 2;
-    const pillY = cardY + 12;
+    const pillY = cardY + 9;
 
     for (let i = 0; i < unlocked.length; i++) {
       const px = pillsStartX + i * (pillW + pillGap);

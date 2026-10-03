@@ -1,0 +1,21 @@
+/** Shared UI colors: each hue has one readable gameplay role. */
+export const UI_PALETTE = {
+  background: '#12181c',
+  panel: '#1b2429',
+  panelRaised: '#252f35',
+  border: '#4b5960',
+  borderSoft: '#354149',
+  text: '#edf0e9',
+  textSoft: '#b6c0bf',
+  textMuted: '#849196',
+  danger: '#bf514f',
+  dangerBright: '#e07869',
+  health: '#8eae72',
+  healthWarning: '#d39a53',
+  amber: '#d4aa63',
+  amberBright: '#efcc83',
+  cyan: '#76b4c1',
+  cyanBright: '#a0d7dc',
+  inactive: '#303b41',
+  black: '#0b1013',
+} as const;

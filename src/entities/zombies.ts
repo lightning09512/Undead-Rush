@@ -5,6 +5,7 @@ import { Camera } from '../core/camera';
 import { ZombieTypeDef } from '../data/zombies';
 import { ZombieRenderer } from '../graphics/zombie-renderer';
 import { resolveBuildingCollision } from './map-geometry';
+import { updateHorrorAI, drawHorrorWarning } from '../systems/horror-ai';
 
 let nextZombieId = 1;
 
@@ -50,6 +51,13 @@ export interface Zombie {
   walkDist: number;
   attackAnim: number;
   attackTimer: number;
+  specialState: 'chase' | 'windup' | 'active' | 'recover';
+  specialTimer: number;
+  specialDuration: number;
+  specialAngle: number;
+  specialHit: boolean;
+  specialStarted: boolean;
+  deathHandled: boolean;
 }
 
 function createZombie(): Zombie {
@@ -71,6 +79,8 @@ function createZombie(): Zombie {
     walkDist: 0,
     attackAnim: 0,
     attackTimer: 0,
+    specialState: 'chase', specialTimer: 0, specialDuration: 1, specialAngle: 0,
+    specialHit: false, specialStarted: false, deathHandled: false,
   };
 }
 
@@ -90,6 +100,12 @@ function resetZombie(z: Zombie): void {
   z.attackAnim = 0;
   z.attackTimer = 0;
   z.facingAngle = 0;
+  z.vx = z.vy = 0;
+  z.specialState = 'chase';
+  z.specialTimer = 0;
+  z.specialDuration = 1;
+  z.specialAngle = 0;
+  z.specialHit = z.specialStarted = false;
 }
 
 export class ZombieSystem {
@@ -107,6 +123,7 @@ export class ZombieSystem {
   ): Zombie {
     const z = this.pool.acquire();
     z.id = nextZombieId++;
+    z.deathHandled = false;
     z.x = x;
     z.y = y;
     z.size = typeDef.size;
@@ -142,6 +159,7 @@ export class ZombieSystem {
 
   update(dt: number, playerX: number, playerY: number, collideBuildings = true): void {
     this.pool.forEach((z) => {
+      if (z.hp <= 0) return false; // Main loop owns death rewards and release.
       const dx = playerX - z.x;
       const dy = playerY - z.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
@@ -160,7 +178,10 @@ export class ZombieSystem {
         z.facingLeft = dx < 0;
       }
 
-      if (dist > 1) {
+      const special = updateHorrorAI(z, dt, playerX, playerY, collideBuildings);
+      if (special) {
+        // The committed attack state supplies movement and aim.
+      } else if (dist > 1) {
         let speed = z.speed;
         // Apply slow debuff
         if (z.slowTimer > 0) {
@@ -188,10 +209,16 @@ export class ZombieSystem {
       // Apply velocity AND knockback impulse
       const previousX = z.x;
       const previousY = z.y;
-      z.x += (z.vx + z.knockbackX) * dt;
-      z.y += (z.vy + z.knockbackY) * dt;
+      const moveX = (z.vx + z.knockbackX) * dt;
+      const moveY = (z.vy + z.knockbackY) * dt;
+      // Charges use small steps so even a slow frame cannot skip a wall.
+      const steps = special && collideBuildings ? Math.max(1, Math.ceil(Math.hypot(moveX, moveY) / (z.size * 0.45))) : 1;
+      for (let step = 0; step < steps; step++) {
+        z.x += moveX / steps;
+        z.y += moveY / steps;
+        if (collideBuildings) [z.x, z.y] = resolveBuildingCollision(z.x, z.y, special ? z.size : z.size * 0.72);
+      }
       if (collideBuildings) {
-        [z.x, z.y] = resolveBuildingCollision(z.x, z.y, z.size * 0.72);
         if (Math.abs(z.x - previousX) < 0.01) z.vx = 0;
         if (Math.abs(z.y - previousY) < 0.01) z.vy = 0;
       }
@@ -221,7 +248,9 @@ export class ZombieSystem {
 
       // Attack / Claw scratching animation when close to player
       const inAttackRange = dist < (z.size + 36);
-      if (inAttackRange || z.attackCooldown > 0.25) {
+      if (special) {
+        // Special animation is driven by its telegraphed attack phase.
+      } else if (inAttackRange || z.attackCooldown > 0.25) {
         z.attackAnim = Math.min(1, z.attackAnim + dt * 6);
         z.attackTimer += dt * 10;
       } else {
@@ -234,9 +263,16 @@ export class ZombieSystem {
       z.animTimer += dt * (movingSpeed > 10 ? 1.0 : 0.4);
 
       // Release if dead
-      if (z.hp <= 0) return true;
       return false;
     });
+  }
+
+  drawWarnings(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    for (const z of this.pool.getActive()) {
+      if (z.hp <= 0 || !camera.isVisible(z.x, z.y, 260)) continue;
+      const [sx, sy] = camera.worldToScreen(z.x, z.y);
+      drawHorrorWarning(ctx, z, sx, sy);
+    }
   }
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {

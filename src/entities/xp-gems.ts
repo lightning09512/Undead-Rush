@@ -19,7 +19,7 @@ export interface XpGem {
 
 function createGem(): XpGem {
   return {
-    x: 0, y: 0, size: 5, color: '#44bbff', glowColor: '#2299dd',
+    x: 0, y: 0, size: 5, color: '#73b9cf', glowColor: '#3d859d',
     value: 5, magnetized: false, wobble: 0,
   };
 }

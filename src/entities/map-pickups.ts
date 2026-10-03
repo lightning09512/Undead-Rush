@@ -77,9 +77,9 @@ function drawLootIcon(ctx: CanvasRenderingContext2D, id: string, x: number, y: n
 
   switch (id) {
     case 'health_pack':
-      ctx.fillStyle = '#9d202d';
+      ctx.fillStyle = '#527c4e';
       ctx.fillRect(-radius * 0.55, -radius * 0.42, radius * 1.1, radius * 0.84);
-      ctx.strokeStyle = '#f2d8cf'; ctx.lineWidth = 1;
+      ctx.strokeStyle = '#d7e1ca'; ctx.lineWidth = 1;
       ctx.strokeRect(-radius * 0.55, -radius * 0.42, radius * 1.1, radius * 0.84);
       ctx.fillStyle = '#fff1e9';
       ctx.fillRect(-radius * 0.12, -radius * 0.31, radius * 0.24, radius * 0.62);
@@ -105,14 +105,14 @@ function drawLootIcon(ctx: CanvasRenderingContext2D, id: string, x: number, y: n
       ctx.fillRect(-radius * 0.055, -radius * 0.04, radius * 0.11, radius * 0.1);
       break;
     case 'double_xp':
-      ctx.strokeStyle = '#dcf6ff'; ctx.lineWidth = 2;
+      ctx.strokeStyle = '#b8e4e5'; ctx.lineWidth = 2;
       for (const dy of [-radius * 0.2, radius * 0.2]) {
         ctx.beginPath(); ctx.moveTo(-radius * 0.48, dy); ctx.lineTo(radius * 0.35, dy); ctx.lineTo(radius * 0.12, dy - radius * 0.2); ctx.moveTo(radius * 0.35, dy); ctx.lineTo(radius * 0.12, dy + radius * 0.2); ctx.stroke();
       }
       ctx.fillStyle = '#ffffff'; ctx.font = `bold ${radius * 0.38}px Arial`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('2X', 0, radius * 0.55);
       break;
     case 'speed_boost':
-      ctx.strokeStyle = '#f8ffcf'; ctx.lineWidth = 2.2;
+      ctx.strokeStyle = '#dce7bd'; ctx.lineWidth = 2.2;
       for (let i = 0; i < 3; i++) {
         const ox = (i - 1) * radius * 0.31;
         ctx.beginPath(); ctx.moveTo(ox - radius * 0.12, radius * 0.28); ctx.lineTo(ox + radius * 0.12, 0); ctx.lineTo(ox - radius * 0.12, -radius * 0.28); ctx.stroke();
@@ -120,7 +120,7 @@ function drawLootIcon(ctx: CanvasRenderingContext2D, id: string, x: number, y: n
       break;
     case 'shield':
       ctx.beginPath(); ctx.moveTo(0, -radius * 0.55); ctx.lineTo(radius * 0.45, -radius * 0.34); ctx.lineTo(radius * 0.36, radius * 0.18); ctx.lineTo(0, radius * 0.52); ctx.lineTo(-radius * 0.36, radius * 0.18); ctx.lineTo(-radius * 0.45, -radius * 0.34); ctx.closePath();
-      ctx.fillStyle = 'rgba(67, 101, 128, 0.72)'; ctx.fill(); ctx.strokeStyle = '#cce7f2'; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.fillStyle = 'rgba(63, 108, 121, 0.82)'; ctx.fill(); ctx.strokeStyle = '#c1e2e1'; ctx.lineWidth = 1.5; ctx.stroke();
       ctx.beginPath(); ctx.moveTo(-radius * 0.2, 0); ctx.lineTo(-radius * 0.04, radius * 0.16); ctx.lineTo(radius * 0.22, -radius * 0.18); ctx.stroke();
       break;
     case 'bomb':
@@ -129,7 +129,7 @@ function drawLootIcon(ctx: CanvasRenderingContext2D, id: string, x: number, y: n
       ctx.fillStyle = '#ffd477'; ctx.shadowColor = '#ff5b35'; ctx.shadowBlur = 7; ctx.beginPath(); ctx.arc(radius * 0.38, -radius * 0.83, radius * 0.12, 0, Math.PI * 2); ctx.fill();
       break;
     case 'weapon_part':
-      ctx.fillStyle = '#7b2931'; ctx.strokeStyle = '#f4b4a9'; ctx.lineWidth = 1.5;
+      ctx.fillStyle = '#806339'; ctx.strokeStyle = '#ead19a'; ctx.lineWidth = 1.5;
       ctx.beginPath();
       for (let i = 0; i < 16; i++) { const a = -Math.PI / 2 + i * Math.PI / 8; const r = i % 2 === 0 ? radius * 0.48 : radius * 0.36; const px = Math.cos(a) * r; const py = Math.sin(a) * r; if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); }
       ctx.closePath(); ctx.fill(); ctx.stroke();

@@ -10,12 +10,20 @@ export class SpatialGrid<T extends Bounded> {
   private cellSize: number;
   private cells: Map<number, T[]> = new Map();
   private _queryResult: T[] = [];
+  private bucketPool: T[][] = [];
+  private seen = new Set<T>();
 
   constructor(cellSize = 64) {
     this.cellSize = cellSize;
   }
 
   clear(): void {
+    // Recycle the cell arrays: the grid is rebuilt every frame, so clearing the
+    // map alone used to allocate hundreds of fresh arrays on every update.
+    for (const cell of this.cells.values()) {
+      cell.length = 0;
+      this.bucketPool.push(cell);
+    }
     this.cells.clear();
   }
 
@@ -38,7 +46,7 @@ export class SpatialGrid<T extends Bounded> {
         const k = this.key(cx, cy);
         let cell = this.cells.get(k);
         if (!cell) {
-          cell = [];
+          cell = this.bucketPool.pop() || [];
           this.cells.set(k, cell);
         }
         cell.push(obj);
@@ -49,7 +57,7 @@ export class SpatialGrid<T extends Bounded> {
   /** Query all objects that could overlap with the circle (x,y,radius) */
   query(x: number, y: number, radius: number): T[] {
     this._queryResult.length = 0;
-    const seen = new Set<T>();
+    this.seen.clear();
 
     const minCX = Math.floor((x - radius) / this.cellSize);
     const maxCX = Math.floor((x + radius) / this.cellSize);
@@ -61,8 +69,8 @@ export class SpatialGrid<T extends Bounded> {
         const cell = this.cells.get(this.key(cx, cy));
         if (cell) {
           for (const obj of cell) {
-            if (!seen.has(obj)) {
-              seen.add(obj);
+            if (!this.seen.has(obj)) {
+              this.seen.add(obj);
               this._queryResult.push(obj);
             }
           }

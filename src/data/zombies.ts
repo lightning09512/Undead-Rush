@@ -27,6 +27,41 @@ export interface ZombieTypeDef {
   isGlowing?: boolean;
 }
 
+export type HorrorTypeId = 'spider' | 'rat_king' | 'mutant' | 'armed' | 'multihead';
+export interface HorrorAttackDef {
+  triggerRange: number;
+  reach: number;
+  arc: number;
+  windup: number;
+  active: number;
+  recovery: number;
+  cooldown: number;
+  dashSpeed: number;
+}
+
+/** Separate roster: stage mode deliberately keeps ZOMBIE_TYPES only. */
+export const HORROR_TYPES: ZombieTypeDef[] = [
+  { id: 'spider', name: 'Nhện đột biến', hp: 48, speed: 83, damage: 12, xpValue: 10, size: 19, color: '#93816d', weight: 10, minTime: 25 },
+  { id: 'armed', name: 'Kẻ hành hình', hp: 95, speed: 51, damage: 19, xpValue: 18, size: 19, color: '#a69e86', weight: 7, minTime: 55 },
+  { id: 'rat_king', name: 'Vua chuột', hp: 160, speed: 39, damage: 22, xpValue: 28, size: 30, color: '#89786c', weight: 4, minTime: 85 },
+  { id: 'mutant', name: 'Kẻ đột biến', hp: 250, speed: 34, damage: 28, xpValue: 36, size: 28, color: '#9e897a', weight: 3, minTime: 115 },
+  { id: 'multihead', name: 'Hợp thể ba đầu', hp: 320, speed: 43, damage: 24, xpValue: 45, size: 29, color: '#ad9f8c', weight: 2, minTime: 155 },
+];
+
+/** Distances are in world pixels, timings in seconds. Aim locks at windup. */
+export const HORROR_ATTACKS: Record<HorrorTypeId, HorrorAttackDef> = {
+  spider: { triggerRange: 185, reach: 26, arc: Math.PI * 2, windup: 0.7, active: 0.42, recovery: 0.8, cooldown: 1.6, dashSpeed: 365 },
+  rat_king: { triggerRange: 195, reach: 36, arc: Math.PI * 2, windup: 0.9, active: 0.65, recovery: 1.1, cooldown: 2.4, dashSpeed: 235 },
+  mutant: { triggerRange: 106, reach: 94, arc: Math.PI * 1.15, windup: 1.05, active: 0.2, recovery: 1.25, cooldown: 1.6, dashSpeed: 0 },
+  armed: { triggerRange: 95, reach: 82, arc: Math.PI * 0.85, windup: 0.8, active: 0.23, recovery: 1, cooldown: 1.25, dashSpeed: 0 },
+  multihead: { triggerRange: 117, reach: 106, arc: Math.PI * 1.45, windup: 1.15, active: 0.48, recovery: 1.35, cooldown: 2, dashSpeed: 0 },
+};
+
+export function getHorrorAttack(typeId: string): HorrorAttackDef | undefined {
+  return Object.prototype.hasOwnProperty.call(HORROR_ATTACKS, typeId)
+    ? HORROR_ATTACKS[typeId as HorrorTypeId] : undefined;
+}
+
 export const ZOMBIE_TYPES: ZombieTypeDef[] = [
   {
     id: 'normal',
