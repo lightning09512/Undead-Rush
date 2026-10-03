@@ -1239,8 +1239,7 @@ resizeCanvas();
 
 // User gesture unlock for WebAudio
 const unlockAudioContext = () => {
-  audio.init();
-  audio.ensureContext();
+  audio.unlock();
 };
 window.addEventListener('pointerdown', unlockAudioContext, { passive: true });
 window.addEventListener('mousedown', unlockAudioContext, { passive: true });

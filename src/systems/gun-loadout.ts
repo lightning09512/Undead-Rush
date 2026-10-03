@@ -174,7 +174,7 @@ export class GunLoadout {
     }
 
     if (audio) {
-      audio.reloadRack();
+      audio.reloadRack(targetIdx >= 0 ? this.slots[targetIdx].def.type : 'rifle');
     }
     return true;
   }
@@ -310,7 +310,7 @@ export class GunLoadout {
     slot.soundMilestones = { insert: false, rack: false };
 
     if (audio) {
-      audio.reloadStart();
+      audio.reloadStart(slot.def.type);
     }
   }
 
@@ -394,11 +394,11 @@ export class GunLoadout {
         // Milestone sounds
         if (slot.reloadProgress >= 0.42 && !slot.soundMilestones.insert) {
           slot.soundMilestones.insert = true;
-          audio.reloadInsert();
+          audio.reloadInsert(slot.def.type);
         }
         if (slot.reloadProgress >= 0.88 && !slot.soundMilestones.rack) {
           slot.soundMilestones.rack = true;
-          audio.reloadRack();
+          audio.reloadRack(slot.def.type);
         }
 
         // Finish reload

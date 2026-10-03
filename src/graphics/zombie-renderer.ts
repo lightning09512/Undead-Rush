@@ -31,7 +31,7 @@ export class ZombieRenderer {
   ): void {
     if (!this.shadowCanvas) this.initShadow();
 
-    const scale = z.isBoss ? 2.2 : z.typeId === 'tank' ? 1.5 : z.typeId === 'runner' ? 0.88 : z.isElite ? 1.18 : 1.0;
+    const scale = z.isBoss ? 2.28 : z.typeId === 'tank' ? 1.58 : z.typeId === 'runner' ? 0.96 : z.isElite ? 1.25 : 1.12;
     const size = z.size * scale;
 
     // ─── 1. Volumetric Ground Ambient Shadow ───
@@ -76,7 +76,110 @@ export class ZombieRenderer {
         break;
     }
 
+    this.renderMutationDetails(ctx, z, isFlashing);
+
     ctx.restore();
+  }
+
+  /** Extra asymmetrical growths, exposed bone, and wet wounds unify the zombie silhouettes. */
+  private static renderMutationDetails(ctx: CanvasRenderingContext2D, z: Zombie, flash: boolean): void {
+    if (flash) return;
+
+    const sway = Math.sin(z.animTimer * 5.4 + z.wobble) * 2.2;
+    const seed = Math.abs(z.id * 37 + 11);
+
+    // Split, bruised hide and dark branching veins across the exposed flank.
+    ctx.strokeStyle = '#190b0d';
+    ctx.lineWidth = 1.15;
+    ctx.beginPath();
+    ctx.moveTo(-11, -5);
+    ctx.lineTo(-5, -2);
+    ctx.lineTo(-8, 1);
+    ctx.lineTo(-2, 4);
+    ctx.moveTo(-5, -2);
+    ctx.lineTo(-1, -7);
+    ctx.moveTo(-8, 1);
+    ctx.lineTo(-11, 6);
+    ctx.stroke();
+
+    // Broken ivory ribs and cartilage spikes jut from the back and shoulders.
+    ctx.fillStyle = '#c5b49b';
+    ctx.beginPath();
+    ctx.moveTo(-10, -8); ctx.lineTo(-17, -12); ctx.lineTo(-12, -5);
+    ctx.moveTo(-13, -2); ctx.lineTo(-20, -3); ctx.lineTo(-13, 1);
+    ctx.moveTo(-10, 7); ctx.lineTo(-16, 12); ctx.lineTo(-11, 5);
+    ctx.fill();
+    ctx.strokeStyle = '#6b2020';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(-10, -8); ctx.lineTo(-15, -10);
+    ctx.moveTo(-10, 7); ctx.lineTo(-14, 10);
+    ctx.stroke();
+
+    // A torn gut-tendril drags behind the body and swings with the shambling gait.
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#26070d';
+    ctx.lineWidth = 3.2;
+    ctx.beginPath();
+    ctx.moveTo(-9, 5);
+    ctx.bezierCurveTo(-16, 8 + sway * 0.3, -19, 13 + sway, -15 - (seed % 5), 17 + sway);
+    ctx.stroke();
+    ctx.strokeStyle = '#961421';
+    ctx.lineWidth = 1.05;
+    ctx.beginPath();
+    ctx.moveTo(-10, 5);
+    ctx.bezierCurveTo(-16, 8 + sway * 0.3, -19, 13 + sway, -15 - (seed % 5), 17 + sway);
+    ctx.stroke();
+    ctx.fillStyle = '#d0c0a7';
+    ctx.beginPath();
+    ctx.moveTo(-15 - (seed % 5), 17 + sway);
+    ctx.lineTo(-18 - (seed % 5), 20 + sway);
+    ctx.lineTo(-13 - (seed % 5), 19 + sway);
+    ctx.fill();
+
+    // A small, diseased eye has grown in the torso; it flickers with the infection.
+    const eyePulse = 0.72 + Math.sin(z.animTimer * 8 + seed) * 0.22;
+    ctx.save();
+    ctx.shadowColor = z.typeId === 'spitter' ? '#63ff60' : '#ff1427';
+    ctx.shadowBlur = 5;
+    ctx.fillStyle = '#160609';
+    ctx.beginPath();
+    ctx.ellipse(-5, 0, 3.1, 2.4, -0.25, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = z.typeId === 'spitter' ? `rgba(90, 255, 70, ${eyePulse})` : `rgba(255, 24, 37, ${eyePulse})`;
+    ctx.beginPath();
+    ctx.arc(-4.4, 0, 1.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Blood and small necrotic pits vary by entity ID, never rerolling each frame.
+    for (let i = 0; i < 4; i++) {
+      const x = -10 + ((seed + i * 17) % 17);
+      const y = -8 + ((seed + i * 23) % 17);
+      const radius = 0.7 + ((seed + i * 7) % 4) * 0.25;
+      ctx.fillStyle = i % 2 ? '#68101a' : '#351015';
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Wet blood and saliva run from the split jaw, with teeth visible at the wound.
+    const mouthX = z.typeId === 'spitter' ? 15 : z.typeId === 'tank' || z.isBoss ? 17 : 10;
+    ctx.fillStyle = '#170408';
+    ctx.beginPath();
+    ctx.ellipse(mouthX, 0, 2.8, 3.7 + z.attackAnim * 1.7, 0.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ded0b7';
+    ctx.beginPath();
+    ctx.moveTo(mouthX - 1.4, -2); ctx.lineTo(mouthX + 0.2, -1.8); ctx.lineTo(mouthX - 0.7, 0.1);
+    ctx.moveTo(mouthX - 0.8, 1.2); ctx.lineTo(mouthX + 0.6, 1.4); ctx.lineTo(mouthX + 0.3, 3.1);
+    ctx.fill();
+    ctx.strokeStyle = '#a20f20';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(mouthX + 1.2, 2);
+    ctx.quadraticCurveTo(mouthX + 3, 5, mouthX + 1.5, 8 + Math.min(3, z.attackAnim * 2));
+    ctx.stroke();
   }
 
   // ─── 1. SHAMBLER (Terrifying Rotting Zombie, Exposed Bones & Gaping Maw) ───

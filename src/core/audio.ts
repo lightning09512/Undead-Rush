@@ -4,6 +4,7 @@ export class Audio {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private sfxGain: GainNode | null = null;
+  private compressor: DynamicsCompressorNode | null = null;
   private initialized = false;
   private noiseBuffer: AudioBuffer | null = null;
   private distortionCurve: Float32Array | null = null;
@@ -13,7 +14,7 @@ export class Audio {
   init(): void {
     if (this.initialized && this.ctx) {
       if (this.ctx.state === 'suspended') {
-        this.ctx.resume();
+        void this.ctx.resume().catch(() => undefined);
       }
       return;
     }
@@ -21,13 +22,20 @@ export class Audio {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioCtx) return;
 
-      this.ctx = new AudioCtx();
+      this.ctx = new AudioCtx({ latencyHint: 'interactive' });
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.value = 0.52; // Balanced master level
-      this.masterGain.connect(this.ctx.destination);
+      this.masterGain.gain.value = 0.82;
+      this.compressor = this.ctx.createDynamicsCompressor();
+      this.compressor.threshold.value = -13;
+      this.compressor.knee.value = 18;
+      this.compressor.ratio.value = 3.5;
+      this.compressor.attack.value = 0.004;
+      this.compressor.release.value = 0.18;
+      this.masterGain.connect(this.compressor);
+      this.compressor.connect(this.ctx.destination);
 
       this.sfxGain = this.ctx.createGain();
-      this.sfxGain.gain.value = 0.88;
+      this.sfxGain.gain.value = 0.96;
       this.sfxGain.connect(this.masterGain);
 
       // Pre-generate 2 seconds of high quality white noise for crack & explosions
@@ -52,9 +60,17 @@ export class Audio {
       this.init();
     }
     if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume();
+      void this.ctx.resume().catch(() => undefined);
     }
     return !!(this.ctx && this.sfxGain);
+  }
+
+  /** Called directly from a trusted mouse, keyboard, or touch gesture. */
+  unlock(): void {
+    this.init();
+    if (this.ctx?.state === 'suspended') {
+      void this.ctx.resume().catch(() => undefined);
+    }
   }
 
   private createDistortionCurve(amount: number): Float32Array {
@@ -353,25 +369,113 @@ export class Audio {
 
   // ─── Tactical Reload & Weapon Action Sound Effects ───
 
-  /** Magazine release and drop click */
-  reloadStart(): void {
+  private reloadClack(delay: number, pitch: number, brightness: number, volume: number): void {
     if (!this.ensureContext() || !this.ctx || !this.sfxGain) return;
-    this.playTone(850, 0.025, 'triangle', 0.22);
-    setTimeout(() => this.playTone(420, 0.035, 'sine', 0.18), 35);
+    const ctx = this.ctx;
+    const t = ctx.currentTime + delay;
+
+    if (this.noiseBuffer) {
+      const metal = ctx.createBufferSource();
+      const filter = ctx.createBiquadFilter();
+      const gain = ctx.createGain();
+      metal.buffer = this.noiseBuffer;
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(brightness, t);
+      filter.frequency.exponentialRampToValueAtTime(Math.max(180, brightness * 0.42), t + 0.065);
+      filter.Q.value = 2.2;
+      gain.gain.setValueAtTime(volume * 0.52, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.075);
+      metal.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.sfxGain);
+      metal.start(t, Math.random() * 1.5);
+      metal.stop(t + 0.08);
+    }
+
+    const ring = ctx.createOscillator();
+    const ringGain = ctx.createGain();
+    ring.type = 'triangle';
+    ring.frequency.setValueAtTime(pitch, t);
+    ring.frequency.exponentialRampToValueAtTime(Math.max(90, pitch * 0.58), t + 0.055);
+    ringGain.gain.setValueAtTime(volume * 0.3, t);
+    ringGain.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+    ring.connect(ringGain);
+    ringGain.connect(this.sfxGain);
+    ring.start(t);
+    ring.stop(t + 0.065);
   }
 
-  /** Heavy magazine slam/lock into magwell */
-  reloadInsert(): void {
-    if (!this.ensureContext() || !this.ctx || !this.sfxGain) return;
-    this.playTone(260, 0.045, 'triangle', 0.28);
-    setTimeout(() => this.playTone(720, 0.025, 'square', 0.18), 30);
+  private reloadSlide(delay: number, duration: number, pitchFrom: number, pitchTo: number, brightness: number): void {
+    if (!this.ensureContext() || !this.ctx || !this.sfxGain || !this.noiseBuffer) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime + delay;
+    const scrape = ctx.createBufferSource();
+    const filter = ctx.createBiquadFilter();
+    const gain = ctx.createGain();
+    scrape.buffer = this.noiseBuffer;
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(brightness, t);
+    filter.frequency.exponentialRampToValueAtTime(Math.max(250, brightness * 0.48), t + duration);
+    filter.Q.value = 1.05;
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.linearRampToValueAtTime(0.16, t + 0.025);
+    gain.gain.setValueAtTime(0.12, t + duration * 0.55);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+    scrape.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.sfxGain);
+    scrape.start(t, Math.random() * 1.5);
+    scrape.stop(t + duration + 0.01);
+
+    const bolt = ctx.createOscillator();
+    const boltFilter = ctx.createBiquadFilter();
+    const boltGain = ctx.createGain();
+    bolt.type = 'sawtooth';
+    bolt.frequency.setValueAtTime(pitchFrom, t);
+    bolt.frequency.exponentialRampToValueAtTime(pitchTo, t + duration);
+    boltFilter.type = 'lowpass';
+    boltFilter.frequency.value = 1050;
+    boltGain.gain.setValueAtTime(0.0001, t);
+    boltGain.gain.linearRampToValueAtTime(0.055, t + 0.025);
+    boltGain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+    bolt.connect(boltFilter);
+    boltFilter.connect(boltGain);
+    boltGain.connect(this.sfxGain);
+    bolt.start(t);
+    bolt.stop(t + duration + 0.01);
   }
 
-  /** Bolt carrier slide rack pull and chamber snap */
-  reloadRack(): void {
-    if (!this.ensureContext() || !this.ctx || !this.sfxGain) return;
-    this.playTone(1150, 0.03, 'sawtooth', 0.22);
-    setTimeout(() => this.playTone(460, 0.04, 'triangle', 0.28), 45);
+  /** Magazine release followed by the metal magazine clearing the receiver. */
+  reloadStart(weaponType: 'rifle' | 'shotgun' | 'smg' = 'rifle'): void {
+    const isShotgun = weaponType === 'shotgun';
+    const brightness = weaponType === 'smg' ? 1450 : isShotgun ? 720 : 980;
+    this.reloadClack(0, isShotgun ? 180 : 225, brightness, 0.46);
+    this.reloadSlide(0.035, isShotgun ? 0.15 : 0.105, 720, 260, brightness * 0.92);
+    this.reloadClack(0.13, isShotgun ? 145 : 190, brightness * 0.72, 0.33);
+  }
+
+  /** Fresh magazine seats with a dense, weighty metal-on-metal slap. */
+  reloadInsert(weaponType: 'rifle' | 'shotgun' | 'smg' = 'rifle'): void {
+    if (weaponType === 'shotgun') {
+      this.reloadClack(0, 300, 1150, 0.42);
+      this.reloadClack(0.045, 870, 1900, 0.24);
+      return;
+    }
+    const isSmg = weaponType === 'smg';
+    this.reloadClack(0, isSmg ? 285 : 245, isSmg ? 1550 : 1150, 0.56);
+    this.reloadClack(0.035, isSmg ? 1050 : 760, isSmg ? 2100 : 1650, 0.3);
+  }
+
+  /** Bolt or pump action scrapes forward, then snaps into battery. */
+  reloadRack(weaponType: 'rifle' | 'shotgun' | 'smg' = 'rifle'): void {
+    if (weaponType === 'shotgun') {
+      this.reloadSlide(0, 0.2, 980, 230, 1300);
+      this.reloadClack(0.17, 190, 780, 0.58);
+      return;
+    }
+    const isSmg = weaponType === 'smg';
+    this.reloadSlide(0, isSmg ? 0.12 : 0.16, isSmg ? 1150 : 920, 190, isSmg ? 1750 : 1200);
+    this.reloadClack(isSmg ? 0.105 : 0.14, 205, isSmg ? 1250 : 840, 0.56);
   }
 
   private lastEmptyClickTime = 0;
