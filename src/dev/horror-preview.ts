@@ -1,4 +1,4 @@
-import { HORROR_TYPES, ZOMBIE_TYPES } from '../data/zombies';
+import { CAMPAIGN_VARIANT_TYPES, HORROR_TYPES, ZOMBIE_TYPES } from '../data/zombies';
 import { openAnatomyGallery } from './anatomy-gallery';
 import { runHorrorChecks } from './horror-checks';
 import { CAMPAIGN_ATTACKS, STAGES, type CampaignAttackKind } from '../data/meta';
@@ -146,14 +146,14 @@ export function mountHorrorPreview(host: PreviewHost): void {
       for (const b of buttons) b.disabled = false;
     }
   })(); });
-  for (const type of [...ZOMBIE_TYPES, ...HORROR_TYPES]) button(type.name, () => { chosen = type.id; host.encounter(type.id); });
+  for (const type of [...ZOMBIE_TYPES, ...HORROR_TYPES, ...CAMPAIGN_VARIANT_TYPES]) button(type.name, () => { chosen = type.id; host.encounter(type.id); });
   button('Sát tường', () => host.encounter(chosen, true));
   button('Đạn kiểm tra', () => host.shoot());
   button('Menu', () => host.menu());
   button('Sinh tồn', () => host.survive());
   button('Game Over', () => host.gameOver());
   const wait = (ms: number) => new Promise<void>(resolve => window.setTimeout(resolve, ms));
-  button('Kiểm tra 5 loài', () => { void (async () => {
+  button('Kiểm tra AI + đạn', () => { void (async () => {
     if (running) return;
     running = true;
     for (const b of buttons) b.disabled = true;

@@ -1,8 +1,9 @@
 import { Camera } from '../core/camera';
-import { HORROR_ATTACKS, HORROR_TYPES, ZOMBIE_TYPES, getHorrorAttack } from '../data/zombies';
+import { CAMPAIGN_VARIANT_TYPES, HORROR_ATTACKS, HORROR_TYPES, ZOMBIE_TYPES, getCampaignVariantAttack, getHorrorAttack } from '../data/zombies';
 import type { HorrorTypeId, ZombieTypeDef } from '../data/zombies';
 import { ZombieSystem } from '../entities/zombies';
 import type { Zombie } from '../entities/zombies';
+import { EnemyProjectileSystem } from '../entities/enemy-projectiles';
 import { SOLID_BUILDINGS, isInsideBuilding, segmentHitsBuilding } from '../entities/map-geometry';
 import { horrorAttackHits, updateHorrorAI } from '../systems/horror-ai';
 import { Spawner } from '../systems/spawner';
@@ -156,6 +157,42 @@ export function runHorrorChecks(): string[] {
     for (let frame = 0; frame < 100; frame++) doorSystem.update(0.025, warehouse.x, doorY - 180, true);
     assert(walker.y < doorY - 8 && !isInsideBuilding(walker.x, walker.y), `${type.id}: real movement enters warehouse through door`);
     passed.push(`PASS ${type.id}: wall blocks attack/visibility${attack.dashSpeed ? ' and fast charge' : ''}; open doorway remains traversable`);
+  }
+
+  for (const type of CAMPAIGN_VARIANT_TYPES) {
+    const attack = getCampaignVariantAttack(type.id)!;
+    const system = new ZombieSystem();
+    const z = spawn(system, type);
+    const targetX = z.x + attack.triggerRange * .7;
+    updateHorrorAI(z, .01, targetX, z.y, false);
+    assert(stateIs(z, 'windup') && !z.specialStarted, `${type.id}: starts with a visible warning phase`);
+    assert(!horrorAttackHits(z, targetX, z.y, 12, false), `${type.id}: warning phase cannot deal damage`);
+    const lockedAngle = z.specialAngle;
+    updateHorrorAI(z, attack.windup + .001, z.x - 200, z.y + 170, false);
+    assert(stateIs(z, 'active') && z.specialStarted, `${type.id}: commits only after its warning`);
+    close(z.specialAngle, lockedAngle, `${type.id}: attack aim is locked after the warning`);
+    if (type.ranged) {
+      assert(!!attack.burstCount && !!attack.projectileType && !!attack.bulletSpeed, `${type.id}: has a distinct firearm volley`);
+      assert(!horrorAttackHits(z, z.x, z.y, 12, false), `${type.id}: ranged attacker cannot apply hidden contact damage`);
+      const projectiles = new EnemyProjectileSystem();
+      projectiles.fire(z.x, z.y, lockedAngle, attack.bulletSpeed!, z.damage, attack.projectileType!);
+      const shot = projectiles.pool.getActive()[0];
+      close(Math.hypot(shot.vx, shot.vy), attack.bulletSpeed!, `${type.id}: projectile speed matches its attack data`);
+      close(Math.atan2(shot.vy, shot.vx), lockedAngle, `${type.id}: projectile follows its warned aim direction`);
+      assert(shot.life <= 1 && shot.size >= 3, `${type.id}: tracer is visible and cannot travel across the whole map`);
+      projectiles.update(.1);
+      assert(Math.hypot(shot.x - z.x, shot.y - z.y) > 1, `${type.id}: fired round travels through world space`);
+      projectiles.update(1);
+      assert(projectiles.pool.activeCount === 0, `${type.id}: short-lived rounds return to the pool`);
+    } else {
+      assert(attack.dashSpeed > 0, `${type.id}: pounce has a deliberate acceleration phase`);
+      close(Math.hypot(z.vx, z.vy), attack.dashSpeed, `${type.id}: committed lunge reaches its authored speed`);
+      assert(horrorAttackHits(z, z.x + Math.cos(lockedAngle) * attack.reach * .5,
+        z.y + Math.sin(lockedAngle) * attack.reach * .5, 8, false), `${type.id}: active pounce hits within telegraphed reach`);
+    }
+    updateHorrorAI(z, attack.active + .001, targetX, z.y, false);
+    assert(stateIs(z, 'recover') && !z.specialStarted, `${type.id}: attack ends in a harmless recovery window`);
+    passed.push(`PASS Campaign ${type.id}: warning → locked aim → ${type.ranged ? 'projectile' : 'pounce'} → recovery`);
   }
 
   const camera = new Camera();

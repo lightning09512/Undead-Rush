@@ -387,9 +387,121 @@ function multihead(ctx: CanvasRenderingContext2D, z: Zombie, flash: boolean): vo
   skull(ctx, 14 + lunge * 6, -0.5, twitchC, 0.8, '#c0b3a0', flash, spread * 2);
 }
 
+function orangeMutant(ctx: CanvasRenderingContext2D, z: Zombie, flash: boolean): void {
+  const stride = Math.sin(z.walkDist * 1.75);
+  const windup = z.specialState === 'windup' ? progress(z) : 0;
+  const lunge = z.specialState === 'active' ? Math.sin(progress(z) * Math.PI) : 0;
+  feet(ctx, z, flash, 8);
+  // One overgrown shoulder and a forward-leaning, uneven torso make its pounce
+  // silhouette distinct from the ordinary shamblers at normal play zoom.
+  limb(ctx, -9, -5, -14, -13 + stride * 2, -20, -12 + stride * 3, 5, '#79523b', flash);
+  limb(ctx, -7, 6, -11, 14 - stride * 2, -18, 13 - stride * 3, 4, '#704936', flash);
+  limb(ctx, 0, -8, 10 + lunge * 8, -13 - windup * 3, 18 + lunge * 14, -10, 5.3, '#bc7044', flash);
+  limb(ctx, -1, 8, 8 + lunge * 7, 14 + windup * 2, 16 + lunge * 12, 12, 4.2, '#a45e3b', flash);
+  ctx.beginPath(); ctx.moveTo(-15, -7); ctx.lineTo(-10, -14); ctx.lineTo(-1, -15);
+  ctx.lineTo(8, -11); ctx.lineTo(14, -4); ctx.lineTo(11, 6); ctx.lineTo(5, 12);
+  ctx.lineTo(-5, 11); ctx.lineTo(-12, 6); ctx.closePath();
+  finishSkin(ctx, flash ? '#fff5dc' : '#97563a', flash);
+  if (!flash) {
+    // Dull keratin plates and exposed orange seams distinguish its armor from blood decals.
+    ctx.fillStyle = '#4c3933'; ctx.strokeStyle = '#1c1a1b'; ctx.lineWidth = 1.1;
+    ctx.beginPath(); ctx.moveTo(-11, -10); ctx.lineTo(-15, -17); ctx.lineTo(-5, -14); ctx.lineTo(-2, -9); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-9, 8); ctx.lineTo(-15, 15); ctx.lineTo(-5, 12); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = '#e49a48'; ctx.lineWidth = 1.6; ctx.beginPath();
+    ctx.moveTo(-7, -8); ctx.lineTo(-2, -4); ctx.lineTo(-6, 1); ctx.moveTo(-2, -4); ctx.lineTo(2, -9);
+    ctx.moveTo(-4, 3); ctx.lineTo(1, 7); ctx.stroke();
+    ribs(ctx, -1, 0, .56);
+    oval(ctx, -8, -1, 3.2, 4.5, '#e38a3e', -.2);
+  }
+  skull(ctx, 10 + lunge * 4, 0, -.06, .86, '#c18a61', flash, windup * .65 + lunge * .5);
+}
+
+function redMutant(ctx: CanvasRenderingContext2D, z: Zombie, flash: boolean): void {
+  const stride = Math.sin(z.walkDist * 1.45);
+  const windup = z.specialState === 'windup' ? progress(z) : 0;
+  const lunge = z.specialState === 'active' ? Math.sin(progress(z) * Math.PI) : 0;
+  feet(ctx, z, flash, 10);
+  // Low, broad shoulders and a heavy frontal mass signal a slower, harder hit.
+  limb(ctx, -8, -8, -13, -16 + stride, -21, -13, 7.2, '#672f35', flash);
+  limb(ctx, -7, 8, -12, 17 - stride, -20, 14, 6, '#582b31', flash);
+  limb(ctx, 0, -9, 10 + lunge * 8, -15 - windup * 4, 20 + lunge * 12, -10, 7, '#7b3437', flash);
+  limb(ctx, -1, 9, 8 + lunge * 7, 16 + windup * 3, 19 + lunge * 10, 12, 6.2, '#703237', flash);
+  ctx.beginPath(); ctx.moveTo(-17, -8); ctx.lineTo(-13, -16); ctx.lineTo(-4, -18);
+  ctx.lineTo(6, -15); ctx.lineTo(15, -9); ctx.lineTo(17, 0); ctx.lineTo(11, 11);
+  ctx.lineTo(2, 16); ctx.lineTo(-9, 13); ctx.lineTo(-16, 5); ctx.closePath();
+  finishSkin(ctx, flash ? '#fff5dc' : '#542a31', flash);
+  if (!flash) {
+    ctx.fillStyle = '#211c20'; ctx.strokeStyle = '#171719'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(-13, -11); ctx.lineTo(-20, -19); ctx.lineTo(-7, -16); ctx.lineTo(-4, -10); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-13, 9); ctx.lineTo(-19, 18); ctx.lineTo(-6, 14); ctx.closePath(); ctx.fill(); ctx.stroke();
+    // Short ember-colored fissures stay on the body; no floor-like warning cues.
+    ctx.strokeStyle = '#d34f48'; ctx.lineWidth = 1.9; ctx.beginPath();
+    ctx.moveTo(-9, -9); ctx.lineTo(-3, -5); ctx.lineTo(-7, 0); ctx.lineTo(-2, 4);
+    ctx.moveTo(-3, -5); ctx.lineTo(1, -12); ctx.moveTo(-7, 0); ctx.lineTo(-11, 5); ctx.stroke();
+    ribs(ctx, 0, 1, .78);
+    oval(ctx, -9, -1, 3.7, 5.1, '#d7574b', -.15);
+  }
+  skull(ctx, 12 + lunge * 3, 0, -.04, .92, '#93625a', flash, windup * .75 + lunge * .5);
+}
+
+function campaignGunner(ctx: CanvasRenderingContext2D, z: Zombie, flash: boolean): void {
+  const red = z.typeId === 'gunner_red';
+  const orange = z.typeId === 'gunner_orange';
+  const gait = Math.sin(z.walkDist * 1.8);
+  const skin = red ? '#62333a' : orange ? '#80533b' : '#58605d';
+  const limbSkin = red ? '#774047' : orange ? '#986345' : '#758078';
+  feet(ctx, z, flash, red ? 10 : 8);
+  limb(ctx, -7, -7, -12, -14 + gait * 2, -18, -12, 4, limbSkin, flash);
+  limb(ctx, -7, 7, -12, 14 - gait * 2, -18, 12, 4, limbSkin, flash);
+  // Ribbed back harness straps visibly carry the gun into both hands.
+  ctx.beginPath(); ctx.moveTo(-14, -7); ctx.lineTo(-8, -12); ctx.lineTo(1, -10);
+  ctx.lineTo(8, -4); ctx.lineTo(7, 7); ctx.lineTo(0, 12); ctx.lineTo(-10, 9); ctx.closePath();
+  finishSkin(ctx, flash ? '#fff5dc' : skin, flash);
+  if (!flash) {
+    ribs(ctx, -4, 1, .5);
+    ctx.strokeStyle = red ? '#c35249' : orange ? '#d08b4a' : '#9aa196'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-10, -7); ctx.lineTo(3, 7); ctx.moveTo(-8, 7); ctx.lineTo(4, -6); ctx.stroke();
+    oval(ctx, -7, 0, 2.4, 3.3, red ? '#c44945' : orange ? '#df8b3d' : '#b7b392');
+  }
+  skull(ctx, 4, 0, 0, .7, red ? '#9b6a60' : orange ? '#ad805c' : '#a0a28d', flash, 0);
+
+  // A strapped receiver, rear stock, handguard, barrel and forward grip form
+  // one supported weapon silhouette, aligned with the creature's aim.
+  const recoil = z.visualStrike > 0 ? -2.5 : z.specialState === 'windup' ? -progress(z) * 1.2 : 0;
+  ctx.save(); ctx.translate(5 + recoil, 0);
+  ctx.strokeStyle = INK; ctx.lineWidth = red ? 6 : 5;
+  ctx.beginPath(); ctx.moveTo(-2, 1); ctx.lineTo(3, 1); ctx.stroke();
+  ctx.fillStyle = '#393b39'; ctx.strokeStyle = '#17191a'; ctx.lineWidth = 1.15;
+  ctx.beginPath(); ctx.moveTo(1, -4); ctx.lineTo(9, -5); ctx.lineTo(11, -2); ctx.lineTo(11, 3); ctx.lineTo(8, 5); ctx.lineTo(1, 4); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = red ? '#4a3436' : '#51463a'; ctx.fillRect(9, -3, 8, 6);
+  ctx.fillStyle = '#59605c'; ctx.fillRect(16, -3.4, 11, 6.8);
+  ctx.fillStyle = '#363a39'; ctx.fillRect(18, -5, 7, 1.8); ctx.fillRect(20, 3.4, 3, 5);
+  ctx.strokeStyle = '#17191b'; ctx.lineWidth = 3.2; ctx.beginPath(); ctx.moveTo(26, -.4); ctx.lineTo(36, -.4); ctx.stroke();
+  ctx.strokeStyle = '#89918b'; ctx.lineWidth = 1.1; ctx.beginPath(); ctx.moveTo(22, -2); ctx.lineTo(33, -2); ctx.stroke();
+  // Support hands connect the receiver to the chest/back mount.
+  limb(ctx, 3, -7, 12, -5, 18, -2, 3.2, limbSkin, flash);
+  limb(ctx, 2, 7, 12, 5, 21, 2, 3.2, limbSkin, flash);
+  oval(ctx, 18, -1.5, 2.2, 2.1, flash ? '#fff' : limbSkin);
+  oval(ctx, 21, 1.5, 2.2, 2.1, flash ? '#fff' : limbSkin);
+  if (z.specialState === 'windup') {
+    const charge = progress(z);
+    ctx.globalAlpha = .34 + charge * .56;
+    ctx.strokeStyle = red ? '#ff7665' : orange ? '#ffbd61' : '#e7ddb7';
+    ctx.lineWidth = 1.2 + charge;
+    ctx.beginPath(); ctx.arc(37, 0, 3.5 + charge * 3, 0, TAU); ctx.stroke();
+    ctx.fillStyle = red ? '#f15c55' : orange ? '#ffad43' : '#eadca8';
+    ctx.fillRect(34.5, -1.5, 3.5, 3);
+  } else if (z.visualStrike > 0) {
+    ctx.fillStyle = red ? '#f07061' : orange ? '#f3ae57' : '#e2d6a0';
+    ctx.beginPath(); ctx.moveTo(36, -3); ctx.lineTo(44, 0); ctx.lineTo(36, 3); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+
 /** Returns false for legacy types; their original renderer is untouched. */
 export function drawHorrorZombie(ctx: CanvasRenderingContext2D, z: Zombie, sx: number, sy: number, flash: boolean): boolean {
-  if (z.typeId !== 'spider' && z.typeId !== 'rat_king' && z.typeId !== 'mutant' && z.typeId !== 'armed' && z.typeId !== 'multihead') return false;
+  if (z.typeId !== 'spider' && z.typeId !== 'rat_king' && z.typeId !== 'mutant' && z.typeId !== 'armed' && z.typeId !== 'multihead' &&
+      z.typeId !== 'orange_mutant' && z.typeId !== 'red_mutant' && !z.typeId.startsWith('gunner')) return false;
   ctx.save();
   ctx.translate(sx, sy);
   const baseScale = z.size / 20;
@@ -403,6 +515,9 @@ export function drawHorrorZombie(ctx: CanvasRenderingContext2D, z: Zombie, sx: n
   else if (z.typeId === 'rat_king') ratKing(ctx, z, flash);
   else if (z.typeId === 'mutant') mutant(ctx, z, flash);
   else if (z.typeId === 'armed') armed(ctx, z, flash);
+  else if (z.typeId === 'orange_mutant') orangeMutant(ctx, z, flash);
+  else if (z.typeId === 'red_mutant') redMutant(ctx, z, flash);
+  else if (z.typeId.startsWith('gunner')) campaignGunner(ctx, z, flash);
   else multihead(ctx, z, flash);
   ctx.restore();
   return true;

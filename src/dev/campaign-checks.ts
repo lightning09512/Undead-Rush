@@ -1,4 +1,6 @@
 import { CAMPAIGN_ATTACKS, STAGES, type CampaignRect, type Point, type StageDef } from '../data/meta';
+import { CAMPAIGN_VARIANT_TYPES, HORROR_TYPES, ZOMBIE_TYPES, getCampaignVariantAttack } from '../data/zombies';
+import { createAllGunDefs, createCampaignGunDefs } from '../systems/gun-loadout';
 
 function inside(x: number, y: number, rect: CampaignRect): boolean {
   return x >= rect.x && y >= rect.y && x <= rect.x + rect.w && y <= rect.y + rect.h;
@@ -60,6 +62,37 @@ function reachable(stage: StageDef, start: Point, goal: Point, blockedGate = -1)
 /** Deterministic geometry audit in the development panel; never touches save. */
 export function runCampaignChecks(): string[] {
   const results: string[] = [];
+  const introductions: Record<string, number> = {
+    orange_mutant: 2, gunner: 4, gunner_orange: 6, red_mutant: 7, gunner_red: 8,
+  };
+  for (const type of CAMPAIGN_VARIANT_TYPES) {
+    const introStage = introductions[type.id];
+    const attack = getCampaignVariantAttack(type.id);
+    if (!introStage || !attack || HORROR_TYPES.some(other => other.id === type.id) || ZOMBIE_TYPES.some(other => other.id === type.id))
+      throw new Error(`${type.id}: Campaign-only data/attack missing or leaked into shared roster`);
+    if (STAGES[0].mobIds.includes(type.id) || STAGES.slice(0, introStage - 1).some(stage => stage.mobIds.includes(type.id)))
+      throw new Error(`${type.id}: appears before its planned introduction`);
+    if (!STAGES.slice(introStage - 1).some(stage => stage.layout?.zones.some(zone => zone.waveTrigger && zone.mobs.includes(type.id))))
+      throw new Error(`${type.id}: never appears in an authored active-wave zone after its introduction`);
+    if (type.ranged && (!attack.burstCount || !attack.projectileType || attack.windup < .7 || attack.recovery <= 0))
+      throw new Error(`${type.id}: gunner lacks a readable, recoverable burst`);
+    if (!type.ranged && attack.dashSpeed <= 0)
+      throw new Error(`${type.id}: mutant is missing its telegraphed pounce`);
+  }
+  const guns = createCampaignGunDefs().sort((a, b) => (a.unlockStage ?? 0) - (b.unlockStage ?? 0));
+  if (guns.length !== 10 || guns.some((gun, index) => gun.unlockStage !== index + 1) || guns[0].id !== 'p9')
+    throw new Error('Campaign weapons are not ordered from P-9 through one unlock per stage');
+  const campaignBase = new Map(createCampaignGunDefs(false).map(gun => [gun.id, gun]));
+  const survival = new Map(createAllGunDefs().map(gun => [gun.id, gun]));
+  if ([...campaignBase].some(([id, gun]) => survival.get(id)?.baseDamage !== gun.baseDamage ||
+      survival.get(id)?.extraBurnDamage !== gun.extraBurnDamage || survival.get(id)?.extraBlastRadius !== gun.extraBlastRadius))
+    throw new Error('Campaign power tuning leaked into Survival weapon data');
+  const damage = new Map(guns.map(gun => [gun.id, gun.baseDamage]));
+  if (damage.get('smg9') !== 15 || damage.get('sg12') !== 14 || damage.get('dmr55') !== 52 ||
+      damage.get('lmg6') !== 20 || damage.get('flamer8') !== 11 || damage.get('rpg4') !== 100 || damage.get('rail_lance') !== 122)
+    throw new Error('Campaign weapon tiers are missing their calibrated power steps');
+  results.push('PASS roster: 5 quái mới chỉ thuộc Campaign, được giới thiệu đúng mốc và có báo đòn/nhịp hồi phục');
+  results.push(`PASS vũ khí: ${guns.map(gun => `${gun.unlockStage}:${gun.shortName}`).join(' → ')}; P-9 mở đầu, boss trao súng kế tiếp; tăng lực chỉ ở Campaign`);
   for (const stage of STAGES) {
     const layout = stage.layout;
     if (!layout) throw new Error(`Màn ${stage.id}: thiếu layout`);

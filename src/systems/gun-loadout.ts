@@ -94,9 +94,9 @@ export function createDefaultGunDefs(): GunDef[] {
 }
 
 /** Ten Campaign weapons, ordered by the chapter that first permits purchase. */
-export function createCampaignGunDefs(): GunDef[] {
+export function createCampaignGunDefs(campaignProgression = true): GunDef[] {
   const [ar7, sg12, smg9] = createDefaultGunDefs();
-  return [
+  const guns: GunDef[] = [
     { id:'p9', name:'P-9', shortName:'P-9', slotKey:'1', type:'rifle', soundType:'pistol', magSize:12, fireRate:3.1, rpm:186, baseDamage:14,
       bulletSpeed:900, bulletColor:'#ddd1b3', reloadDuration:1.65, spreadBase:.02, spreadMax:.07, recoilImpulse:2.5,
       campaignOnly:true, campaignCost:0, unlockStage:1, reserveMagazines:8 },
@@ -122,10 +122,25 @@ export function createCampaignGunDefs(): GunDef[] {
       baseDamage:112, bulletSpeed:1660, bulletColor:'#75d5df', reloadDuration:2.45, spreadBase:0, spreadMax:.018, recoilImpulse:13,
       campaignOnly:true, campaignCost:1950, unlockStage:10, reserveMagazines:5, extraPierce:3 },
   ];
+  if (!campaignProgression) return guns;
+  // Small Campaign-only power steps help later chapters keep pace with their
+  // higher health budgets without flattening each gun's distinct role.
+  const progression: Record<string, Partial<GunDef>> = {
+    smg9: { baseDamage: 15 },
+    sg12: { baseDamage: 14 },
+    dmr55: { baseDamage: 52 },
+    lmg6: { baseDamage: 20 },
+    flamer8: { baseDamage: 11, extraBurnDamage: 18 },
+    rpg4: { baseDamage: 100, extraBlastRadius: 100 },
+    rail_lance: { baseDamage: 122 },
+  };
+  return guns.map(gun => ({ ...gun, ...progression[gun.id] }));
 }
 
 export function createAllGunDefs(): GunDef[] {
-  const campaign = createCampaignGunDefs();
+  // Survival keeps its previous weapon values; the small power steps above
+  // are applied only when Campaign loadout is configured.
+  const campaign = createCampaignGunDefs(false);
   const byId = new Map(campaign.map(def => [def.id, def]));
   return [byId.get('ar7')!, byId.get('sg12')!, byId.get('smg9')!,
     ...campaign.filter(def => !['ar7', 'sg12', 'smg9', 'p9'].includes(def.id)), byId.get('p9')!];
@@ -410,7 +425,8 @@ export class GunLoadout {
       }
       case 'smg9_hollow_point': {
         const smg = this.getGunDef('smg9');
-        if (smg) smg.baseDamage = Math.round(14 * (1 + (this.campaignMode ? (this.campaignGunLevels.smg9 ?? 0) * .12 : 0)) * (1 + 0.3 * level));
+        if (smg) smg.baseDamage = Math.round((this.campaignMode ? 15 : 14) *
+          (1 + (this.campaignMode ? (this.campaignGunLevels.smg9 ?? 0) * .12 : 0)) * (1 + 0.3 * level));
         break;
       }
     }

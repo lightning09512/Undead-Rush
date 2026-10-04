@@ -287,14 +287,14 @@ export class CampaignBossDirector {
         ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(ex,ey);ctx.strokeStyle=danger;ctx.lineWidth=48;ctx.globalAlpha=.16;ctx.stroke();ctx.globalAlpha=1;ctx.lineWidth=3;ctx.setLineDash([8,8]);ctx.stroke();ctx.setLineDash([]);
         ctx.fillStyle=color;for(let k=1;k<=3;k++){const d=move.reach*k/4,px=x+Math.cos(this.angle)*d,py=y+Math.sin(this.angle)*d;ctx.beginPath();ctx.moveTo(px+Math.cos(this.angle)*12,py+Math.sin(this.angle)*12);ctx.lineTo(px-Math.cos(this.angle)*8-Math.sin(this.angle)*8,py-Math.sin(this.angle)*8+Math.cos(this.angle)*8);ctx.lineTo(px-Math.cos(this.angle)*8+Math.sin(this.angle)*8,py-Math.sin(this.angle)*8-Math.cos(this.angle)*8);ctx.closePath();ctx.fill();}
       }else if(move.kind==='fan'){
-        const halfSpread = boss.campaignBossId === 2 ? .46 : boss.campaignBossId >= 7 ? .34 : .36;
+        const halfSpread = boss.campaignBossId === 2 ? .46 : (boss.campaignBossId ?? 0) >= 7 ? .34 : .36;
         const left=this.angle-halfSpread,right=this.angle+halfSpread;
         ctx.fillStyle=boss.campaignBossId===2?'rgba(169,197,104,.2)':'rgba(200,197,183,.17)';
         ctx.beginPath();ctx.moveTo(x,y);ctx.arc(x,y,move.reach,left,right);ctx.closePath();ctx.fill();
         ctx.strokeStyle=color;ctx.lineWidth=3;ctx.setLineDash([9,7]);
         ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+Math.cos(left)*move.reach,y+Math.sin(left)*move.reach);ctx.moveTo(x,y);ctx.lineTo(x+Math.cos(right)*move.reach,y+Math.sin(right)*move.reach);ctx.stroke();ctx.setLineDash([]);
         ctx.strokeStyle=danger;ctx.globalAlpha=.45;ctx.lineWidth=1.5;
-        const volleyCount=boss.campaignBossId>=7?10:boss.campaignBossId>=5?9:boss.campaignBossId===2?9:8;
+        const volleyCount=(boss.campaignBossId ?? 0)>=7?10:(boss.campaignBossId ?? 0)>=5?9:boss.campaignBossId===2?9:8;
         for(let i=0;i<volleyCount;i++){
           const t=i/(volleyCount-1)-.5,a=this.angle+t*halfSpread*2;
           ctx.beginPath();ctx.moveTo(x+Math.cos(a)*boss.size*.8,y+Math.sin(a)*boss.size*.8);ctx.lineTo(x+Math.cos(a)*move.reach,y+Math.sin(a)*move.reach);ctx.stroke();

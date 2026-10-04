@@ -12,7 +12,7 @@ export interface EnemyProjectile {
   color: string;
   damage: number;
   life: number;
-  type: 'poison' | 'boss_orb' | 'boss_wave' | 'boss_acid' | 'boss_shard';
+  type: 'poison' | 'boss_orb' | 'boss_wave' | 'boss_acid' | 'boss_shard' | 'gun_round' | 'gun_round_orange' | 'gun_round_red';
 }
 
 function createProj(): EnemyProjectile {
@@ -41,7 +41,7 @@ export class EnemyProjectileSystem {
     p.vx = Math.cos(angle) * speed;
     p.vy = Math.sin(angle) * speed;
     p.damage = damage;
-    p.life = 4.0;
+    p.life = type.startsWith('gun_round') ? 0.95 : 4.0;
     p.type = type;
 
     switch (type) {
@@ -64,6 +64,18 @@ export class EnemyProjectileSystem {
       case 'boss_shard':
         p.size = 8;
         p.color = '#c8c5b7';
+        break;
+      case 'gun_round':
+        p.size = 3.5;
+        p.color = '#ead8a4';
+        break;
+      case 'gun_round_orange':
+        p.size = 4;
+        p.color = '#f3a24a';
+        break;
+      case 'gun_round_red':
+        p.size = 4.4;
+        p.color = '#ef6557';
         break;
     }
   }
@@ -118,6 +130,11 @@ export class EnemyProjectileSystem {
       }else if(p.type==='boss_shard'){
         ctx.fillStyle='#686e68';ctx.beginPath();ctx.moveTo(-p.size*1.5,0);ctx.lineTo(p.size*.2,-p.size*.62);ctx.lineTo(p.size*1.45,-p.size*.15);ctx.lineTo(p.size*.05,p.size*.7);ctx.closePath();ctx.fill();
         ctx.strokeStyle='#ddd5bd';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-p.size*.7,p.size*.1);ctx.lineTo(p.size,p.size*-.1);ctx.stroke();
+      }else if(p.type.startsWith('gun_round')){
+        ctx.strokeStyle=p.type==='gun_round_red'?'rgba(239,101,87,.52)':p.type==='gun_round_orange'?'rgba(243,162,74,.5)':'rgba(234,216,164,.48)';
+        ctx.lineWidth=p.size*.9;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(-p.size*3.8,0);ctx.lineTo(p.size*.2,0);ctx.stroke();
+        ctx.fillStyle=p.color;ctx.beginPath();ctx.ellipse(p.size*.3,0,p.size*1.15,p.size*.62,0,0,Math.PI*2);ctx.fill();
+        ctx.fillStyle='#fff5d9';ctx.beginPath();ctx.arc(p.size*.45,-p.size*.12,p.size*.32,0,Math.PI*2);ctx.fill();
       }else{
         ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(0,0,p.size,0,Math.PI*2);ctx.fill();
         ctx.fillStyle='#f2e8d8';ctx.globalAlpha=.62;ctx.beginPath();ctx.arc(-p.size*.12,-p.size*.12,p.size*.4,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;

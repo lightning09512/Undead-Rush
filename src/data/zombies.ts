@@ -28,6 +28,7 @@ export interface ZombieTypeDef {
 }
 
 export type HorrorTypeId = 'spider' | 'rat_king' | 'mutant' | 'armed' | 'multihead';
+export type CampaignVariantId = 'orange_mutant' | 'red_mutant' | 'gunner' | 'gunner_orange' | 'gunner_red';
 export interface HorrorAttackDef {
   triggerRange: number;
   reach: number;
@@ -37,6 +38,15 @@ export interface HorrorAttackDef {
   recovery: number;
   cooldown: number;
   dashSpeed: number;
+}
+
+export interface CampaignVariantAttackDef extends HorrorAttackDef {
+  burstCount?: number;
+  burstSpread?: number;
+  bulletSpeed?: number;
+  bulletDamageMult?: number;
+  projectileType?: 'gun_round' | 'gun_round_orange' | 'gun_round_red';
+  weaponSound?: 'rifle' | 'smg';
 }
 
 /** Additional body-horror archetypes shared by Survival and authored Campaign zones. */
@@ -56,6 +66,36 @@ export const HORROR_ATTACKS: Record<HorrorTypeId, HorrorAttackDef> = {
   armed: { triggerRange: 95, reach: 82, arc: Math.PI * 0.85, windup: 0.8, active: 0.23, recovery: 1, cooldown: 1.25, dashSpeed: 0 },
   multihead: { triggerRange: 117, reach: 106, arc: Math.PI * 1.45, windup: 1.15, active: 0.48, recovery: 1.35, cooldown: 2, dashSpeed: 0 },
 };
+
+/** Campaign-only threats stay out of the shared Survival roster. */
+export const CAMPAIGN_VARIANT_TYPES: ZombieTypeDef[] = [
+  { id: 'orange_mutant', name: 'Đột biến cam', hp: 145, speed: 53, damage: 15, xpValue: 17, size: 20, color: '#c66b32', weight: 4, minTime: 0 },
+  { id: 'red_mutant', name: 'Đột biến đỏ', hp: 270, speed: 39, damage: 22, xpValue: 29, size: 25, color: '#843638', weight: 2.2, minTime: 0 },
+  { id: 'gunner', name: 'Xạ thủ xác sống', hp: 96, speed: 42, damage: 11, xpValue: 18, size: 18, color: '#73766b', weight: 3, minTime: 0, ranged: true, attackRange: 380, projectileSpeed: 430 },
+  { id: 'gunner_orange', name: 'Xạ thủ đột biến cam', hp: 158, speed: 36, damage: 15, xpValue: 25, size: 21, color: '#a8643b', weight: 1.7, minTime: 0, ranged: true, attackRange: 410, projectileSpeed: 475 },
+  { id: 'gunner_red', name: 'Xạ thủ đột biến đỏ', hp: 220, speed: 33, damage: 19, xpValue: 32, size: 23, color: '#783238', weight: 1.2, minTime: 0, ranged: true, attackRange: 440, projectileSpeed: 520 },
+];
+
+const CAMPAIGN_VARIANT_ATTACKS: Record<CampaignVariantId, CampaignVariantAttackDef> = {
+  orange_mutant: { triggerRange: 220, reach: 56, arc: Math.PI * .9, windup: .82, active: .28, recovery: .9, cooldown: 2.15, dashSpeed: 285 },
+  red_mutant: { triggerRange: 260, reach: 76, arc: Math.PI * .82, windup: 1.02, active: .32, recovery: 1.15, cooldown: 2.6, dashSpeed: 340 },
+  gunner: { triggerRange: 420, reach: 420, arc: .43, windup: .72, active: .12, recovery: .32, cooldown: 1.75, dashSpeed: 0,
+    burstCount: 3, burstSpread: .16, bulletSpeed: 430, bulletDamageMult: .62, projectileType: 'gun_round', weaponSound: 'rifle' },
+  gunner_orange: { triggerRange: 450, reach: 450, arc: .5, windup: .84, active: .14, recovery: .42, cooldown: 2.2, dashSpeed: 0,
+    burstCount: 4, burstSpread: .2, bulletSpeed: 475, bulletDamageMult: .55, projectileType: 'gun_round_orange', weaponSound: 'smg' },
+  gunner_red: { triggerRange: 490, reach: 490, arc: .54, windup: .98, active: .16, recovery: .55, cooldown: 2.65, dashSpeed: 0,
+    burstCount: 4, burstSpread: .22, bulletSpeed: 520, bulletDamageMult: .64, projectileType: 'gun_round_red', weaponSound: 'rifle' },
+};
+
+export function getCampaignVariantAttack(typeId: string): CampaignVariantAttackDef | undefined {
+  return Object.prototype.hasOwnProperty.call(CAMPAIGN_VARIANT_ATTACKS, typeId)
+    ? CAMPAIGN_VARIANT_ATTACKS[typeId as CampaignVariantId] : undefined;
+}
+
+export function getCampaignGunnerAttack(typeId: string): CampaignVariantAttackDef | undefined {
+  const attack = getCampaignVariantAttack(typeId);
+  return attack?.burstCount ? attack : undefined;
+}
 
 export function getHorrorAttack(typeId: string): HorrorAttackDef | undefined {
   return Object.prototype.hasOwnProperty.call(HORROR_ATTACKS, typeId)

@@ -1,10 +1,10 @@
 import type { Zombie } from '../entities/zombies';
-import { getHorrorAttack } from '../data/zombies';
+import { getCampaignVariantAttack, getHorrorAttack } from '../data/zombies';
 import { segmentHitsBuilding } from '../entities/map-geometry';
 
 /** Returns true for special creatures. No damage is applied during the warning. */
 export function updateHorrorAI(z: Zombie, dt: number, playerX: number, playerY: number, walls: boolean): boolean {
-  const attack = getHorrorAttack(z.typeId);
+  const attack = getHorrorAttack(z.typeId) ?? getCampaignVariantAttack(z.typeId);
   if (!attack) return false;
   z.specialStarted = false;
   const dx = playerX - z.x;
@@ -37,7 +37,9 @@ export function updateHorrorAI(z: Zombie, dt: number, playerX: number, playerY: 
   }
 
   if (z.specialState === 'chase') {
-    const speed = z.speed * slow;
+    const backingAway = z.ranged && distance < z.attackRange * 0.58;
+    const holdingRange = z.ranged && distance < z.attackRange;
+    const speed = z.speed * slow * (backingAway ? -0.72 : holdingRange ? 0 : 1);
     const k = 1 - Math.exp(-7 * dt);
     z.vx += ((distance > 1 ? dx / distance * speed : 0) - z.vx) * k;
     z.vy += ((distance > 1 ? dy / distance * speed : 0) - z.vy) * k;
@@ -55,8 +57,8 @@ export function updateHorrorAI(z: Zombie, dt: number, playerX: number, playerY: 
 
 /** Same bounds as the ground warning; walls block melee and charges. */
 export function horrorAttackHits(z: Zombie, x: number, y: number, radius: number, walls: boolean): boolean {
-  const attack = getHorrorAttack(z.typeId);
-  if (!attack || z.specialState !== 'active' || z.specialHit || z.hp <= 0) return false;
+  const attack = getHorrorAttack(z.typeId) ?? getCampaignVariantAttack(z.typeId);
+  if (!attack || z.ranged || z.specialState !== 'active' || z.specialHit || z.hp <= 0) return false;
   const dx = x - z.x;
   const dy = y - z.y;
   const distance = Math.hypot(dx, dy);
@@ -70,14 +72,16 @@ export function horrorAttackHits(z: Zombie, x: number, y: number, radius: number
 }
 
 export function drawHorrorWarning(ctx: CanvasRenderingContext2D, z: Zombie, sx: number, sy: number): void {
-  const attack = getHorrorAttack(z.typeId);
+  const attack = getHorrorAttack(z.typeId) ?? getCampaignVariantAttack(z.typeId);
   if (!attack || (z.specialState !== 'windup' && z.specialState !== 'active')) return;
   const active = z.specialState === 'active';
   const progress = 1 - Math.max(0, z.specialTimer) / z.specialDuration;
   ctx.save();
   ctx.translate(sx, sy);
   ctx.rotate(z.specialAngle);
-  ctx.strokeStyle = active ? '#efb581' : '#d4946c';
+  const gunner = !!getCampaignVariantAttack(z.typeId)?.burstCount;
+  const warningColor = gunner ? z.typeId === 'gunner_red' ? '#ee7969' : '#edb35d' : '#d4946c';
+  ctx.strokeStyle = active ? '#efb581' : warningColor;
   ctx.fillStyle = active ? 'rgba(151,47,36,0.16)' : `rgba(142,64,38,${0.07 + progress * 0.08})`;
   ctx.lineWidth = active ? 2 : 1.5;
   if (attack.dashSpeed > 0) {
@@ -95,6 +99,12 @@ export function drawHorrorWarning(ctx: CanvasRenderingContext2D, z: Zombie, sx: 
     ctx.beginPath();
     ctx.arc(0, 0, attack.reach * Math.max(0.08, progress), -attack.arc / 2, attack.arc / 2);
     ctx.stroke();
+    if (gunner) {
+      ctx.setLineDash([7, 6]);
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(attack.reach, 0); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(attack.reach, 0, 8 + progress * 5, 0, Math.PI * 2); ctx.stroke();
+    }
   }
   ctx.restore();
 }

@@ -40,7 +40,7 @@ import { UI_PALETTE } from './ui/palette';
 import { MAP_CONFIG, PLAYER_DEFAULTS, WEAPON_PARTS } from './data/items';
 import { PERM_UPGRADES, CHARACTERS, STAGES, type CampaignZone, type Point, type StageDef } from './data/meta';
 import { EVOLUTIONS, UPGRADES } from './data/upgrades';
-import { getHorrorAttack, HORROR_TYPES, ZOMBIE_TYPES, type ZombieTypeDef } from './data/zombies';
+import { getCampaignGunnerAttack, getCampaignVariantAttack, getHorrorAttack, CAMPAIGN_VARIANT_TYPES, HORROR_TYPES, ZOMBIE_TYPES, type ZombieTypeDef } from './data/zombies';
 import { horrorAttackHits } from './systems/horror-ai';
 import { HorrorRemains } from './entities/horror-remains';
 import { BloodStains } from './entities/blood-stains';
@@ -162,6 +162,7 @@ let campaignWaveAlertTimer = 0;
 let campaignEncounterTriggered = false;
 let campaignHoldWaveTimer = 0;
 let campaignBossWaveTimer = 0;
+let campaignGunnerSoundCooldown = 0;
 const CAMPAIGN_HORDE_MULTIPLIER = 10;
 const CAMPAIGN_SPAWN_PRESSURE_MULTIPLIER = 3;
 const CAMPAIGN_ACTIVE_ZOMBIE_LIMIT = 180;
@@ -601,6 +602,7 @@ function updateGame(dt: number): void {
 
   // ─── Spitter AI ───
   spitterGlobalCooldown -= dt;
+  campaignGunnerSoundCooldown = Math.max(0, campaignGunnerSoundCooldown - dt);
   if (spitterGlobalCooldown <= 0) {
     spitterGlobalCooldown = 1.5; // fire every 1.5s
     let campaignShots = 0;
@@ -608,7 +610,7 @@ function updateGame(dt: number): void {
     for (const z of zombies.pool.getActive()) {
       // Campaign bosses use their own telegraphed attacks; the legacy ranged
       // loop must never add an unannounced projectile during their fight.
-      if (!z.ranged || z.hp <= 0 || z.campaignBossId !== null) continue;
+      if (!z.ranged || z.hp <= 0 || z.campaignBossId !== null || getCampaignGunnerAttack(z.typeId)) continue;
       const dx = player.x - z.x;
       const dy = player.y - z.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
@@ -781,7 +783,7 @@ function updateGame(dt: number): void {
         particles.burst(z.x, z.y, 4, z.color,
           Math.atan2(-dy, -dx), Math.PI * 0.5, 90, 0.35);
         audio.hit();
-        if (getHorrorAttack(z.typeId)) {
+        if (getHorrorAttack(z.typeId) || getCampaignVariantAttack(z.typeId)) {
           audio.zombieHurt(Math.max(-1, Math.min(1, (z.x - player.x) / 420)), z.typeId, Math.hypot(z.x - player.x, z.y - player.y));
           particles.burst(z.x, z.y, 3, '#973b36', Math.atan2(-dy, -dx), 0.7, 70, 0.25);
         }
@@ -826,11 +828,30 @@ function updateGame(dt: number): void {
 
   // Special enemies deal damage only in the committed active phase, once per attack.
   for (const z of zombies.pool.getActive()) {
-    if (z.campaignBossId !== null || z.hp <= 0 || !getHorrorAttack(z.typeId)) continue;
+    const variantAttack = getCampaignVariantAttack(z.typeId);
+    const attack = getHorrorAttack(z.typeId) ?? variantAttack;
+    if (z.campaignBossId !== null || z.hp <= 0 || !attack) continue;
     const distance = Math.hypot(player.x - z.x, player.y - z.y);
     const pan = Math.max(-1, Math.min(1, (z.x - player.x) / 420));
     if (z.specialStarted) {
-      audio.zombieAttack(pan, z.typeId, distance);
+      if (variantAttack?.burstCount && variantAttack.projectileType && variantAttack.bulletSpeed) {
+        const muzzleX = z.x + Math.cos(z.specialAngle) * z.size * 1.8;
+        const muzzleY = z.y + Math.sin(z.specialAngle) * z.size * 1.8;
+        for (let shot = 0; shot < variantAttack.burstCount; shot++) {
+          const spread = variantAttack.burstCount <= 1 ? 0 : (shot / (variantAttack.burstCount - 1) - .5) * (variantAttack.burstSpread ?? .14);
+          enemyProjectiles.fire(muzzleX, muzzleY, z.specialAngle + spread, variantAttack.bulletSpeed,
+            Math.max(1, Math.round(z.damage * (variantAttack.bulletDamageMult ?? .6))), variantAttack.projectileType);
+        }
+        const muzzleColor = z.typeId === 'gunner_red' ? '#ef6557' : z.typeId === 'gunner_orange' ? '#f1a34d' : '#dfd7a3';
+        particles.emit(muzzleX, muzzleY, variantAttack.burstCount + 2, muzzleColor, 74, .14, 2.7);
+        z.visualStrike = .18;
+        if (campaignGunnerSoundCooldown <= 0) {
+          audio.shoot(variantAttack.weaponSound ?? 'rifle');
+          campaignGunnerSoundCooldown = .16;
+        }
+      } else {
+        audio.zombieAttack(pan, z.typeId, distance);
+      }
       if (horrorPreview) previewAudit.attacks++;
     }
     if (!horrorAttackHits(z, player.x, player.y, player.size, true)) continue;
@@ -838,7 +859,7 @@ function updateGame(dt: number): void {
     const hit = player.takeDamage(z.damage);
     if (hit.damaged) {
       audio.playerHit();
-      camera.shake(z.typeId === 'mutant' ? 2.8 : 2.1, 0.12);
+      camera.shake(z.typeId.includes('mutant') ? 2.8 : 2.1, 0.12);
       damageNumbers.spawn(player.x, player.y, hit.actualDamage, UI_PALETTE.dangerBright, false, '-');
       particles.burst(player.x, player.y, 5, '#a93e38', z.specialAngle, 1.1, 80, 0.28);
     }
@@ -852,7 +873,7 @@ function updateGame(dt: number): void {
     // Campaign bosses only hurt the player through their telegraphed move hitboxes.
     // Don't let the generic overlap timer deal invisible contact damage.
     if (z.campaignBossId !== null) continue;
-    if (getHorrorAttack(z.typeId) && z.campaignBossId === null) continue;
+    if ((getHorrorAttack(z.typeId) ?? getCampaignVariantAttack(z.typeId)) && z.campaignBossId === null) continue;
     const dx = player.x - z.x;
     const dy = player.y - z.y;
     const dist = dx * dx + dy * dy;
@@ -1227,11 +1248,12 @@ function updateCampaignWaves(stage: typeof STAGES[number], dt: number): void {
     if (bossKilledThisRun) return;
     const bossZoneIndex = layout.zones.length - 1;
     const bossWaveQueued = campaignWaveQueue.some(wave => wave.zoneIndex === bossZoneIndex);
-    if (!bossWaveQueued && zombies.pool.activeCount < CAMPAIGN_ACTIVE_ZOMBIE_LIMIT) campaignBossWaveTimer -= dt;
+    const livingBossAdds = zombies.pool.getActive().filter(z => z.hp > 0 && z.campaignZoneIndex === bossZoneIndex && z.campaignBossId === null).length;
+    if (!bossWaveQueued && livingBossAdds < 6 && zombies.pool.activeCount < CAMPAIGN_ACTIVE_ZOMBIE_LIMIT) campaignBossWaveTimer -= dt;
     if (campaignBossWaveTimer <= 0 && !bossWaveQueued) {
       campaignBossWaveTimer = Math.max(5.5, 8 - stage.id * .22);
-      // Boss support arrives through warned arena entrances and obeys the cap.
-      spawnCampaignZoneWave(stage, layout.zones.length - 1, 1, true);
+      // Small, capped support groups preserve space to read the boss's attacks.
+      if (livingBossAdds < 6) spawnCampaignZoneWave(stage, bossZoneIndex, 1, true, true);
     }
     return;
   }
@@ -1254,19 +1276,24 @@ function updateCampaignWaves(stage: typeof STAGES[number], dt: number): void {
   }
 }
 
-function spawnCampaignZoneWave(stage: typeof STAGES[number], zoneIndex: number, count: number, useStageRoster = false): boolean {
+function spawnCampaignZoneWave(stage: typeof STAGES[number], zoneIndex: number, count: number, useStageRoster = false, supportOnly = false): boolean {
   const zone = stage.layout?.zones[zoneIndex];
   if (!zone || count <= 0 || campaignSealedSpawnZones.has(zoneIndex)) return false;
   const allowedIds = useStageRoster || zone.mobs.length === 0 ? stage.mobIds : zone.mobs;
-  const roster = [...ZOMBIE_TYPES, ...HORROR_TYPES].filter(type => allowedIds.includes(type.id) && stage.mobIds.includes(type.id) && !type.isBoss);
+  let roster = [...ZOMBIE_TYPES, ...HORROR_TYPES, ...CAMPAIGN_VARIANT_TYPES]
+    .filter(type => allowedIds.includes(type.id) && stage.mobIds.includes(type.id) && !type.isBoss);
+  if (supportOnly) {
+    const readableSupport = new Set(['normal', 'runner', 'orange_mutant', 'gunner', 'gunner_orange']);
+    roster = roster.filter(type => readableSupport.has(type.id));
+  }
   if (!roster.length) return false;
   const portalPoints = chooseCampaignPortalPoints(stage, zoneIndex, 4);
   if (!portalPoints.length) return false;
   // Keep the opening chapter's authored density, then raise Campaign hordes by 40% from stage 2 onward.
   const stageHordeMultiplier = stage.id === 1 ? CAMPAIGN_HORDE_MULTIPLIER : Math.round(CAMPAIGN_HORDE_MULTIPLIER * 1.4);
   const hordeMultiplier = stageHordeMultiplier * CAMPAIGN_SPAWN_PRESSURE_MULTIPLIER;
-  const groupSize = Math.max(5, Math.min(10, 5 + Math.floor(stage.id / 2))) * CAMPAIGN_SPAWN_PRESSURE_MULTIPLIER;
-  const total = count * hordeMultiplier;
+  const groupSize = supportOnly ? 3 : Math.max(5, Math.min(10, 5 + Math.floor(stage.id / 2))) * CAMPAIGN_SPAWN_PRESSURE_MULTIPLIER;
+  const total = supportOnly ? 3 : count * hordeMultiplier;
   const portalMaxHp = 1_200 + stage.id * 220;
   campaignWaveQueue.push({ zoneIndex, roster, portalPoints, sealedPortals: portalPoints.map(() => false),
     portalHp: portalPoints.map(() => portalMaxHp), portalMaxHp, remaining: total, total, spawned: 0, portalCursor: 0,
@@ -1671,6 +1698,14 @@ function handleZombieDeath(z: Zombie): void {
   player.kills++;
   weapons.loadout.addRageOnKill();
 
+  if (z.typeId.startsWith('gunner')) {
+    const debris = z.typeId === 'gunner_red' ? '#8a4841' : z.typeId === 'gunner_orange' ? '#bb7942' : '#8b9290';
+    particles.emit(z.x, z.y, 5, debris, 96, .28, 2.4);
+    particles.emit(z.x, z.y, 3, '#514c45', 58, .22, 1.8);
+  } else if (z.typeId === 'orange_mutant' || z.typeId === 'red_mutant') {
+    particles.emit(z.x, z.y, 5, z.typeId === 'orange_mutant' ? '#c66b32' : '#843638', 72, .26, 2.8);
+  }
+
   if (z.isBoss) {
     bossKilledThisRun = true;
     camera.shake(8, 0.3);
@@ -1736,8 +1771,8 @@ function handleZombieDeath(z: Zombie): void {
 
   if (gameMode === 'stage') {
     const threat = z.campaignBossId !== null ? 100 + currentStageIndex * 25
-      : z.isElite ? 15 : ['rat_king', 'mutant', 'multihead', 'tank'].includes(z.typeId) ? 8
-      : ['runner', 'spider', 'spitter', 'armed', 'exploder'].includes(z.typeId) ? 4 : 2;
+      : z.isElite ? 15 : ['rat_king', 'mutant', 'multihead', 'tank', 'red_mutant', 'gunner_red'].includes(z.typeId) ? 8
+      : ['runner', 'spider', 'spitter', 'armed', 'exploder', 'orange_mutant', 'gunner', 'gunner_orange'].includes(z.typeId) ? 4 : 2;
     const guaranteedCredit = z.campaignBossId !== null || z.isElite;
     const dropChance = guaranteedCredit ? 1 : threat >= 8 ? .82 : threat >= 4 ? .72 : .62;
     if (Math.random() < dropChance) {
@@ -2464,6 +2499,7 @@ function resetGame(): void {
   paused = false;
   hasRevive = false;
   spitterGlobalCooldown = 0;
+  campaignGunnerSoundCooldown = 0;
   bossAttackTimer = 3;
   bossAttackPhase = 0;
   goldEarned = 0;
@@ -2489,7 +2525,7 @@ if (import.meta.env.DEV && horrorPreview) {
   void import('./dev/horror-preview').then(({ mountHorrorPreview }) => mountHorrorPreview({
     captureClean(enabled) { previewCleanCapture = enabled; },
     encounter(typeId, wall) {
-      const type = [...ZOMBIE_TYPES, ...HORROR_TYPES].find(t => t.id === typeId);
+      const type = [...ZOMBIE_TYPES, ...HORROR_TYPES, ...CAMPAIGN_VARIANT_TYPES].find(t => t.id === typeId);
       if (!type) return;
       previewEncounter = true;
       gameMode = 'endless';
