@@ -47,15 +47,29 @@ function crack(ctx: CanvasRenderingContext2D, x: number, y: number, length: numb
 
 function blood(ctx: CanvasRenderingContext2D, x: number, y: number, random: Random,
   size = 20, fresh = false): void {
-  patch(ctx, x, y, size, size * .48,
-    fresh ? 'rgba(116,38,35,.42)' : 'rgba(64,30,29,.42)', random);
-  ctx.fillStyle = fresh ? 'rgba(128,48,41,.32)' : 'rgba(82,41,37,.32)';
-  for (let i = 0; i < 3; i++) {
+  const base = fresh ? 'rgba(78,12,18,.76)' : 'rgba(43,17,20,.66)';
+  patch(ctx, x, y, size * 1.65, size * .82, base, random);
+  patch(ctx, x - size * .52, y + size * .16, size * .78, size * .5,
+    fresh ? 'rgba(128,26,31,.68)' : 'rgba(87,24,29,.62)', random);
+  patch(ctx, x + size * .64, y - size * .13, size * .71, size * .48,
+    fresh ? 'rgba(99,18,25,.64)' : 'rgba(62,18,22,.6)', random);
+
+  ctx.save(); ctx.translate(x, y); ctx.rotate(random() * Math.PI * 2);
+  ctx.strokeStyle = fresh ? 'rgba(113,20,27,.7)' : 'rgba(51,14,19,.64)';
+  ctx.lineWidth = size * (.16 + random() * .12); ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-size * .55, size * .1);
+  ctx.quadraticCurveTo(size * .25, -size * .45, size * 1.9, -size * .12); ctx.stroke();
+  ctx.fillStyle = fresh ? 'rgba(146,29,34,.72)' : 'rgba(64,15,20,.74)';
+  for (let i = 0; i < 8; i++) {
+    const angle = random() * Math.PI * 2;
+    const distance = size * (.8 + random() * 1.8);
+    const radius = 1.8 + random() * 4.3;
     ctx.beginPath();
-    ctx.ellipse(x + (random() - .5) * size * 2.6, y + (random() - .5) * size,
-      2 + random() * 3, 1.4 + random() * 2.2, random(), 0, Math.PI * 2);
+    ctx.ellipse(Math.cos(angle) * distance, Math.sin(angle) * distance * .72,
+      radius * (1.15 + random()), radius * (.6 + random() * .6), angle, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.restore();
 }
 
 function grass(ctx: CanvasRenderingContext2D, x: number, y: number, random: Random, moss = false): void {
@@ -127,7 +141,7 @@ export class CampaignGroundDetails {
       if (stage.id === 4 || stage.id === 8) {
         patch(ctx, x, y, 12 + random() * 15, 5 + random() * 8,
           stage.id === 4 ? 'rgba(43,82,63,.3)' : 'rgba(66,100,88,.27)', random);
-      } else blood(ctx, x, y, random, 9 + random() * 12,
+      } else blood(ctx, x, y, random, 20 + random() * 24,
         role !== 'entry' && random() < .22);
       if (random() < .4) trace(ctx, x + 9, y + 8, 20 + random() * 28,
         random() * Math.PI * 2, 'rgba(67,35,32,.25)');

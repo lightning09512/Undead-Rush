@@ -37,11 +37,12 @@ import { drawTouchActionButtons } from './ui/touch-controls';
 import { UI_PALETTE } from './ui/palette';
 
 import { MAP_CONFIG, PLAYER_DEFAULTS, WEAPON_PARTS } from './data/items';
-import { PERM_UPGRADES, CHARACTERS, STAGES, type CampaignZone, type Point } from './data/meta';
-import { EVOLUTIONS } from './data/upgrades';
+import { PERM_UPGRADES, CHARACTERS, STAGES, type CampaignZone, type Point, type StageDef } from './data/meta';
+import { EVOLUTIONS, UPGRADES } from './data/upgrades';
 import { getHorrorAttack, HORROR_TYPES, ZOMBIE_TYPES, type ZombieTypeDef } from './data/zombies';
 import { horrorAttackHits } from './systems/horror-ai';
 import { HorrorRemains } from './entities/horror-remains';
+import { BloodStains } from './entities/blood-stains';
 import { campaignSpawnPosition, isCampaignGateClosed, isCampaignWalkable, isInsideBuilding, nearestCampaignZone, resolveBuildingCollision, setCampaignGateState, setCampaignGeometry } from './entities/map-geometry';
 import { CampaignMapRenderer } from './graphics/campaign-map-renderer';
 import { CampaignTerrainRenderer } from './graphics/campaign-terrain';
@@ -97,6 +98,7 @@ const weapons = new WeaponSystem();
 const zombieGrid = new SpatialGrid<Zombie>(64);
 const save = new SaveSystem(!horrorPreview);
 const horrorRemains = new HorrorRemains();
+const bloodStains = new BloodStains();
 const groundRenderer = new GroundRenderer();
 const propRenderer = new PropRenderer();
 const campaignMapRenderer = new CampaignMapRenderer();
@@ -134,6 +136,9 @@ interface CampaignWaveQueueEntry {
   zoneIndex: number;
   roster: ZombieTypeDef[];
   portalPoints: Point[];
+  sealedPortals: boolean[];
+  portalHp: number[];
+  portalMaxHp: number;
   remaining: number;
   total: number;
   spawned: number;
@@ -143,9 +148,11 @@ interface CampaignWaveQueueEntry {
   spawnTimer: number;
   groupSpawned: number;
   groupSize: number;
+  waitingForClear: boolean;
   countsForGate: boolean;
 }
 const campaignWaveQueue: CampaignWaveQueueEntry[] = [];
+let campaignPortalFlash: { zoneIndex: number; point: Point; timer: number } | null = null;
 let campaignWaveAlertText = '';
 let campaignWaveAlertTimer = 0;
 let campaignEncounterTriggered = false;
@@ -172,6 +179,13 @@ const previewAudit = { hits: 0, attacks: 0, deaths: 0, drops: 0, phases: new Set
 type MusicThreat = 'calm' | 'combat' | 'boss';
 let activeMusicThreat: MusicThreat = 'calm';
 let hasSeenZombiesThisRun = false;
+type SurvivalPhase = 'intermission' | 'regular' | 'boss-warning' | 'boss';
+let survivalWave = 0;
+let survivalPhase: SurvivalPhase = 'intermission';
+let survivalPhaseTimer = 2.7;
+let survivalSpawnRemaining = 0;
+let survivalBossStageId = 0;
+let survivalBossSummonsSpawned = 0;
 
 function syncMusicForThreat(): void {
   const menuScene = menuUI.currentScreen === 'main' || menuUI.currentScreen === 'campaign' || menuUI.currentScreen === 'hunter_profile' || menuUI.currentScreen === 'tutorial';
@@ -245,7 +259,6 @@ function gameLoop(timestamp: number): void {
   lastTimestamp = timestamp;
   syncMusicForThreat();
   input.touchButtonsEnabled = menuUI.currentScreen === 'playing' && !paused && !shopUI.visible;
-  input.campaignTouchEnabled = input.touchButtonsEnabled && gameMode === 'stage';
 
   if (!spriteLoader.ready) {
     ctx.fillStyle = '#060906';
@@ -426,19 +439,35 @@ function updateGame(dt: number): void {
   if (input.dashPressed) {
     const dashX = gameMode === 'stage' && input.dirX === 0 && input.dirY === 0 ? Math.cos(player.moveAngle) : input.dirX;
     const dashY = gameMode === 'stage' && input.dirX === 0 && input.dirY === 0 ? Math.sin(player.moveAngle) : input.dirY;
+    const cooldownBeforeDash = player.dashCooldown;
     player.dash(dashX, dashY);
+    if (cooldownBeforeDash <= 0 && player.dashCooldown > 0) {
+      const impactDamage = upgradeValue('dash_impact');
+      if (impactDamage > 0) {
+        particles.emit(player.x, player.y, 9, '#b7d1c4', 78, .22, 2.5);
+        for (const z of [...zombies.pool.getActive()]) {
+          if (z.hp <= 0 || Math.hypot(z.x - player.x, z.y - player.y) > 82) continue;
+          z.hp -= impactDamage;
+          z.flashTimer = .12;
+          z.knockbackX += Math.cos(player.dashDirection) * 115;
+          z.knockbackY += Math.sin(player.dashDirection) * 115;
+          damageNumbers.spawn(z.x, z.y, impactDamage, '#d8c59f');
+          particles.burst(z.x, z.y, 5, '#a9473d', player.dashDirection, 1.2, 80, .25);
+          if (z.hp <= 0) handleZombieDeath(z);
+        }
+      }
+    }
   }
   if (gameMode === 'stage') updateCampaignObjective(dt);
 
   // ─── Camera ───
   camera.follow(player.x, player.y, input.mouseX, input.mouseY, dt);
+  audio.updatePlayerFootsteps(dt, player.isMoving && player.dashDuration <= 0, Math.hypot(player.vx, player.vy));
 
   // ─── Spawning ───
   const stage = gameMode === 'stage' ? STAGES[currentStageIndex] : undefined;
   if (stage && (!previewEncounter || campaignWavePreview)) updateCampaignWaves(stage, dt);
-  const toSpawn = previewEncounter || stage ? [] : spawner.update(
-    dt, gameTime, zombies.pool.activeCount, camera, player.x, player.y, true
-  );
+  const toSpawn = previewEncounter || stage ? [] : updateSurvivalWaves(dt);
   for (const s of toSpawn) {
     const z = zombies.spawn(
       s.type, s.x, s.y,
@@ -468,34 +497,7 @@ function updateGame(dt: number): void {
   zombies.update(dt, player.x, player.y, true);
   if (stage) {
     const boss = zombies.pool.getActive().find((z) => z.campaignBossId === stage.id);
-    const bossDamage = campaignBossDirector.update(dt, stage, boss, player.x, player.y, () => {
-      const summonCap = stage.id === 1 ? 4 : stage.id === 10 ? 3 : 0;
-      if (!summonCap || stageBossSummonsSpawned >= summonCap || !boss || zombies.pool.activeCount >= CAMPAIGN_ACTIVE_ZOMBIE_LIMIT) return;
-      const summonIds = stage.id === 10 ? ['normal', 'runner', 'spitter'] : ['normal', 'normal', 'normal', 'normal'];
-      for (let i = 0; i < 2 && stageBossSummonsSpawned < summonCap && zombies.pool.activeCount < CAMPAIGN_ACTIVE_ZOMBIE_LIMIT; i++) {
-        const shambler = ZOMBIE_TYPES.find((entry) => entry.id === summonIds[stageBossSummonsSpawned % summonIds.length]);
-        if (!shambler) continue;
-        const angle = Math.PI * (.35 + i * .3);
-        const z = zombies.spawn(shambler, boss.x + Math.cos(angle) * 105, boss.y + Math.sin(angle) * 105, 1, 1, 1);
-        z.campaignZoneIndex = stage.layout?.zones.length ? stage.layout.zones.length - 1 : -1;
-        z.hp = Math.round(z.hp * stage.difficultyMult); z.maxHp = z.hp;
-        z.damage = Math.round(z.damage * stage.difficultyMult);
-        [z.x, z.y] = resolveBuildingCollision(z.x, z.y, z.size);
-        stageBossSummonsSpawned++;
-      }
-    }, (move, actor, angle) => {
-      if (move.kind === 'fan') {
-        const type = stage.id === 2 ? 'boss_acid' : 'boss_shard';
-        const count = stage.id === 2 ? 7 : stage.id >= 7 ? 6 : 5;
-        const spread = stage.id === 2 ? .78 : .56;
-        const muzzle = actor.size * .72;
-        enemyProjectiles.fireFan(actor.x + Math.cos(angle) * muzzle, actor.y + Math.sin(angle) * muzzle,
-          angle, count, spread, stage.id === 2 ? 310 : 390, move.damage, type);
-        camera.shake(stage.id === 2 ? 2.4 : 1.7, .12);
-        particles.emit(actor.x + Math.cos(angle) * muzzle, actor.y + Math.sin(angle) * muzzle,
-          stage.id === 2 ? 8 : 5, stage.id === 2 ? '#a7c568' : '#c8c5b7', 65, .24, 3);
-      }
-    });
+    const bossDamage = updateBossEncounter(dt, stage, boss);
     if (bossDamage > 0) {
       const hit = player.takeDamage(bossDamage);
       if (hit.dead) { handlePlayerDeath(); return; }
@@ -505,9 +507,25 @@ function updateGame(dt: number): void {
         particles.burst(player.x, player.y, 9, '#a9473d', Math.atan2(player.y - (boss?.y ?? player.y), player.x - (boss?.x ?? player.x)), 1.2, 105, .3);
       }
     }
+  } else if (gameMode === 'endless' && survivalPhase === 'boss' && survivalBossStageId > 0) {
+    const bossStage = STAGES.find(value => value.id === survivalBossStageId);
+    const boss = zombies.pool.getActive().find(z => z.campaignBossId === survivalBossStageId);
+    if (bossStage && boss) {
+      const bossDamage = updateBossEncounter(dt, bossStage, boss, true);
+      if (bossDamage > 0) {
+        const hit = player.takeDamage(bossDamage);
+        if (hit.dead) { handlePlayerDeath(); return; }
+        if (hit.damaged) {
+          audio.playerHit(); camera.shake(3.2, .16);
+          damageNumbers.spawn(player.x, player.y, hit.actualDamage, UI_PALETTE.dangerBright, false, '-');
+          particles.burst(player.x, player.y, 9, '#a9473d', Math.atan2(player.y - boss.y, player.x - boss.x), 1.2, 105, .3);
+        }
+      }
+    }
   }
   if (horrorPreview) for (const z of zombies.pool.getActive()) previewAudit.phases.add(z.specialState);
   horrorRemains.update(dt);
+  bloodStains.update(dt);
 
   // ─── Spatial Grid ───
   zombieGrid.clear();
@@ -564,7 +582,7 @@ function updateGame(dt: number): void {
     bossAttackTimer = 3.0;
     bossAttackPhase++;
     for (const z of zombies.pool.getActive()) {
-      if (!z.isBoss || z.hp <= 0) continue;
+      if (!z.isBoss || z.hp <= 0 || z.campaignBossId !== null) continue;
 
       // Alternate between attack patterns
       z.visualStrike = 0.4;
@@ -629,6 +647,33 @@ function updateGame(dt: number): void {
         return true;
       }
     }
+    if (gameMode === 'stage') {
+      for (let waveIndex = 0; waveIndex < campaignWaveQueue.length; waveIndex++) {
+        const wave = campaignWaveQueue[waveIndex];
+        if (!wave.started || wave.remaining <= 0) continue;
+        for (let portalIndex = 0; portalIndex < wave.portalPoints.length; portalIndex++) {
+          if (wave.sealedPortals[portalIndex]) continue;
+          const point = wave.portalPoints[portalIndex];
+          const dx = b.x - point.x, dy = b.y - point.y;
+          const hitRadius = b.size + 46;
+          if (dx * dx + dy * dy >= hitRadius * hitRadius) continue;
+          wave.portalHp[portalIndex] = Math.max(0, wave.portalHp[portalIndex] - b.damage);
+          particles.emit(point.x, point.y, 3, '#a23e3a', 38, .2, 2.2);
+          if (wave.portalHp[portalIndex] <= 0) {
+            wave.sealedPortals[portalIndex] = true;
+            particles.burst(point.x, point.y, 24, '#9b3938', Math.random() * Math.PI * 2, Math.PI * 2, 112, .42);
+            particles.emit(point.x, point.y, 10, '#443330', 54, .45, 4);
+            camera.shake(1.8, .15);
+            audio.explosion();
+            campaignWaveAlertText = wave.sealedPortals.every(Boolean) ? 'CÁC Ổ SPAWN ĐÃ BỊ PHÁ' : 'Ổ SPAWN ĐÃ BỊ PHÁ';
+            campaignWaveAlertTimer = 2.4;
+            if (campaignPortalFlash?.point === point) campaignPortalFlash = null;
+            if (wave.sealedPortals.every(Boolean)) campaignWaveQueue.splice(waveIndex, 1);
+          }
+          return true;
+        }
+      }
+    }
     const nearby = zombieGrid.query(b.x, b.y, b.size + 30);
     for (const z of nearby) {
       if (b.hitIds.has(z.id)) continue;
@@ -639,7 +684,14 @@ function updateGame(dt: number): void {
       const dist = dx * dx + dy * dy;
       const radii = b.size + z.size;
       if (dist < radii * radii) {
-        z.hp -= b.damage;
+        let hitDamage = b.damage;
+        if ((z.isBoss || z.isElite) && upgradeLevel('mutant_hunter') > 0) {
+          hitDamage = Math.round(hitDamage * upgradeValue('mutant_hunter', 1));
+        }
+        if (z.hp / Math.max(1, z.maxHp) <= .35 && upgradeLevel('executioner') > 0) {
+          hitDamage = Math.round(hitDamage * upgradeValue('executioner', 1));
+        }
+        z.hp -= hitDamage;
         z.flashTimer = 0.08;
         if (horrorPreview) previewAudit.hits++;
         b.hitIds.add(z.id);
@@ -661,7 +713,19 @@ function updateGame(dt: number): void {
           z.slowMult = b.slow;
         }
 
-        damageNumbers.spawn(z.x, z.y, b.damage, '#ffdd44');
+        const bleedLevel = upgradeLevel('bleeding_rounds');
+        if (bleedLevel > 0 && Math.random() < upgradeValue('bleeding_rounds')) {
+          z.bleedTimer = Math.max(z.bleedTimer, z.isBoss ? 1.5 : 2.4);
+          z.bleedDamage = Math.max(z.bleedDamage, hitDamage * (z.isBoss ? .055 : .12));
+          particles.emit(z.x, z.y, 3, '#8f3435', 32, .2, 2);
+        }
+        const shockLevel = upgradeLevel('shock_rounds');
+        if (!z.isBoss && shockLevel > 0 && Math.random() < upgradeValue('shock_rounds')) {
+          z.stunTimer = Math.max(z.stunTimer, .22 + shockLevel * .1);
+          particles.emit(z.x, z.y, 3, '#a9c8bc', 34, .18, 1.7);
+        }
+
+        damageNumbers.spawn(z.x, z.y, hitDamage, '#ffdd44');
         particles.burst(z.x, z.y, 4, z.color,
           Math.atan2(-dy, -dx), Math.PI * 0.5, 90, 0.35);
         audio.hit();
@@ -671,7 +735,7 @@ function updateGame(dt: number): void {
         }
 
         if (b.explosive > 0) {
-          handleExplosion(z.x, z.y, b.explosive, b.damage);
+          handleExplosion(z.x, z.y, b.explosive, hitDamage);
         }
 
         if (b.pierceLeft > 0) {
@@ -791,7 +855,7 @@ function updateGame(dt: number): void {
   }
 
   if (gameMode === 'stage') {
-    const supplies = campaignResources.collectNearby(player, weapons.loadout);
+    const supplies = campaignResources.collectNearby(player, weapons.loadout, upgradeValue('ammo_scavenger', 1));
     if (supplies.length) {
       const last = supplies[supplies.length - 1];
       campaignSupplyNotice = supplies.length > 1 ? `${last.label} · +${supplies.length - 1} HỘP` : last.label;
@@ -816,7 +880,16 @@ function updateGame(dt: number): void {
 
   // ─── Map Pickups ───
   const pickedUp = mapPickups.update(dt, gameTime, player.x, player.y, gameMode === 'endless',
-    item => !item.itemId.startsWith('ammo_') || weapons.loadout.canAddCampaignAmmoForGun(item.itemId.slice(5)));
+    item => {
+      if (item.itemId.startsWith('ammo_')) return gameMode === 'stage'
+        ? weapons.loadout.canAddCampaignAmmoForGun(item.itemId.slice(5))
+        : weapons.loadout.canAddAmmoForGun(item.itemId.slice(5));
+      if (gameMode === 'endless' && item.itemId.startsWith('gun_')) {
+        const gunId = item.itemId.slice(4);
+        return !weapons.loadout.hasGun(gunId) || weapons.loadout.canAddAmmoForGun(gunId);
+      }
+      return true;
+    });
   for (const item of pickedUp) {
     handlePickup(item.itemId, item.value, item.duration);
   }
@@ -829,7 +902,7 @@ function updateGame(dt: number): void {
 function handlePickup(itemId: string, value: number, duration: number): void {
   if (gameMode === 'stage' && itemId.startsWith('ammo_')) {
     const gunId = itemId.slice(5);
-    const added = weapons.loadout.addCampaignAmmoForGun(gunId, value);
+    const added = weapons.loadout.addCampaignAmmoForGun(gunId, Math.round(value * upgradeValue('ammo_scavenger', 1)));
     if (added > 0) {
       audio.supplyPickup('ammo');
       campaignSupplyNotice = `ĐẠN ${campaignGuns.find(gun => gun.id === gunId)?.shortName ?? gunId.toUpperCase()} +${added}`;
@@ -850,6 +923,31 @@ function handlePickup(itemId: string, value: number, duration: number): void {
       campaignSupplyNoticeTimer = 3.5;
       particles.emit(player.x, player.y, 24, '#d6b375', 100, .6, 4);
       audio.levelUp();
+    }
+    return;
+  }
+  if (gameMode === 'endless' && itemId.startsWith('ammo_')) {
+    const gunId = itemId.slice(5);
+    const rounds = Math.round(value * upgradeValue('ammo_scavenger', 1));
+    const added = weapons.loadout.addAmmoForGun(gunId, rounds);
+    if (added > 0) {
+      audio.supplyPickup('ammo');
+      campaignSupplyNotice = `ĐẠN ${campaignGuns.find(gun => gun.id === gunId)?.shortName ?? gunId.toUpperCase()} +${added}`;
+      campaignSupplyNoticeTimer = 1.8;
+      particles.emit(player.x, player.y, 5, '#d5b477', 45, .25, 2);
+    }
+    return;
+  }
+  if (gameMode === 'endless' && itemId.startsWith('gun_')) {
+    const gunId = itemId.slice(4);
+    const wasOwned = weapons.loadout.hasGun(gunId);
+    if (weapons.loadout.collectSurvivalGun(gunId, audio)) {
+      if (wasOwned) audio.supplyPickup('ammo'); else audio.supplyPickup('crate');
+      campaignSupplyNotice = wasOwned
+        ? `TIẾP ĐẠN ${campaignGuns.find(gun => gun.id === gunId)?.shortName ?? gunId.toUpperCase()}`
+        : `ĐÃ NHẶT ${campaignGuns.find(gun => gun.id === gunId)?.shortName ?? gunId.toUpperCase()} · ĐỔI BẰNG PHÍM SỐ`;
+      campaignSupplyNoticeTimer = 2.2;
+      particles.emit(player.x, player.y, 18, '#d6b375', 85, .45, 3);
     }
     return;
   }
@@ -1111,11 +1209,27 @@ function spawnCampaignZoneWave(stage: typeof STAGES[number], zoneIndex: number, 
   const portalPoints = chooseCampaignPortalPoints(stage, zone, 4);
   if (!portalPoints.length) return false;
   const total = count * CAMPAIGN_HORDE_MULTIPLIER;
-  campaignWaveQueue.push({ zoneIndex, roster, portalPoints, remaining: total, total, spawned: 0, portalCursor: 0,
+  const portalMaxHp = 1_200 + stage.id * 220;
+  campaignWaveQueue.push({ zoneIndex, roster, portalPoints, sealedPortals: portalPoints.map(() => false),
+    portalHp: portalPoints.map(() => portalMaxHp), portalMaxHp, remaining: total, total, spawned: 0, portalCursor: 0,
     started: false, warningTimer: 0, spawnTimer: 0, groupSpawned: 0,
-    groupSize: Math.max(5, Math.min(10, 5 + Math.floor(stage.id / 2))), countsForGate: !useStageRoster && zone.waveTrigger });
+    groupSize: Math.max(5, Math.min(10, 5 + Math.floor(stage.id / 2))), waitingForClear: false,
+    countsForGate: !useStageRoster && zone.waveTrigger });
   if (!useStageRoster && zone.waveTrigger) campaignActiveWaveZones.add(zoneIndex);
   return true;
+}
+
+function chooseCampaignWaveMob(roster: ZombieTypeDef[]): ZombieTypeDef {
+  // Brutes stay as occasional heavy threats instead of occupying half of a
+  // small authored roster. Their data weight is further reduced for Campaign.
+  const weights = roster.map(type => type.weight * (type.id === 'tank' ? 0.22 : 1));
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  let roll = Math.random() * totalWeight;
+  for (let i = 0; i < roster.length; i++) {
+    roll -= weights[i];
+    if (roll <= 0) return roster[i];
+  }
+  return roster[roster.length - 1];
 }
 
 function isCampaignWaveBusy(zoneIndex: number): boolean {
@@ -1163,6 +1277,7 @@ function spawnCampaignZombie(stage: typeof STAGES[number], wave: CampaignWaveQue
   const minDistance = Math.max(CAMPAIGN_MIN_PORTAL_DISTANCE, player.size + 120);
   for (let portalAttempt = 0; portalAttempt < wave.portalPoints.length; portalAttempt++) {
     const portalIndex = (wave.portalCursor + portalAttempt) % wave.portalPoints.length;
+    if (wave.sealedPortals[portalIndex]) continue;
     const portal = wave.portalPoints[portalIndex];
     if (!isCampaignPortalPointValid(stage, zone, portal.x, portal.y, type.size * .7) ||
         Math.hypot(portal.x - player.x, portal.y - player.y) < minDistance) continue;
@@ -1180,6 +1295,7 @@ function spawnCampaignZombie(stage: typeof STAGES[number], wave: CampaignWaveQue
       mob.damage = Math.round(mob.damage * stage.difficultyMult);
       mob.speed *= 1.12;
       wave.portalCursor = (portalIndex + 1) % wave.portalPoints.length;
+      campaignPortalFlash = { zoneIndex: wave.zoneIndex, point: portal, timer: .46 };
       return true;
     }
   }
@@ -1187,6 +1303,10 @@ function spawnCampaignZombie(stage: typeof STAGES[number], wave: CampaignWaveQue
 }
 
 function updateCampaignSpawnQueue(stage: typeof STAGES[number], dt: number): void {
+  if (campaignPortalFlash) {
+    campaignPortalFlash.timer = Math.max(0, campaignPortalFlash.timer - dt);
+    if (campaignPortalFlash.timer <= 0) campaignPortalFlash = null;
+  }
   const wave = campaignWaveQueue[0];
   if (!wave) return;
   if (!wave.started) {
@@ -1194,7 +1314,7 @@ function updateCampaignSpawnQueue(stage: typeof STAGES[number], dt: number): voi
     wave.started = true;
     wave.warningTimer = CAMPAIGN_WAVE_WARNING_SECONDS;
     wave.spawnTimer = 0;
-    campaignWaveAlertText = `CỬA VÀO KHU ${wave.zoneIndex + 1} ĐANG MỞ`;
+    campaignWaveAlertText = 'CỔNG MÁU ĐANG MỞ';
     campaignWaveAlertTimer = 3.2;
     return;
   }
@@ -1202,10 +1322,18 @@ function updateCampaignSpawnQueue(stage: typeof STAGES[number], dt: number): voi
     wave.warningTimer = Math.max(0, wave.warningTimer - dt);
     return;
   }
+  if (wave.waitingForClear) {
+    if (zombies.pool.getActive().some(z => z.hp > 0 && z.campaignZoneIndex === wave.zoneIndex)) return;
+    wave.waitingForClear = false;
+    wave.warningTimer = CAMPAIGN_WAVE_GROUP_BREAK;
+    campaignWaveAlertText = 'QUÁI MỚI ĐANG TRÀN VÀO';
+    campaignWaveAlertTimer = 2.4;
+    return;
+  }
   wave.spawnTimer -= dt;
   if (wave.spawnTimer > 0 || zombies.pool.activeCount >= CAMPAIGN_ACTIVE_ZOMBIE_LIMIT) return;
   const spawnRate = 2.5 + (stage.id - 1) * .42;
-  const type = wave.roster[wave.spawned % wave.roster.length];
+  const type = chooseCampaignWaveMob(wave.roster);
   if (!spawnCampaignZombie(stage, wave, type)) {
     wave.spawnTimer = .25;
     return;
@@ -1213,9 +1341,11 @@ function updateCampaignSpawnQueue(stage: typeof STAGES[number], dt: number): voi
   wave.spawned++;
   wave.remaining--;
   wave.groupSpawned++;
-  wave.spawnTimer = wave.groupSpawned >= wave.groupSize && wave.remaining > 0
-    ? CAMPAIGN_WAVE_GROUP_BREAK : 1 / spawnRate;
-  if (wave.groupSpawned >= wave.groupSize) wave.groupSpawned = 0;
+  wave.spawnTimer = 1 / spawnRate;
+  if (wave.groupSpawned >= wave.groupSize && wave.remaining > 0) {
+    wave.groupSpawned = 0;
+    wave.waitingForClear = true;
+  }
   if (wave.remaining <= 0) campaignWaveQueue.shift();
 }
 
@@ -1224,7 +1354,7 @@ function updateCampaignWaveClears(stage: typeof STAGES[number]): void {
     if (campaignWaveQueue.some(wave => wave.zoneIndex === zoneIndex)) continue;
     if (zombies.pool.getActive().some(z => z.hp > 0 && z.campaignZoneIndex === zoneIndex)) continue;
     campaignActiveWaveZones.delete(zoneIndex);
-    campaignWaveAlertText = `KHU ${zoneIndex + 1} ĐÃ SẠCH · LỐI ĐI ĐÃ MỞ`;
+    campaignWaveAlertText = 'KHU VỰC ĐÃ SẠCH · LỐI ĐI ĐÃ MỞ';
     campaignWaveAlertTimer = 3.2;
     if (stage.layout?.zones[zoneIndex].role === 'hold') campaignHoldWaveTimer = 4.25;
   }
@@ -1234,6 +1364,10 @@ function updateCampaignObjective(dt: number): void {
   const stage = STAGES[currentStageIndex];
   const pressed = input.interactPressed;
   if (!stage) return;
+  const currentNode = stage.objectiveNodes[stageObjectiveIndex];
+  const nodeNeedsInteraction = currentNode && !stageBossSpawned && stage.id !== 10 && !(stage.id === 9 && stageObjectiveIndex < 2);
+  const nearObjective = !!nodeNeedsInteraction && Math.hypot(player.x - currentNode.x, player.y - currentNode.y) <= 88;
+  const nearExit = !!stage.exitSpawn && bossKilledThisRun && Math.hypot(player.x - stage.exitSpawn.x, player.y - stage.exitSpawn.y) <= 88;
   if (stage.exitSpawn && bossKilledThisRun && !stageExitActivated) {
     stageExitActive = true;
     if (bossWeaponDrop) return;
@@ -1286,13 +1420,130 @@ function spawnCampaignBoss(stage: typeof STAGES[number]): void {
   boss.isBoss = true;
   boss.typeId = stage.bossTypeId;
   boss.size = stage.id === 9 ? 88 : stage.id === 10 ? 82 : 55 + Math.min(18, stage.id * 1.8);
-  boss.hp = stage.bossHp; boss.maxHp = stage.bossHp;
+  const bossEndurance = stage.id === 1 ? 1 : 1.65 + (stage.id - 2) * .07;
+  boss.hp = Math.round(stage.bossHp * bossEndurance); boss.maxHp = boss.hp;
   boss.damage = 20 + stage.id * 2;
   boss.speed = 32;
   boss.xpValue = 80 + stage.id * 15;
   campaignBossDirector.reset();
   camera.shake(7, .35);
   particles.emit(boss.x, boss.y, 38, '#a9473d', 145, .9, 6);
+}
+
+function upgradeLevel(id: string): number { return player.upgrades.get(id) || 0; }
+function upgradeValue(id: string, fallback = 0): number {
+  const level = upgradeLevel(id);
+  const def = UPGRADES.find(value => value.id === id);
+  return level > 0 && def ? (def.values[level - 1] ?? fallback) : fallback;
+}
+
+function updateSurvivalWaves(dt: number): ReturnType<Spawner['updateWave']> {
+  if (survivalPhase === 'intermission') {
+    survivalPhaseTimer = Math.max(0, survivalPhaseTimer - dt);
+    if (survivalPhaseTimer > 0) return [];
+    survivalWave++;
+    if (survivalWave % 3 === 0) {
+      const cycleBoss = Math.floor((Math.ceil(survivalWave / 3) - 1) / STAGES.length);
+      const profileIndex = (Math.ceil(survivalWave / 3) - 1) % STAGES.length;
+      survivalBossStageId = STAGES[profileIndex].id;
+      survivalBossSummonsSpawned = 0;
+      survivalPhase = 'boss-warning';
+      survivalPhaseTimer = 3.4 + Math.min(.8, cycleBoss * .15);
+      return [];
+    }
+    survivalPhase = 'regular';
+    survivalSpawnRemaining = Math.min(42, 8 + survivalWave * 3);
+    spawner.beginWave();
+  }
+
+  if (survivalPhase === 'boss-warning') {
+    survivalPhaseTimer = Math.max(0, survivalPhaseTimer - dt);
+    if (survivalPhaseTimer <= 0) {
+      const stage = STAGES.find(value => value.id === survivalBossStageId);
+      if (stage) spawnSurvivalBoss(stage);
+      survivalPhase = 'boss';
+    }
+    return [];
+  }
+
+  if (survivalPhase === 'regular') {
+    const spawns = spawner.updateWave(dt, gameTime, zombies.pool.activeCount, camera,
+      player.x, player.y, survivalSpawnRemaining);
+    survivalSpawnRemaining = Math.max(0, survivalSpawnRemaining - spawns.length);
+    if (survivalSpawnRemaining === 0 && zombies.pool.activeCount === 0) {
+      survivalPhase = 'intermission';
+      survivalPhaseTimer = 4.2;
+    }
+    return spawns;
+  }
+
+  if (survivalPhase === 'boss' && zombies.pool.activeCount === 0) {
+    survivalPhase = 'intermission';
+    survivalPhaseTimer = 5.2;
+  }
+  return [];
+}
+
+function spawnSurvivalBoss(stage: StageDef): void {
+  const def = [...ZOMBIE_TYPES, ...HORROR_TYPES].find(entry => entry.id === stage.bossTypeId)
+    ?? ZOMBIE_TYPES.find(entry => entry.id === 'boss_1')!;
+  const angle = Math.random() * Math.PI * 2;
+  const distance = Math.max(440, Math.min(760, Math.max(camera.width, camera.height) * .62));
+  const x = Math.max(110, Math.min(MAP_CONFIG.width - 110, player.x + Math.cos(angle) * distance));
+  const y = Math.max(110, Math.min(MAP_CONFIG.height - 110, player.y + Math.sin(angle) * distance));
+  const boss = zombies.spawn(def, x, y, 1, 1, 1);
+  boss.campaignBossId = stage.id;
+  boss.isBoss = true;
+  boss.typeId = stage.bossTypeId;
+  boss.size = stage.id === 9 ? 88 : stage.id === 10 ? 82 : 55 + Math.min(18, stage.id * 1.8);
+  [boss.x, boss.y] = resolveBuildingCollision(boss.x, boss.y, boss.size * .8);
+  const circuit = Math.floor((Math.ceil(survivalWave / 3) - 1) / STAGES.length);
+  const endurance = stage.id === 1 ? 1.12 : 1.45 + (stage.id - 2) * .055;
+  boss.hp = Math.round(stage.bossHp * endurance * (1 + circuit * .2));
+  boss.maxHp = boss.hp;
+  boss.damage = 20 + stage.id * 2;
+  boss.speed = 32;
+  boss.xpValue = 200 + stage.id * 35;
+  campaignBossDirector.reset();
+  camera.shake(7, .35);
+  particles.emit(boss.x, boss.y, 36, '#9f4942', 140, .8, 5);
+}
+
+function updateBossEncounter(dt: number, stage: StageDef, boss: Zombie | undefined, survival = false): number {
+  return campaignBossDirector.update(dt, stage, boss, player.x, player.y, () => {
+    const bossCircuit = survival ? Math.floor((Math.ceil(survivalWave / 3) - 1) / STAGES.length) : 0;
+    const summonCap = stage.id === 1 ? (survival ? Math.min(6, 4 + bossCircuit) : 4)
+      : stage.id === 10 ? (survival ? Math.min(5, 3 + bossCircuit) : 3) : 0;
+    let spawned = survival ? survivalBossSummonsSpawned : stageBossSummonsSpawned;
+    if (!summonCap || spawned >= summonCap || !boss || zombies.pool.activeCount >= (survival ? 22 : CAMPAIGN_ACTIVE_ZOMBIE_LIMIT)) return;
+    const summonIds = stage.id === 10 ? ['normal', 'runner', 'spitter'] : ['normal', 'normal', 'normal', 'normal'];
+    for (let i = 0; i < 2 && spawned < summonCap && zombies.pool.activeCount < (survival ? 22 : CAMPAIGN_ACTIVE_ZOMBIE_LIMIT); i++) {
+      const type = ZOMBIE_TYPES.find(entry => entry.id === summonIds[spawned % summonIds.length]);
+      if (!type) continue;
+      const angle = Math.PI * (.35 + i * .3);
+      const mob = zombies.spawn(type, boss.x + Math.cos(angle) * 105, boss.y + Math.sin(angle) * 105, 1, 1, 1);
+      if (!survival) {
+        mob.campaignZoneIndex = stage.layout?.zones.length ? stage.layout.zones.length - 1 : -1;
+        mob.hp = Math.round(mob.hp * stage.difficultyMult); mob.maxHp = mob.hp;
+        mob.damage = Math.round(mob.damage * stage.difficultyMult);
+      }
+      [mob.x, mob.y] = resolveBuildingCollision(mob.x, mob.y, survival ? mob.size * .72 : mob.size);
+      spawned++;
+    }
+    if (survival) survivalBossSummonsSpawned = spawned;
+    else stageBossSummonsSpawned = spawned;
+  }, (move, actor, angle) => {
+    if (move.kind !== 'fan') return;
+    const type = stage.id === 2 ? 'boss_acid' : 'boss_shard';
+    const count = stage.id === 2 ? 7 : stage.id >= 7 ? 7 : stage.id >= 5 ? 6 : 5;
+    const spread = stage.id === 2 ? .78 : .56;
+    const muzzle = actor.size * .72;
+    enemyProjectiles.fireFan(actor.x + Math.cos(angle) * muzzle, actor.y + Math.sin(angle) * muzzle,
+      angle, count, spread, stage.id === 2 ? 310 : 390, move.damage, type);
+    camera.shake(stage.id === 2 ? 2.4 : 1.7, .12);
+    particles.emit(actor.x + Math.cos(angle) * muzzle, actor.y + Math.sin(angle) * muzzle,
+      stage.id === 2 ? 8 : 5, stage.id === 2 ? '#a7c568' : '#c8c5b7', 65, .24, 3);
+  });
 }
 
 function checkStageObjective(): void {
@@ -1333,6 +1584,7 @@ function checkStageObjective(): void {
 function handleZombieDeath(z: Zombie): void {
   if (z.hp > 0 || z.deathHandled) return;
   z.deathHandled = true;
+  bloodStains.add(z.x, z.y, z.size, z.isBoss);
   if (gameMode === 'endless') horrorRemains.add(z);
 
   player.kills++;
@@ -1354,22 +1606,62 @@ function handleZombieDeath(z: Zombie): void {
 
   // Elite and Boss zombies drop unowned weapons!
   if (gameMode === 'endless' && (z.isBoss || z.isElite)) {
-    if (!weapons.loadout.hasGun('sg12')) {
+    if (z.isBoss) {
+      const reward = campaignGuns.find(gun => !['p9', 'ar7'].includes(gun.id) && !weapons.loadout.hasGun(gun.id));
+      if (reward) mapPickups.spawnWeaponPickup(z.x, z.y, reward.id, true);
+      const finiteAmmoSlot = weapons.loadout.canAddAmmoForGun(weapons.loadout.activeSlot.def.id)
+        ? weapons.loadout.activeSlot : weapons.loadout.unlockedSlots.find(slot => weapons.loadout.canAddAmmoForGun(slot.def.id));
+      if (finiteAmmoSlot) {
+        mapPickups.spawnAmmoPickup(z.x + (reward ? 28 : 0), z.y + (reward ? 10 : 0), finiteAmmoSlot.def.id,
+          finiteAmmoSlot.def.magSize * (reward ? 2 : 3));
+      }
+    } else if (!weapons.loadout.hasGun('sg12')) {
       mapPickups.spawnWeaponPickup(z.x, z.y, 'sg12');
     } else if (!weapons.loadout.hasGun('smg9')) {
       mapPickups.spawnWeaponPickup(z.x, z.y, 'smg9');
     }
   }
 
+  if (gameMode === 'endless' && !z.isBoss && Math.random() < (z.isElite ? .24 : .085)
+      && mapPickups.pool.getActive().filter(item => item.itemId.startsWith('ammo_')).length < 22) {
+    const candidates = weapons.loadout.unlockedSlots.filter(slot => weapons.loadout.canAddAmmoForGun(slot.def.id));
+    if (candidates.length) {
+      const chapterStep = Math.min(10, Math.floor(survivalWave / 3) + 2);
+      const eligibleGuns = campaignGuns.filter(gun => (gun.unlockStage ?? 1) <= chapterStep);
+      const preferredId = eligibleGuns[eligibleGuns.length - 1]?.id;
+      const totalWeight = candidates.reduce((sum, slot) => sum + (slot.def.id === preferredId ? 5 : slot === weapons.loadout.activeSlot ? 2 : 1), 0);
+      let roll = Math.random() * totalWeight;
+      for (const slot of candidates) {
+        roll -= slot.def.id === preferredId ? 5 : slot === weapons.loadout.activeSlot ? 2 : 1;
+        if (roll > 0) continue;
+        mapPickups.spawnAmmoPickup(z.x, z.y, slot.def.id, slot.def.magSize * (z.isElite ? 2 : 1));
+        break;
+      }
+    }
+  }
+
   if (player.lifestealAmount > 0) {
     player.heal(player.lifestealAmount);
+  }
+  if (z.isBoss || z.isElite) {
+    const healing = upgradeValue('field_medic');
+    if (healing > 0) {
+      player.heal(healing);
+      damageNumbers.spawn(player.x, player.y - 24, healing, '#8bbf78', false, '+');
+      particles.emit(player.x, player.y, 6, '#8bbf78', 48, .28, 2.3);
+    }
   }
 
   if (gameMode === 'stage') {
     const threat = z.campaignBossId !== null ? 100 + currentStageIndex * 25
       : z.isElite ? 15 : ['rat_king', 'mutant', 'multihead', 'tank'].includes(z.typeId) ? 8
       : ['runner', 'spider', 'spitter', 'armed', 'exploder'].includes(z.typeId) ? 4 : 2;
-    campaignCredits.drop(z.x, z.y, threat);
+    const guaranteedCredit = z.campaignBossId !== null || z.isElite;
+    const dropChance = guaranteedCredit ? 1 : threat >= 8 ? .82 : threat >= 4 ? .72 : .62;
+    if (Math.random() < dropChance) {
+      const valueScale = z.campaignBossId !== null ? .82 : z.isElite ? .78 : .65;
+      campaignCredits.drop(z.x, z.y, Math.max(1, Math.floor(threat * valueScale)));
+    }
     if (z.campaignBossId === null && Math.random() < (z.isElite ? .16 : .065)
       && mapPickups.pool.getActive().filter(item => item.itemId.startsWith('ammo_')).length < 24) {
       const candidates = weapons.loadout.unlockedSlots.filter(slot =>
@@ -1398,7 +1690,9 @@ function handleZombieDeath(z: Zombie): void {
     handleExplosion(z.x, z.y, z.explosionRadius, z.explosionDamage);
   } else {
     // Normal / Elite zombie death
-    particles.burst(z.x, z.y, z.isBoss ? 16 : 5, '#bb1122', Math.random() * Math.PI * 2, Math.PI * 2, 90, 0.25);
+    const bloodCount = z.isBoss ? 24 : z.isElite ? 12 : 8;
+    particles.burst(z.x, z.y, bloodCount, '#bb1122', Math.random() * Math.PI * 2, Math.PI * 2,
+      z.isBoss ? 145 : z.isElite ? 112 : 94, z.isBoss ? .38 : .3);
     particles.emit(z.x, z.y, 3, z.color, 60, 0.2, 2.5);
     camera.shake(z.isBoss ? 8 : z.isElite ? 1.8 : 0.6, z.isBoss ? 0.3 : 0.05);
   }
@@ -1484,12 +1778,24 @@ function drawGame(): void {
   const campaignStage = gameMode === 'stage' ? STAGES[currentStageIndex] : undefined;
   if (campaignStage) {
     campaignTerrainRenderer.draw(ctx, camera, campaignStage, stageObjectiveIndex, player.x, player.y, gameTime);
+    bloodStains.draw(ctx, camera);
+    LightingRenderer.get().drawCampaignLighting(ctx, camera, campaignStage, player.x, player.y, player.aimAngle, viewportWidth, viewportHeight);
     weapons.loadout.casings.draw(ctx, camera);
-    const spawnCue = campaignWaveQueue[0]?.started ? campaignWaveQueue[0] : undefined;
-    campaignMapRenderer.draw(ctx, camera, campaignStage, stageObjectiveIndex, stageBossSpawned, stageExitActive, stageExitActivated, stageObjectiveHp, spawnCue);
+    const queuedWave = campaignWaveQueue[0];
+    const visiblePortalFlash = campaignPortalFlash && campaignPortalFlash.timer > 0 ? campaignPortalFlash : undefined;
+    const spawnCue = queuedWave?.started
+      ? { ...queuedWave, gameTime, sealedPortalPoints: queuedWave.sealedPortals, playerX: player.x, playerY: player.y,
+          activePortalPoint: visiblePortalFlash?.point, activePortalTimer: visiblePortalFlash?.timer }
+      : visiblePortalFlash
+        ? { zoneIndex: visiblePortalFlash.zoneIndex, portalPoints: [visiblePortalFlash.point], warningTimer: 0,
+            gameTime, playerX: player.x, playerY: player.y, activePortalPoint: visiblePortalFlash.point, activePortalTimer: visiblePortalFlash.timer }
+        : undefined;
+    campaignMapRenderer.draw(ctx, camera, campaignStage, stageObjectiveIndex, stageBossSpawned, stageExitActive, stageExitActivated,
+      stageObjectiveHp, spawnCue, { playerX: player.x, playerY: player.y, gameTime, holdStarted: stageObjectiveHoldStarted, exitInteractable: !bossWeaponDrop });
     campaignResources.draw(ctx, camera);
   } else {
     groundRenderer.draw(ctx, camera);
+    bloodStains.draw(ctx, camera);
     drawMapBorder();
     weapons.loadout.casings.draw(ctx, camera);
     propRenderer.draw(ctx, camera, 'ground', true);
@@ -1499,7 +1805,8 @@ function drawGame(): void {
     horrorRemains.draw(ctx, camera);
   }
   zombies.drawWarnings(ctx, camera);
-  if (campaignStage) campaignBossDirector.draw(ctx, camera, zombies.pool.getActive().find((z) => z.campaignBossId === campaignStage.id));
+  const directorStageId = campaignStage?.id ?? (gameMode === 'endless' && survivalPhase === 'boss' ? survivalBossStageId : 0);
+  if (directorStageId) campaignBossDirector.draw(ctx, camera, zombies.pool.getActive().find((z) => z.campaignBossId === directorStageId));
 
   // Draw entities
   mapPickups.draw(ctx, camera);
@@ -1537,9 +1844,24 @@ function drawGame(): void {
   if (previewCleanCapture) return;
 
   // HUD
+  const campaignBossForHud = campaignStage && stageBossSpawned
+    ? zombies.pool.getActive().find(z => z.campaignBossId === campaignStage.id && z.hp > 0)
+    : undefined;
+  const survivalBossForHud = gameMode === 'endless' && survivalPhase === 'boss'
+    ? zombies.pool.getActive().find(z => z.campaignBossId === survivalBossStageId && z.hp > 0)
+    : undefined;
   hud.draw(ctx, viewportWidth, viewportHeight, player, gameTime, input, zombies, mapPickups, camera,
-    campaignStage ? { stage: campaignStage, activeNode: stageObjectiveIndex, bossSpawned: stageBossSpawned, exitActive: stageExitActive, exitActivated: stageExitActivated,
-      credits: save.data.campaign.credits, creditGain: creditGainTimer > 0 ? lastCreditGain : 0 } : undefined);
+    campaignStage ? { stage: campaignStage, activeNode: stageObjectiveIndex, bossSpawned: stageBossSpawned,
+      bossName: campaignStage.bossName,
+      bossHpRatio: campaignBossForHud ? campaignBossForHud.hp / Math.max(1, campaignBossForHud.maxHp) : 0,
+      exitActive: stageExitActive, exitActivated: stageExitActivated,
+      credits: save.data.campaign.credits, creditGain: creditGainTimer > 0 ? lastCreditGain : 0 } : undefined,
+    gameMode === 'endless' && !previewEncounter ? {
+      wave: Math.max(1, survivalWave), phase: survivalPhase,
+      bossName: survivalPhase === 'boss' || survivalPhase === 'boss-warning'
+        ? STAGES.find(value => value.id === survivalBossStageId)?.bossName : undefined,
+      bossHpRatio: survivalBossForHud ? survivalBossForHud.hp / Math.max(1, survivalBossForHud.maxHp) : 0,
+    } : undefined);
 
   // Active buffs display
   drawActiveBuffs();
@@ -1552,7 +1874,14 @@ function drawGame(): void {
   // ─── Tactical Gun Loadout Bottom HUD Card (Matches User Spec) ───
   if (menuUI.currentScreen === 'playing') {
     weapons.loadout.drawHUD(ctx, viewportWidth, viewportHeight, player);
-    drawTouchActionButtons(ctx, viewportWidth, viewportHeight, gameMode === 'stage');
+    drawTouchActionButtons(ctx, viewportWidth, viewportHeight, {
+      dashCooldown: player.dashCooldown,
+      dashCooldownMax: player.dashMaxCooldown,
+      ragePercent: weapons.loadout.ragePercent,
+      rageCooldown: weapons.loadout.rageCooldownTimer,
+      rageCooldownMax: weapons.loadout.rageCooldownDuration,
+      rageActiveTimer: weapons.loadout.rageActiveTimer,
+    });
   }
 
   // ─── Custom Shooter Crosshair (Directional Arrow & Reticle) ───
@@ -1634,7 +1963,7 @@ function drawStageObjective(): void {
 
   const panelW = Math.min(330, Math.max(210, viewportWidth * .52));
   const x = viewportWidth - panelW / 2 - 12;
-  const y = viewportWidth >= 700 && viewportWidth < 1050 ? 117 : 70;
+  const y = !stageBossSpawned && viewportWidth >= 700 && viewportWidth < 1050 ? 117 : 70;
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -1672,10 +2001,9 @@ function drawStageObjective(): void {
   }
   if (bossWeaponDrop) objectiveText = `NHẶT ${campaignGuns.find(gun => gun.id === bossWeaponDrop!.gunId)?.shortName ?? 'VŨ KHÍ'} BOSS ĐỂ MỞ ĐIỂM THOÁT`;
   if (campaignActiveWaveZones.has(currentZoneIndex)) {
-    const enemiesLeft = zombies.pool.getActive().reduce((count, z) => count + (z.hp > 0 && z.campaignZoneIndex === currentZoneIndex ? 1 : 0), 0);
     const holdText = stage.layout?.zones[currentZoneIndex]?.role === 'hold' ? `  •  GIỮ ${Math.floor(stageObjectiveHoldTime)}/${stage.objectiveHoldSeconds ?? 15}s` : '';
-    const pending = campaignWaveQueue.reduce((count, wave) => count + (wave.zoneIndex === currentZoneIndex ? wave.remaining : 0), 0);
-    objectiveText = `ĐỢT QUÁI: ${enemiesLeft} ĐANG SỐNG · ${pending} SẮP RA${holdText}`;
+    const canShootPortal = campaignWaveQueue.some(wave => wave.zoneIndex === currentZoneIndex && wave.remaining > 0 && wave.sealedPortals.some(sealed => !sealed));
+    objectiveText = `GIAO TRANH • HẠ QUÁI${canShootPortal ? ' / BẮN PHÁ Ổ SPAWN' : ''}${holdText}`;
   }
   if (campaignSupplyNoticeTimer > 0) objectiveText = campaignSupplyNotice;
   ctx.fillStyle = stageExitActive ? '#9fc4af' : stageBossSpawned ? '#e47a68' : '#f0eadc';
@@ -1912,6 +2240,7 @@ function resetGame(): void {
   campaignTriggeredZones.clear();
   campaignActiveWaveZones.clear();
   campaignWaveQueue.length = 0;
+  campaignPortalFlash = null;
   campaignSupplyNotice = '';
   campaignSupplyNoticeTimer = 0;
   campaignWaveAlertText = '';
@@ -1921,6 +2250,12 @@ function resetGame(): void {
   campaignHoldWaveTimer = 5.5;
   campaignBossWaveTimer = 0;
   campaignBossDirector.reset();
+  survivalWave = 0;
+  survivalPhase = 'intermission';
+  survivalPhaseTimer = 2.7;
+  survivalSpawnRemaining = 0;
+  survivalBossStageId = 0;
+  survivalBossSummonsSpawned = 0;
   campaignResources.reset();
   campaignCredits.clear();
   lastCreditGain = 0;
@@ -1931,6 +2266,7 @@ function resetGame(): void {
   bullets.pool.releaseAll();
   zombies.pool.releaseAll();
   horrorRemains.clear();
+  bloodStains.clear();
   xpGems.pool.releaseAll();
   particles.pool.releaseAll();
   enemyProjectiles.pool.releaseAll();

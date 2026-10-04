@@ -25,6 +25,11 @@ export interface MapPickup {
   warningY: number;
 }
 
+const GUN_PICKUP_NAMES: Record<string, string> = {
+  p9: 'P-9', ar7: 'AR-7', smg9: 'SMG-9', sg12: 'SG-12', dmr55: 'DMR-55',
+  bulldog: 'BULLDOG', lmg6: 'LMG-6', flamer8: 'FLAMER-8', rpg4: 'RPG-4', rail_lance: 'RAIL LANCE',
+};
+
 function createPickup(): MapPickup {
   return {
     x: 0, y: 0, size: 12, color: '#ffffff', glowColor: '#cccccc',
@@ -345,30 +350,24 @@ export class MapPickupSystem {
       // ── Distinct weapon recovery cases ──
       if (p.itemId.startsWith('gun_')) {
         const gunId = p.itemId.slice(4);
-        const isSG = p.itemId === 'gun_sg12';
         const campaignReward = p.life === Infinity;
-        const labelText = campaignReward ? `NHẶT SÚNG  ·  ${gunId.toUpperCase().replace('_', ' ')}`
-          : isSG ? 'SG-12  ·  SÚNG SĂN' : 'SMG-9  ·  TIỂU LIÊN';
-        const beaconColor = campaignReward ? '#d6b375' : isSG ? '#e17143' : '#71a7bc';
+        const labelText = `${campaignReward ? 'VŨ KHÍ TRÙM' : 'NHẶT SÚNG'}  ·  ${GUN_PICKUP_NAMES[gunId] ?? gunId.toUpperCase()}`;
+        const beaconColor = gunId === 'rpg4' || gunId === 'rail_lance' ? '#d6b375'
+          : gunId === 'sg12' || gunId === 'bulldog' ? '#e17143' : '#71a7bc';
         const wobbleY = Math.sin(p.wobble) * 3;
 
         ctx.save();
         // Restrained beacon keeps the weapon findable without flooding the screen.
         const beamGrad = ctx.createLinearGradient(sx, sy, sx, sy - 105);
-        beamGrad.addColorStop(0, campaignReward ? 'rgba(214, 179, 117, .32)' : isSG ? 'rgba(225, 113, 67, 0.26)' : 'rgba(113, 167, 188, 0.24)');
+        beamGrad.addColorStop(0, `${campaignReward ? 'rgba(214, 179, 117, .32)' : beaconColor === '#e17143' ? 'rgba(225, 113, 67, 0.26)' : 'rgba(113, 167, 188, 0.24)'}`);
         beamGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
         ctx.fillStyle = beamGrad;
         ctx.fillRect(sx - 7, sy - 85, 14, 85);
-        ctx.strokeStyle = campaignReward ? 'rgba(241, 205, 142, .8)' : isSG ? 'rgba(240, 139, 78, 0.6)' : 'rgba(155, 210, 220, 0.6)';
+        ctx.strokeStyle = campaignReward ? 'rgba(241, 205, 142, .8)' : beaconColor === '#e17143' ? 'rgba(240, 139, 78, 0.6)' : 'rgba(155, 210, 220, 0.6)';
         ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.ellipse(sx, sy + wobbleY + 7, 19, 7, 0, 0, Math.PI * 2); ctx.stroke();
         drawLootIcon(ctx, 'weapon_part', sx, sy + wobbleY, 17, beaconColor, p.wobble);
-        if (campaignReward) drawGunArt(ctx, sx - 17, sy - 9 + wobbleY, 34, 18, gunId);
-        else {
-          ctx.fillStyle = isSG ? '#d7b27b' : '#86afbb';
-          ctx.fillRect(sx - 8, sy + wobbleY - 1, 16, 3);
-          ctx.fillRect(sx - 2, sy + wobbleY - 7, 4, 15);
-        }
+        drawGunArt(ctx, sx - 19, sy - 10 + wobbleY, 38, 20, gunId);
 
         ctx.font = `bold 10px 'Segoe UI', Arial, sans-serif`;
         const bw = ctx.measureText(labelText).width + 16;

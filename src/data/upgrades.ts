@@ -15,6 +15,7 @@ export interface UpgradeDef {
   gunReq?: string;
   evolvesFrom?: [string, string];
   evolveReqLevel?: number;
+  rarity?: 'common' | 'uncommon' | 'rare' | 'epic';
 }
 
 export const UPGRADES: UpgradeDef[] = [
@@ -216,6 +217,55 @@ export const UPGRADES: UpgradeDef[] = [
     maxLevel: 4,
     category: 'weapon',
     values: [1, 2, 3, 4],
+  },
+  // ─── Survival build cards ───
+  {
+    id: 'piercing', name: 'Đạn Xuyên Giáp', description: 'Đạn xuyên thêm mục tiêu; mỗi cấp +1 lần xuyên.',
+    icon: '⟿', maxLevel: 3, category: 'weapon', values: [1, 2, 3], rarity: 'uncommon',
+  },
+  {
+    id: 'bleeding_rounds', name: 'Đạn Găm Mô', description: 'Đạn có cơ hội gây chảy máu, gây sát thương theo thời gian.',
+    icon: '🩸', maxLevel: 3, category: 'weapon', values: [.18, .3, .42], rarity: 'uncommon',
+  },
+  {
+    id: 'shock_rounds', name: 'Đạn Điện Xung', description: 'Đạn có cơ hội làm quái thường khựng lại trong chốc lát.',
+    icon: 'ϟ', maxLevel: 3, category: 'weapon', values: [.12, .2, .28], rarity: 'rare',
+  },
+  {
+    id: 'executioner', name: 'Kết Liễu', description: 'Gây thêm sát thương lên mục tiêu còn dưới 35% máu.',
+    icon: '†', maxLevel: 3, category: 'weapon', values: [1.18, 1.32, 1.48], rarity: 'rare',
+  },
+  {
+    id: 'mutant_hunter', name: 'Thợ Săn Dị Chủng', description: 'Tăng sát thương lên boss và quái tinh anh.',
+    icon: '☠', maxLevel: 3, category: 'weapon', values: [1.12, 1.25, 1.4], rarity: 'rare',
+  },
+  {
+    id: 'field_medic', name: 'Quân Y Dã Chiến', description: 'Hồi máu khi hạ boss hoặc quái tinh anh.',
+    icon: '+', maxLevel: 3, category: 'effect', values: [8, 13, 20], rarity: 'uncommon',
+  },
+  {
+    id: 'evasive_training', name: 'Phản Xạ Né Tránh', description: 'Giảm hồi chiêu lướt 8% mỗi cấp.',
+    icon: '↗', maxLevel: 3, category: 'stat', values: [.92, .84, .76], rarity: 'uncommon',
+  },
+  {
+    id: 'dash_impact', name: 'Lướt Xuyên Xương', description: 'Cú lướt gây sát thương một lần lên quái sát bên.',
+    icon: '➤', maxLevel: 3, category: 'weapon', values: [22, 36, 52], rarity: 'rare',
+  },
+  {
+    id: 'rapid_reload', name: 'Thao Tác Thay Đạn', description: 'Thay đạn nhanh hơn 12% mỗi cấp.',
+    icon: '↻', maxLevel: 3, category: 'stat', values: [1.12, 1.24, 1.36], rarity: 'uncommon',
+  },
+  {
+    id: 'ammo_scavenger', name: 'Tận Dụng Tiếp Tế', description: 'Nhặt được nhiều đạn hơn từ hộp tiếp tế.',
+    icon: '▣', maxLevel: 3, category: 'effect', values: [1.25, 1.5, 1.8], rarity: 'uncommon',
+  },
+  {
+    id: 'last_stand', name: 'Cố Sống Còn', description: 'Khi máu dưới 30%, giảm sát thương nhận vào.',
+    icon: '⛨', maxLevel: 3, category: 'effect', values: [.9, .78, .65], rarity: 'rare',
+  },
+  {
+    id: 'reload_guard', name: 'Che Chắn Khi Thay Đạn', description: 'Nhận ít sát thương hơn khi đang thay đạn.',
+    icon: '▰', maxLevel: 3, category: 'effect', values: [.88, .76, .62], rarity: 'uncommon',
   },
 ];
 

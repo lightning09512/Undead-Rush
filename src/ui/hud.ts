@@ -22,7 +22,8 @@ export class HUD {
     zombies: ZombieSystem,
     mapPickups: MapPickupSystem,
     camera: Camera,
-    campaign?: { stage: StageDef; activeNode: number; bossSpawned: boolean; exitActive: boolean; exitActivated: boolean; credits: number; creditGain: number }
+    campaign?: { stage: StageDef; activeNode: number; bossSpawned: boolean; bossName?: string; bossHpRatio?: number; exitActive: boolean; exitActivated: boolean; credits: number; creditGain: number },
+    survival?: { wave: number; phase: 'intermission' | 'regular' | 'boss-warning' | 'boss'; bossName?: string; bossHpRatio?: number }
   ): void {
     const pad = w < 700 ? 9 : 12;
     const compact = w < 700;
@@ -121,6 +122,41 @@ export class HUD {
     ctx.fillText(`${player.kills}`, clockX + 104, clockY + clockH / 2);
     ctx.restore();
 
+    const campaignBossActive = !!campaign?.bossSpawned && !!campaign.bossName;
+    const survivalBossActive = survival?.phase === 'boss' && !!survival.bossName;
+    const bossBarActive = campaignBossActive || survivalBossActive;
+
+    if (survival && !survivalBossActive) {
+      const panelW = Math.min(compact ? 220 : 310, w - pad * 2);
+      const panelH = survival.bossName ? 56 : 34;
+      const panelX = (w - panelW) / 2;
+      const panelY = clockY + clockH + 7;
+      ctx.save();
+      ctx.fillStyle = 'rgba(10, 15, 16, .9)';
+      ctx.strokeStyle = survival.phase === 'boss' || survival.phase === 'boss-warning' ? '#a64e47' : '#64716e';
+      ctx.lineWidth = 1;
+      this.roundRect(ctx, panelX, panelY, panelW, panelH, 5); ctx.fill(); ctx.stroke();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const stateText = survival.phase === 'intermission' ? 'KHU VỰC ĐANG LẮNG' :
+        survival.phase === 'boss-warning' ? 'CÓ THỨ ĐANG TIẾN ĐẾN' :
+        survival.phase === 'boss' ? 'BOSS ĐANG SĂN LÙNG' : 'TIÊU DIỆT ĐỢT QUÁI';
+      ctx.fillStyle = survival.phase === 'boss' || survival.phase === 'boss-warning' ? '#e3b37e' : '#b9cbc3';
+      ctx.font = `800 ${compact ? 11 : 12}px Segoe UI, Arial`;
+      ctx.fillText(`WAVE ${survival.wave}  ·  ${stateText}`, w / 2, panelY + 13, panelW - 14);
+      if (survival.bossName) {
+        ctx.fillStyle = '#f0e5d9'; ctx.font = `700 ${compact ? 10 : 11}px Segoe UI, Arial`;
+        ctx.fillText(survival.bossName, w / 2, panelY + 29, panelW - 14);
+      }
+      ctx.restore();
+    }
+
+    if (bossBarActive) {
+      const bossName = campaignBossActive ? campaign!.bossName! : survival!.bossName!;
+      const bossHp = campaignBossActive ? campaign!.bossHpRatio : survival!.bossHpRatio;
+      const bossBarY = compact ? clockY + clockH + 8 : w < 1240 ? 141 : clockY + clockH + 7;
+      this.drawBossHealthBar(ctx, w, pad, bossBarY, compact, bossName, bossHp ?? 1);
+    }
+
     // ─── 3. Top-Left: Equipment Slots (6 Weapons + 6 Passives) ───
     this.drawEquipmentSlots(ctx, pad, xpBarH + 8, player, slotSize);
 
@@ -174,6 +210,42 @@ export class HUD {
       ctx.fill();
       ctx.restore();
     }
+  }
+
+  private drawBossHealthBar(ctx: CanvasRenderingContext2D, w: number, pad: number, y: number, compact: boolean, name: string, hpRatio: number): void {
+    const barW = Math.min(compact ? 420 : 800, w - pad * 2);
+    const barH = compact ? 51 : 57;
+    const x = (w - barW) / 2;
+    const ratio = Math.max(0, Math.min(1, hpRatio));
+    const trackX = x + 12, trackY = y + (compact ? 27 : 29), trackW = barW - 24, trackH = compact ? 13 : 16;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(10,12,13,.92)';
+    ctx.strokeStyle = 'rgba(175,148,113,.9)';
+    ctx.lineWidth = 1.5;
+    this.roundRect(ctx, x, y, barW, barH, 4); ctx.fill(); ctx.stroke();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = `900 ${compact ? 11 : 14}px Segoe UI, Arial`;
+    ctx.lineWidth = 3; ctx.strokeStyle = '#120f10';
+    ctx.strokeText(name.toLocaleUpperCase(), w / 2, y + (compact ? 13 : 14), barW - 30);
+    ctx.fillStyle = '#eee1d2';
+    ctx.fillText(name.toLocaleUpperCase(), w / 2, y + (compact ? 13 : 14), barW - 30);
+
+    ctx.fillStyle = '#1b1718'; ctx.fillRect(trackX, trackY, trackW, trackH);
+    ctx.strokeStyle = '#796a59'; ctx.lineWidth = 1; ctx.strokeRect(trackX, trackY, trackW, trackH);
+    if (ratio > 0) {
+      ctx.fillStyle = ratio <= .2 ? '#b6483c' : '#923638';
+      ctx.fillRect(trackX + 2, trackY + 2, Math.max(0, (trackW - 4) * ratio), trackH - 4);
+      ctx.fillStyle = 'rgba(229,164,134,.23)';
+      ctx.fillRect(trackX + 2, trackY + 2, Math.max(0, (trackW - 4) * ratio), 2);
+    }
+    // Fine divisions add the long, deliberate boss-bar read without obscuring health.
+    ctx.strokeStyle = 'rgba(12,12,13,.48)'; ctx.lineWidth = 1;
+    for (let i = 1; i < 10; i++) {
+      const tickX = trackX + trackW * i / 10;
+      ctx.beginPath(); ctx.moveTo(tickX, trackY + 1); ctx.lineTo(tickX, trackY + trackH - 1); ctx.stroke();
+    }
+    ctx.restore();
   }
 
   /** Render 6 Weapon slots (top row) and 6 Passive slots (bottom row) */

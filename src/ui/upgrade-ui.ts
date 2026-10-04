@@ -189,6 +189,13 @@ export class UpgradeUI {
       const catLabel = card.def.category === 'weapon' ? 'VŨ KHÍ' : card.def.category === 'stat' ? 'CHỈ SỐ' : 'HIỆU ỨNG';
       ctx.fillText(catLabel, cx + cardW - catW / 2 - 12, badgeY + badgeH / 2);
 
+      const rarity = this.getRarityLabel(card.def.rarity);
+      const rarityColor = this.getRarityColor(card.def.rarity);
+      ctx.fillStyle = 'rgba(13, 19, 22, 0.88)'; ctx.strokeStyle = rarityColor;
+      this.roundRect(ctx, cx + 80, badgeY, 64, badgeH, 4); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = rarityColor; ctx.font = `bold 9px 'Segoe UI', Arial, sans-serif`;
+      ctx.textAlign = 'center'; ctx.fillText(rarity, cx + 112, badgeY + badgeH / 2);
+
       // Icon Center Medallion
       const medalRadius = 30;
       const medalX = cx + cardW / 2;
@@ -338,6 +345,8 @@ export class UpgradeUI {
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.fillStyle = accent; ctx.font = `bold ${Math.min(9, h * 0.085)}px 'Segoe UI', Arial, sans-serif`;
     ctx.fillText(category, contentX, y + h * 0.43);
+    ctx.textAlign = 'right'; ctx.fillStyle = this.getRarityColor(card.def.rarity);
+    ctx.fillText(this.getRarityLabel(card.def.rarity), x + w - 12, y + h * 0.43);
 
     ctx.textAlign = 'left'; ctx.fillStyle = C.textSoft; ctx.font = ` ${Math.min(12, h * 0.105)}px 'Segoe UI', Arial, sans-serif`;
     ctx.textBaseline = 'top';
@@ -364,6 +373,24 @@ export class UpgradeUI {
       case 'weapon': return C.amber;
       case 'effect': return C.health;
       default: return C.textMuted;
+    }
+  }
+
+  private getRarityLabel(rarity?: UpgradeDef['rarity']): string {
+    switch (rarity) {
+      case 'uncommon': return 'KHÁ';
+      case 'rare': return 'HIẾM';
+      case 'epic': return 'SỬ THI';
+      default: return 'THƯỜNG';
+    }
+  }
+
+  private getRarityColor(rarity?: UpgradeDef['rarity']): string {
+    switch (rarity) {
+      case 'uncommon': return '#9bc48f';
+      case 'rare': return '#d1ad70';
+      case 'epic': return '#c78f9f';
+      default: return '#98aaa6';
     }
   }
 

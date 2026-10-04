@@ -26,6 +26,9 @@ export interface Zombie {
   flashTimer: number;
   burnTimer: number;
   burnDamage: number;
+  bleedTimer: number;
+  bleedDamage: number;
+  stunTimer: number;
   slowTimer: number;
   slowMult: number;
   // Kinetic / Knockback
@@ -76,7 +79,7 @@ function createZombie(): Zombie {
     id: 0, x: 0, y: 0, size: 14, color: '#5a8a3c',
     hp: 30, maxHp: 30, speed: 60, damage: 10, xpValue: 5,
     typeId: 'normal',
-    flashTimer: 0, burnTimer: 0, burnDamage: 0,
+    flashTimer: 0, burnTimer: 0, burnDamage: 0, bleedTimer: 0, bleedDamage: 0, stunTimer: 0,
     slowTimer: 0, slowMult: 1,
     knockbackX: 0, knockbackY: 0,
     facingLeft: false,
@@ -100,6 +103,9 @@ function resetZombie(z: Zombie): void {
   z.hp = 0;
   z.flashTimer = 0;
   z.burnTimer = 0;
+  z.bleedTimer = 0;
+  z.bleedDamage = 0;
+  z.stunTimer = 0;
   z.slowTimer = 0;
   z.slowMult = 1;
   z.knockbackX = 0;
@@ -201,7 +207,23 @@ export class ZombieSystem {
         z.facingLeft = dx < 0;
       }
 
-      const special = z.campaignBossId === null ? updateHorrorAI(z, dt, playerX, playerY, collideBuildings) : false;
+      let special = false;
+      if (z.campaignBossId === null) {
+        // Shock rounds can interrupt an uncommitted windup. Once the strike is
+        // active, let that clearly telegraphed attack finish instead of popping
+        // the creature backward mid-animation.
+        if (z.stunTimer > 0 && z.specialState !== 'active') {
+          if (z.specialState === 'windup') {
+            z.specialState = 'chase';
+            z.specialTimer = 0;
+            z.specialHit = false;
+            z.attackCooldown = Math.max(z.attackCooldown, .42);
+          }
+          z.visualWindup = 0;
+        } else {
+          special = updateHorrorAI(z, dt, playerX, playerY, collideBuildings);
+        }
+      }
       if (special) {
         // The committed attack state supplies movement and aim.
       } else if (dist > 1) {
@@ -210,6 +232,9 @@ export class ZombieSystem {
         if (z.slowTimer > 0) {
           speed *= z.slowMult;
           z.slowTimer -= dt;
+        }
+        if (z.stunTimer > 0) {
+          speed *= .12;
         }
 
         // Ranged spitters keep distance
@@ -268,6 +293,11 @@ export class ZombieSystem {
         z.burnTimer -= dt;
         z.hp -= z.burnDamage * dt;
       }
+      if (z.bleedTimer > 0) {
+        z.bleedTimer = Math.max(0, z.bleedTimer - dt);
+        z.hp -= z.bleedDamage * dt;
+      }
+      if (z.stunTimer > 0) z.stunTimer = Math.max(0, z.stunTimer - dt);
 
       // Flash timer for hit feedback
       if (z.flashTimer > 0) z.flashTimer -= dt;

@@ -163,6 +163,8 @@ export class GunLoadout {
   ragePercent = 0;
   rageActiveTimer = 0;
   readonly rageDuration = 8.0;
+  rageCooldownTimer = 0;
+  readonly rageCooldownDuration = 24.0;
 
   constructor() {
     this.reset();
@@ -184,13 +186,18 @@ export class GunLoadout {
       sprayHeat: 0,
       fireCooldown: 0,
     }));
-    // Survival keeps the same starting rifle and pickup-driven unlocks.
-    this.unlockedGunIds = new Set(['ar7']);
-    this.activeSlotIndex = 0;
+    // Survival keeps the AR-7 opening and a P-9 backup with infinite reserve.
+    this.unlockedGunIds = new Set(['p9', 'ar7']);
+    const pistol = this.slots.find(slot => slot.def.id === 'p9');
+    const rifle = this.slots.find(slot => slot.def.id === 'ar7');
+    if (pistol) { pistol.currentAmmo = pistol.def.magSize; pistol.reserveAmmo = -1; }
+    if (rifle) { rifle.currentAmmo = rifle.def.magSize; rifle.reserveAmmo = rifle.def.magSize * (rifle.def.reserveMagazines ?? 6); }
+    this.activeSlotIndex = Math.max(0, this.slots.findIndex(slot => slot.def.id === 'ar7'));
     this.grenadesCurrent = 3;
     this.grenadeRechargeTimer = this.grenadeRechargeMax;
     this.ragePercent = 0;
     this.rageActiveTimer = 0;
+    this.rageCooldownTimer = 0;
   }
 
   /** A weak, unlimited reserve sidearm keeps Campaign completable without supplies. */
@@ -243,10 +250,34 @@ export class GunLoadout {
     return slot.reserveAmmo - before;
   }
 
+  canAddAmmoForGun(gunId: string): boolean {
+    const slot = this.slots.find(value => value.def.id === gunId);
+    return !!slot && this.unlockedGunIds.has(gunId) && slot.reserveAmmo >= 0
+      && slot.reserveAmmo < slot.def.magSize * 12;
+  }
+
+  addAmmoForGun(gunId: string, rounds: number): number {
+    if (!this.canAddAmmoForGun(gunId)) return 0;
+    const slot = this.slots.find(value => value.def.id === gunId)!;
+    const before = slot.reserveAmmo;
+    slot.reserveAmmo = Math.min(slot.def.magSize * 12, before + Math.max(0, Math.floor(rounds)));
+    return slot.reserveAmmo - before;
+  }
+
   collectCampaignGun(gunId: string, audio?: Audio): boolean {
     if (!this.campaignMode || !this.unlockGun(gunId, audio)) return false;
     const slot = this.slots.find(value => value.def.id === gunId);
     if (slot) slot.reserveAmmo = slot.def.magSize * (slot.def.reserveMagazines ?? 5);
+    return true;
+  }
+
+  collectSurvivalGun(gunId: string, audio?: Audio): boolean {
+    if (this.campaignMode) return false;
+    const slot = this.slots.find(value => value.def.id === gunId);
+    if (!slot) return false;
+    if (!this.unlockGun(gunId, audio)) {
+      return this.addAmmoForGun(gunId, slot.def.magSize * 2) > 0;
+    }
     return true;
   }
 
@@ -267,7 +298,9 @@ export class GunLoadout {
 
   get unlockedSlots(): GunSlotState[] {
     const unlocked = this.slots.filter((s) => this.unlockedGunIds.has(s.def.id));
-    return this.campaignMode ? unlocked.sort((a, b) => (a.def.unlockStage ?? 1) - (b.def.unlockStage ?? 1)) : unlocked;
+    if (this.campaignMode) return unlocked.sort((a, b) => (a.def.unlockStage ?? 1) - (b.def.unlockStage ?? 1));
+    const order = ['p9', 'ar7', 'smg9', 'sg12', 'dmr55', 'bulldog', 'lmg6', 'flamer8', 'rpg4', 'rail_lance'];
+    return unlocked.sort((a, b) => order.indexOf(a.def.id) - order.indexOf(b.def.id));
   }
 
   hasGun(gunId: string): boolean {
@@ -290,6 +323,8 @@ export class GunLoadout {
       this.activeSlotIndex = targetIdx;
       // Replenish ammo immediately on fresh pickup
       this.slots[targetIdx].currentAmmo = this.slots[targetIdx].def.magSize;
+      this.slots[targetIdx].reserveAmmo = gunId === 'p9' ? -1
+        : this.slots[targetIdx].def.magSize * (this.slots[targetIdx].def.reserveMagazines ?? 5);
       this.slots[targetIdx].isReloading = false;
     }
 
@@ -423,7 +458,7 @@ export class GunLoadout {
     const slot = this.activeSlot;
     if (slot.isReloading) return;
     if (slot.currentAmmo >= slot.def.magSize) return;
-    if (this.campaignMode && slot.reserveAmmo === 0) return;
+    if (slot.def.id !== 'p9' && slot.reserveAmmo === 0) return;
 
     slot.isReloading = true;
     slot.reloadTimer = 0;
@@ -436,16 +471,16 @@ export class GunLoadout {
   }
 
   addRageOnKill(): void {
-    if (this.isRageActive) return;
+    if (this.isRageActive || this.rageCooldownTimer > 0) return;
     this.ragePercent = Math.min(100, this.ragePercent + 2.5);
   }
 
   activateRage(audio?: Audio): void {
-    if (this.ragePercent < 100 || this.isRageActive) return;
+    if (this.ragePercent < 100 || this.isRageActive || this.rageCooldownTimer > 0) return;
 
     this.ragePercent = 0;
     this.rageActiveTimer = this.rageDuration;
-    if (!this.campaignMode) this.activeSlot.currentAmmo = this.activeSlot.def.magSize;
+    this.rageCooldownTimer = this.rageCooldownDuration;
     this.activeSlot.isReloading = false;
 
     if (audio) {
@@ -468,8 +503,9 @@ export class GunLoadout {
       if (this.campaignMode) {
         const requested = this.unlockedSlots[requestedSlot];
         if (requested) this.switchSlot(this.slots.indexOf(requested), audio);
-      } else if (requestedSlot < this.slots.length && this.unlockedGunIds.has(this.slots[requestedSlot].def.id)) {
-        this.switchSlot(requestedSlot, audio);
+      } else {
+        const requested = this.unlockedSlots[requestedSlot];
+        if (requested) this.switchSlot(this.slots.indexOf(requested), audio);
       }
     }
     const wheel = input.wheelDelta;
@@ -505,6 +541,11 @@ export class GunLoadout {
     if (this.rageActiveTimer > 0) {
       this.rageActiveTimer = Math.max(0, this.rageActiveTimer - dt);
     }
+    if (this.rageCooldownTimer > 0) {
+      this.rageCooldownTimer = Math.max(0, this.rageCooldownTimer - dt);
+      this.ragePercent = Math.round((1 - this.rageCooldownTimer / this.rageCooldownDuration) * 100);
+      if (this.rageCooldownTimer === 0) this.ragePercent = 100;
+    }
 
     // ── 6. Update all gun slot states (reloads & cooling) ──
     for (const slot of this.slots) {
@@ -514,7 +555,8 @@ export class GunLoadout {
 
       if (slot.isReloading) {
         slot.reloadTimer += dt;
-        slot.reloadProgress = Math.min(1, slot.reloadTimer / slot.def.reloadDuration);
+        const reloadDuration = slot.def.reloadDuration / Math.max(.65, player.reloadSpeedMultiplier);
+        slot.reloadProgress = Math.min(1, slot.reloadTimer / reloadDuration);
 
         // Milestone sounds
         if (slot.reloadProgress >= 0.42 && !slot.soundMilestones.insert) {
@@ -527,12 +569,12 @@ export class GunLoadout {
         }
 
         // Finish reload
-        if (slot.reloadTimer >= slot.def.reloadDuration) {
+        if (slot.reloadTimer >= reloadDuration) {
           slot.isReloading = false;
           const missing = slot.def.magSize - slot.currentAmmo;
-          const loaded = this.campaignMode && slot.reserveAmmo >= 0 ? Math.min(missing, slot.reserveAmmo) : missing;
+          const loaded = slot.def.id !== 'p9' ? Math.min(missing, slot.reserveAmmo) : missing;
           slot.currentAmmo += loaded;
-          if (this.campaignMode && slot.reserveAmmo >= 0) slot.reserveAmmo -= loaded;
+          if (slot.def.id !== 'p9') slot.reserveAmmo -= loaded;
           slot.reloadProgress = 0;
         }
       }
@@ -579,9 +621,8 @@ export class GunLoadout {
     const damageMult = player.bulletDamage / 15.0;
     const effectiveDamage = Math.round(def.baseDamage * damageMult * (this.isRageActive ? 1.3 : 1.0));
 
-    if (!this.isRageActive || this.campaignMode) {
-      slot.currentAmmo--;
-    }
+    // Rage never creates ammunition. Only the P-9 has an unlimited reserve.
+    slot.currentAmmo--;
 
     slot.sprayHeat = Math.min(1.0, slot.sprayHeat + (def.type === 'smg' ? 0.11 : 0.15));
     const spreadRange = def.spreadBase + (def.spreadMax - def.spreadBase) * Math.pow(slot.sprayHeat, 1.35);
@@ -636,7 +677,7 @@ export class GunLoadout {
     this.casings.spawn(player.x, player.y, player.aimAngle, heldGunShape(def));
     slot.fireCooldown = 1 / effectiveFireRate;
 
-    if (slot.currentAmmo <= 0 && (!this.isRageActive || this.campaignMode)) {
+    if (slot.currentAmmo <= 0) {
       this.startReload(audio);
     }
   }
@@ -711,7 +752,8 @@ export class GunLoadout {
         if (selected) { ctx.fillStyle = '#dfbb7e'; ctx.fillRect(x + 4, rowY + 1, 3, rowHeight - 2); }
         ctx.fillStyle = selected ? '#fff0d5' : '#aebcba';
         ctx.font = '800 11px Segoe UI, Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        ctx.fillText(slot.def.slotKey, x + 12, rowY + rowHeight / 2);
+        const weaponIndex = first + visible;
+        ctx.fillText(weaponIndex === 9 ? '0' : String(weaponIndex + 1), x + 12, rowY + rowHeight / 2);
         drawGunArt(ctx, x + 29, rowY + 3, width < 200 ? 55 : 67, rowHeight - 6, slot.def.id);
         ctx.fillStyle = selected ? '#f4eee0' : '#c3d0ce';
         ctx.font = '700 10px Segoe UI, Arial';
@@ -728,14 +770,14 @@ export class GunLoadout {
     ctx.fillStyle = '#f0eee7'; ctx.font = '800 13px Segoe UI, Arial';
     ctx.fillText(active.def.shortName, x + 11, infoY + 15, width - 106);
     ctx.textAlign = 'right'; ctx.fillStyle = accent; ctx.font = '800 20px Segoe UI, Arial';
-    ctx.fillText(this.isRageActive && !this.campaignMode ? '∞' : String(active.currentAmmo), x + width - 32, infoY + 17);
+    ctx.fillText(String(active.currentAmmo), x + width - 32, infoY + 17);
     ctx.fillStyle = '#b6c3c1'; ctx.font = '700 10px Segoe UI, Arial';
     ctx.fillText('/' + active.def.magSize, x + width - 9, infoY + 19);
     ctx.textAlign = 'left'; ctx.font = '600 9px Segoe UI, Arial';
     ctx.fillStyle = active.isReloading ? '#e1ba78' : '#a4b7b6';
     ctx.fillText(active.isReloading ? 'THAY ĐẠN' : 'R · THAY ĐẠN', x + 11, infoY + 36);
     ctx.textAlign = 'right'; ctx.fillStyle = '#b6c3c1';
-    ctx.fillText(this.campaignMode ? `DỰ TRỮ ${active.reserveAmmo < 0 ? '∞' : active.reserveAmmo}` : 'ĐẠN VÔ HẠN', x + width - 10, infoY + 36);
+    ctx.fillText(`DỰ TRỮ ${active.reserveAmmo < 0 ? '∞' : active.reserveAmmo}`, x + width - 10, infoY + 36);
     if (active.isReloading) {
       ctx.fillStyle = '#324045'; ctx.fillRect(x + 9, infoY + 47, width - 18, 3);
       ctx.fillStyle = '#d9ae68'; ctx.fillRect(x + 9, infoY + 47, (width - 18) * active.reloadProgress, 3);
@@ -748,6 +790,7 @@ export class GunLoadout {
     if (infoHeight > 100) {
       ctx.fillStyle = this.ragePercent >= 100 || this.isRageActive ? '#d6a078' : '#aab7b7';
       const rage = this.isRageActive ? `NỘ ${this.rageActiveTimer.toFixed(1)}s`
+        : this.rageCooldownTimer > 0 ? `NỘ HỒI ${this.rageCooldownTimer.toFixed(1)}s`
         : this.ragePercent >= 100 ? 'NỘ SẴN' : `NỘ ${Math.floor(this.ragePercent)}%`;
       ctx.fillText(`F  ${rage}`, x + 11, infoY + 99);
     } else {

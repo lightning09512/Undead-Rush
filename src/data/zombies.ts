@@ -90,14 +90,14 @@ export const ZOMBIE_TYPES: ZombieTypeDef[] = [
   {
     id: 'tank',
     name: 'Brute',
-    hp: 200,
+    hp: 140,
     speed: 35,
     damage: 25,
     xpValue: 25,
     size: 22,
     color: '#6b3a6b',
-    weight: 8,
-    minTime: 60,
+    weight: 4,
+    minTime: 80,
   },
   {
     id: 'exploder',

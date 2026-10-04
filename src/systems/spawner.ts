@@ -17,6 +17,31 @@ export class Spawner {
     return tier;
   }
 
+  /** One paced batch for the current authored Survival wave. */
+  updateWave(
+    dt: number, gameTime: number, currentZombieCount: number,
+    camera: Camera, playerX: number, playerY: number, remaining: number
+  ): { type: ZombieTypeDef; x: number; y: number; tier: DifficultyTier; isElite?: boolean }[] {
+    const tier = this.getCurrentTier(gameTime);
+    if (remaining <= 0 || currentZombieCount >= tier.maxZombies) return [];
+    this.spawnTimer += dt * tier.spawnRate;
+    if (this.spawnTimer < 1) return [];
+    this.spawnTimer -= 1;
+
+    const count = Math.min(tier.batchSize, remaining, tier.maxZombies - currentZombieCount);
+    const result: { type: ZombieTypeDef; x: number; y: number; tier: DifficultyTier; isElite?: boolean }[] = [];
+    for (let i = 0; i < count; i++) {
+      const type = this.pickZombieType(gameTime, true);
+      if (!type) break;
+      const pos = this.getSpawnPosition(camera, playerX, playerY);
+      const eliteChance = gameTime >= 45 ? Math.min(.12, .04 + gameTime / 6000) : 0;
+      result.push({ type, x: pos.x, y: pos.y, tier, isElite: Math.random() < eliteChance || undefined });
+    }
+    return result;
+  }
+
+  beginWave(): void { this.spawnTimer = 0; }
+
   /** Get list of zombies that should be spawned this frame */
   update(
     dt: number, gameTime: number, currentZombieCount: number,

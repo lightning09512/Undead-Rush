@@ -5,7 +5,7 @@ import { resolveBuildingCollision, resolveCampaignMovement } from '../entities/m
 
 type Phase = 'approach' | 'transition' | 'windup' | 'active' | 'recover';
 
-/** Campaign-only boss telegraphs and hit checks. Survival boss AI stays in main.ts. */
+/** Shared telegraphs and hit checks for the authored Campaign boss profiles. */
 export class CampaignBossDirector {
   private phase: Phase = 'approach';
   private phaseTime = 0;
@@ -89,7 +89,7 @@ export class CampaignBossDirector {
       boss.campaignAttackProgress=boss.visualWindup;boss.specialAngle=this.angle;boss.facingAngle=this.angle;
       if (this.phaseTime >= move.telegraph) {
         this.phase = 'active'; this.phaseTime = 0; this.lastX = boss.x; this.lastY = boss.y;
-        this.nextFanBurstAt = .34;
+        this.nextFanBurstAt = this.fanInterval(stage.id);
         boss.specialHit = false;
         if (move.kind === 'summon') onSummon?.();
         onAction?.(move,boss,this.angle);
@@ -107,7 +107,7 @@ export class CampaignBossDirector {
         // A short interval makes the attack feel sustained without a single
         // invisible damage check spanning the entire cone.
         onAction?.(move, boss, this.angle);
-        this.nextFanBurstAt += .34;
+        this.nextFanBurstAt += this.fanInterval(stage.id);
       }
       boss.campaignAttackProgress=Math.min(1,this.phaseTime/duration);
       let hit = false;
@@ -184,7 +184,9 @@ export class CampaignBossDirector {
           }
         }
         this.phase = 'approach'; this.phaseTime = 0;
-        this.cooldown = Math.max(.22, 1.05 - stage.id * .065) * (hpRatio < .34 ? .74 : 1);
+        this.cooldown = stage.id === 1
+          ? Math.max(.22, 1.05 - stage.id * .065) * (hpRatio < .34 ? .74 : 1)
+          : Math.max(.18, .64 - (stage.id - 2) * .045) * (hpRatio < .34 ? .68 : 1);
         this.attack = null;
       }
     }
@@ -200,13 +202,15 @@ export class CampaignBossDirector {
     if (move.kind === 'summon') return .78;
     if (move.kind === 'thrust') return .34;
     if (move.kind === 'sweep') return .43;
-    if (move.kind === 'fan') return .88;
+    if (move.kind === 'fan') return stageId === 1 ? .88 : stageId >= 7 ? .96 : .92;
     return .52;
   }
 
   private recoveryDuration(move: CampaignAttackDef, stageId: number, hpRatio: number): number {
-    const cadence = Math.max(.42, .78 - stageId * .035) * (hpRatio < .34 ? .82 : 1);
-    return Math.max(.32, move.recovery * cadence);
+    const cadence = stageId === 1
+      ? Math.max(.42, .78 - stageId * .035)
+      : Math.max(.36, .66 - (stageId - 2) * .035);
+    return Math.max(stageId === 1 ? .32 : .26, move.recovery * cadence * (hpRatio < .34 ? .82 : 1));
   }
 
   private chooseMove(moves: CampaignAttackDef[], distance: number, stageId: number): CampaignAttackDef {
@@ -215,20 +219,34 @@ export class CampaignBossDirector {
       this.recentKinds.push(best.kind);
       return best;
     }
+    // After the opening showcase, bosses from stage 2 onward lunge at least
+    // once every few attacks when the player is far enough to make it legible.
+    const charge = moves.find(move => move.kind === 'charge');
+    if (stageId >= 2 && charge && distance > 140 && !this.recentKinds.slice(-2).includes('charge')) {
+      this.recentKinds.push('charge');
+      if (this.recentKinds.length > 3) this.recentKinds.shift();
+      return charge;
+    }
     let bestScore = -Infinity;
     for (const move of moves) {
       const recent = this.recentKinds.slice(-2).includes(move.kind);
       const rangeFit = distance > move.reach * 1.1
         ? (move.kind === 'charge' || move.kind === 'web' || move.kind === 'fan' ? 2 : 0)
         : (move.kind === 'sweep' || move.kind === 'slam' || move.kind === 'ring' || move.kind === 'stomp' ? 2 : 0);
-      const pounceBias = move.kind === 'charge' ? (stageId >= 7 ? 2.4 : stageId >= 4 ? 1.35 : .35) : 0;
-      const rangedBias = move.kind === 'fan' && distance > move.reach * .55 ? 1.1 : 0;
-      const score = rangeFit + pounceBias + rangedBias - (recent ? 3 : 0) + Math.random() * 1.2;
+      const pounceBias = move.kind === 'charge' ? stageId === 1 ? .35 : stageId >= 7 ? 3.5 : stageId >= 4 ? 2.9 : 2.4 : 0;
+      const rangedBias = move.kind === 'fan' && distance > move.reach * .55 ? stageId === 1 ? 1.1 : 1.35 : 0;
+      const recentPenalty = recent ? stageId > 1 && move.kind === 'charge' ? 1.8 : 3 : 0;
+      const score = rangeFit + pounceBias + rangedBias - recentPenalty + Math.random() * 1.2;
       if (score > bestScore) { bestScore = score; best = move; }
     }
     this.recentKinds.push(best.kind);
     if (this.recentKinds.length > 3) this.recentKinds.shift();
     return best;
+  }
+
+  private fanInterval(stageId: number): number {
+    if (stageId === 1) return .34;
+    return Math.max(.22, .27 - (stageId - 2) * .005);
   }
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera, boss: Zombie | undefined): void {

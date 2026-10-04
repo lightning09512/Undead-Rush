@@ -30,7 +30,7 @@ export class CampaignResources {
     });
   }
 
-  collectNearby(player: Player, guns: GunLoadout): CollectedSupply[] {
+  collectNearby(player: Player, guns: GunLoadout, ammoMultiplier = 1): CollectedSupply[] {
     const collected: CollectedSupply[] = [];
     for (const supply of this.stations) {
       if (supply.used || Math.hypot(supply.x - player.x, supply.y - player.y) > player.size + 29 ||
@@ -40,13 +40,14 @@ export class CampaignResources {
       if (supply.kind === 'med' && hpBefore >= player.maxHp) continue;
       if (supply.kind === 'ammo' && !canAddAmmo) continue;
       if (supply.kind === 'crate' && hpBefore >= player.maxHp && !canAddAmmo) continue;
-      if (supply.kind !== 'med' && canAddAmmo) guns.addCampaignAmmo(supply.kind === 'crate' ? 4 : 3);
+      const magazines = supply.kind === 'crate' ? 4 : 3;
+      if (supply.kind !== 'med' && canAddAmmo) guns.addCampaignAmmo(magazines * ammoMultiplier);
       if (supply.kind !== 'ammo') player.heal(supply.kind === 'crate' ? 35 : 50);
       supply.used = true; this.used++;
       const healed = Math.round(player.hp - hpBefore);
       collected.push({ x: supply.x, y: supply.y, kind: supply.kind,
-        label: supply.kind === 'ammo' ? 'ĐẠN DỰ TRỮ +3 BĂNG' : supply.kind === 'med' ? `MÁU +${healed}` :
-          `TIẾP TẾ${healed ? ` · MÁU +${healed}` : ''}${canAddAmmo ? ' · ĐẠN +4 BĂNG' : ''}` });
+        label: supply.kind === 'ammo' ? `ĐẠN DỰ TRỮ +${Math.round(magazines * ammoMultiplier)} BĂNG` : supply.kind === 'med' ? `MÁU +${healed}` :
+          `TIẾP TẾ${healed ? ` · MÁU +${healed}` : ''}${canAddAmmo ? ` · ĐẠN +${Math.round(magazines * ammoMultiplier)} BĂNG` : ''}` });
     }
     return collected;
   }

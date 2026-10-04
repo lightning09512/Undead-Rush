@@ -4,13 +4,28 @@ import type { StageDef, StageBuildingDef, Point } from '../data/meta';
 export interface CampaignSpawnCue {
   zoneIndex: number;
   portalPoints: readonly Point[];
+  sealedPortalPoints?: readonly boolean[];
+  portalHp?: readonly number[];
+  portalMaxHp?: number;
   warningTimer: number;
-  remaining: number;
+  activePortalPoint?: Point;
+  activePortalTimer?: number;
+  gameTime?: number;
+  playerX?: number;
+  playerY?: number;
+}
+
+export interface CampaignObjectiveCue {
+  playerX: number;
+  playerY: number;
+  gameTime: number;
+  holdStarted: boolean;
+  exitInteractable: boolean;
 }
 
 /** Small, code-drawn Campaign landmarks and readable objective routes. */
 export class CampaignMapRenderer {
-  draw(ctx: CanvasRenderingContext2D, camera: Camera, stage: StageDef, activeNode: number, bossSpawned: boolean, exitActive = false, exitActivated = false, objectiveHp = 0, spawnCue?: CampaignSpawnCue): void {
+  draw(ctx: CanvasRenderingContext2D, camera: Camera, stage: StageDef, activeNode: number, bossSpawned: boolean, exitActive = false, exitActivated = false, objectiveHp = 0, spawnCue?: CampaignSpawnCue, objectiveCue?: CampaignObjectiveCue): void {
     const route: Point[] = [stage.playerStart, ...stage.objectiveNodes, stage.bossSpawn];
     ctx.save();
     ctx.lineCap = 'round';
@@ -31,17 +46,23 @@ export class CampaignMapRenderer {
       const [x, y] = camera.worldToScreen(p.x, p.y);
       if (!camera.isVisible(p.x, p.y, 90)) continue;
       const done = i < activeNode;
-      this.drawObjectiveFeature(ctx, x, y, stage.id, i, stage.accentColor);
-      ctx.fillStyle = done ? 'rgba(76, 131, 91, .20)' : 'rgba(207, 154, 67, .18)';
-      ctx.strokeStyle = done ? '#83ad82' : stage.accentColor;
-      ctx.lineWidth = done ? 2 : 2.5;
-      ctx.beginPath(); ctx.arc(x, y, 27, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.stroke();
-      ctx.fillStyle = done ? '#a5c99d' : '#f1d29a';
-      ctx.font = 'bold 11px Segoe UI, Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      const active = i === activeNode && !done && !bossSpawned;
       const isHold = stage.objectiveHoldAt === i;
       const shoot = stage.id === 10 || stage.id === 9 && i < 2;
-      ctx.fillText(done ? '✓' : isHold ? `GIỮ ${i + 1}` : shoot ? 'BẮN PHÁ' : `E  ${i + 1}`, x, y - 34);
+      const canInteract = active && !shoot && (!isHold || stage.id === 9 && !objectiveCue?.holdStarted);
+      const distance = objectiveCue ? Math.hypot(objectiveCue.playerX - p.x, objectiveCue.playerY - p.y) : Infinity;
+      const pulse = objectiveCue ? .5 + .5 * Math.sin(objectiveCue.gameTime * 4.2) : 0;
+      if (active) this.drawObjectiveBeacon(ctx, x, y, pulse, stage.accentColor);
+      this.drawObjectiveFeature(ctx, x, y, stage.id, i, stage.accentColor);
+      if (done) {
+        ctx.fillStyle = '#d1e0bd'; ctx.font = 'bold 13px Segoe UI, Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('✓', x + 24, y - 23);
+      } else if (active) {
+        ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.font = 'bold 10px Segoe UI, Arial';
+        ctx.fillStyle = '#fff1d3';
+        ctx.fillText(shoot ? 'BẮN PHÁ' : isHold ? 'GIỮ VỊ TRÍ' : 'MỤC TIÊU', x, y - 37);
+        if (canInteract && distance <= 82) this.drawInteractKey(ctx, x + 32, y - 30, pulse, distance <= 74);
+      }
       if (shoot && i === activeNode) {
         ctx.fillStyle = '#181e1e'; ctx.fillRect(x - 28, y + 35, 56, 5);
         ctx.fillStyle = '#bd6e5b'; ctx.fillRect(x - 28, y + 35, 56 * Math.max(0, Math.min(1, objectiveHp / (150 + (stage.id - 1) * 12 + i * 30))), 5);
@@ -59,10 +80,12 @@ export class CampaignMapRenderer {
     if (exitActive && stage.exitSpawn) {
       const [x, y] = camera.worldToScreen(stage.exitSpawn.x, stage.exitSpawn.y);
       if (camera.isVisible(stage.exitSpawn.x, stage.exitSpawn.y, 70)) {
+        const distance = objectiveCue ? Math.hypot(objectiveCue.playerX - stage.exitSpawn.x, objectiveCue.playerY - stage.exitSpawn.y) : Infinity;
         ctx.strokeStyle = exitActivated ? '#90ad9e' : '#86c7bd'; ctx.fillStyle = 'rgba(68,126,117,.18)'; ctx.lineWidth = 2.5;
         ctx.beginPath(); ctx.arc(x, y, 25, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(x-10,y); ctx.lineTo(x+10,y); ctx.moveTo(x,y-10); ctx.lineTo(x,y+10); ctx.stroke();
         ctx.fillStyle = '#dce7d8'; ctx.font = 'bold 10px Segoe UI, Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText('THOÁT',x,y-30);
+        if (!exitActivated && objectiveCue?.exitInteractable && distance <= 88) this.drawInteractKey(ctx, x + 31, y - 24, .8, true);
       }
     }
     ctx.restore();
@@ -70,23 +93,91 @@ export class CampaignMapRenderer {
 
   private drawSpawnCue(ctx: CanvasRenderingContext2D, camera: Camera, cue: CampaignSpawnCue): void {
     const warning = cue.warningTimer > 0;
-    const pulse = .5 + .5 * Math.sin(performance.now() / 150);
-    for (const point of cue.portalPoints) {
-      if (!camera.isVisible(point.x, point.y, 62)) continue;
+    const pulse = .5 + .5 * Math.sin((cue.gameTime ?? 0) * 5.5);
+    let activeIsListed = false;
+    if (cue.activePortalPoint) for (const point of cue.portalPoints) {
+      if (point.x === cue.activePortalPoint.x && point.y === cue.activePortalPoint.y) { activeIsListed = true; break; }
+    }
+    const portalCount = cue.portalPoints.length + (cue.activePortalPoint && !activeIsListed ? 1 : 0);
+    for (let i = 0; i < portalCount; i++) {
+      const point = i < cue.portalPoints.length ? cue.portalPoints[i] : cue.activePortalPoint!;
+      if (!camera.isVisible(point.x, point.y, 100)) continue;
       const [x, y] = camera.worldToScreen(point.x, point.y);
       ctx.save(); ctx.translate(x, y);
-      ctx.fillStyle = warning ? '#25211a' : '#251a19';
-      ctx.strokeStyle = warning ? `rgba(219,177,96,${.65 + pulse * .3})` : `rgba(174,86,69,${.72 + pulse * .24})`;
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.ellipse(0, 0, 24, 15, -.18, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.strokeStyle = warning ? '#d5b76e' : '#a45a4f'; ctx.lineWidth = 2.5;
-      ctx.beginPath(); ctx.moveTo(-15, -4); ctx.lineTo(13, -4); ctx.moveTo(-11, 2); ctx.lineTo(9, 2); ctx.stroke();
-      ctx.fillStyle = warning ? '#f0d39a' : '#d58b72';
-      ctx.beginPath(); ctx.moveTo(0, -25 - pulse * 3); ctx.lineTo(-6, -17); ctx.lineTo(6, -17); ctx.closePath(); ctx.fill();
-      ctx.font = 'bold 9px Segoe UI, Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-      ctx.fillStyle = '#f0e6d3'; ctx.fillText(warning ? 'MỐI ĐE DỌA' : 'LỐI TRÀN', 0, -30);
+      const sealed = cue.sealedPortalPoints?.[i] ?? false;
+      const destructible = cue.portalHp?.[i] !== undefined && cue.portalMaxHp !== undefined;
+      const flashing = !warning && !!cue.activePortalPoint && cue.activePortalPoint.x === point.x && cue.activePortalPoint.y === point.y && (cue.activePortalTimer ?? 0) > 0;
+      const hpMax = cue.portalMaxHp ?? 1;
+      const hp = Math.max(0, cue.portalHp?.[i] ?? hpMax);
+      const hpRatio = Math.max(0, Math.min(1, hp / Math.max(1, hpMax)));
+      const intensity = sealed ? .38 : warning ? .86 + pulse * .14 : flashing ? .9 + pulse * .1 : .82;
+      const woundColor = sealed ? '#555451' : warning ? '#d69a66' : '#b84e47';
+
+      // Fixed world-space infected breach. Large target brackets and its own
+      // health bar communicate that the portal is a destructible object.
+      if (!sealed && destructible) {
+        ctx.strokeStyle = `rgba(209,93,76,${.62 + pulse * .25})`;
+        ctx.lineWidth = 2.4;
+        ctx.beginPath(); ctx.ellipse(0, 2, 49 + pulse * 2, 35 + pulse, -.12, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = `rgba(224,190,148,${.72 + (warning || flashing ? pulse * .24 : 0)})`;
+        ctx.lineWidth = 3;
+        for (let corner = 0; corner < 4; corner++) {
+          const sx = corner % 2 ? 1 : -1, sy = corner > 1 ? 1 : -1;
+          ctx.beginPath(); ctx.moveTo(sx * 57, sy * 20); ctx.lineTo(sx * 57, sy * 31); ctx.lineTo(sx * 45, sy * 31); ctx.stroke();
+        }
+      }
+      ctx.fillStyle = sealed ? '#18191a' : '#241617';
+      ctx.strokeStyle = woundColor; ctx.globalAlpha = intensity; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(-35, 6); ctx.lineTo(-29, -12); ctx.lineTo(-17, -10); ctx.lineTo(-9, -24);
+      ctx.lineTo(2, -18); ctx.lineTo(16, -23); ctx.lineTo(31, -13); ctx.lineTo(36, 2); ctx.lineTo(25, 15);
+      ctx.lineTo(13, 12); ctx.lineTo(2, 24); ctx.lineTo(-12, 17); ctx.lineTo(-25, 20); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.globalAlpha = 1;
+      if (!sealed && destructible) {
+        ctx.fillStyle = '#090b0c'; ctx.beginPath(); ctx.ellipse(0, 0, 22 + pulse * 2, 13 + pulse, -.12, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = warning ? '#e3ad74' : '#e27c65'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(-27, 3); ctx.lineTo(-13, -2); ctx.lineTo(-5, 6); ctx.lineTo(5, -9); ctx.lineTo(19, -11);
+        ctx.moveTo(-12, -4); ctx.lineTo(-17, -13); ctx.moveTo(4, -8); ctx.lineTo(11, 4); ctx.moveTo(-3, 9); ctx.lineTo(-12, 14); ctx.stroke();
+        ctx.fillStyle = `rgba(172,45,42,${.3 + pulse * .2})`; ctx.beginPath(); ctx.ellipse(0, 0, 14 + pulse * 2, 7 + pulse, -.12, 0, Math.PI * 2); ctx.fill();
+      } else if (sealed) {
+        ctx.strokeStyle = '#93918a'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(-15,-14); ctx.lineTo(15,14); ctx.moveTo(15,-14); ctx.lineTo(-15,14); ctx.stroke();
+      }
+      if (!sealed && destructible) {
+        ctx.fillStyle = 'rgba(12,14,15,.96)'; ctx.strokeStyle = '#d19c77'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.roundRect(-58, -82, 116, 26, 4); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#f0ddd0'; ctx.font = '900 10px Segoe UI, Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('Ổ SPAWN · BẮN ĐỂ PHÁ', 0, -74, 108);
+        ctx.fillStyle = '#171718'; ctx.fillRect(-51, -63, 102, 10);
+        ctx.fillStyle = '#83312f'; ctx.fillRect(-49, -61, 98, 6);
+        ctx.fillStyle = '#d44d45'; ctx.fillRect(-49, -61, 98 * hpRatio, 6);
+        ctx.strokeStyle = '#eed8c5'; ctx.lineWidth = 1; ctx.strokeRect(-51, -63, 102, 10);
+        ctx.fillStyle = '#f4e8de'; ctx.font = 'bold 9px Segoe UI, Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(`${Math.ceil(hp)} / ${hpMax} HP`, 0, -47);
+      }
       ctx.restore();
     }
+  }
+
+  private drawObjectiveBeacon(ctx: CanvasRenderingContext2D, x: number, y: number, pulse: number, accent: string): void {
+    ctx.save();
+    ctx.fillStyle = `rgba(255,205,119,${.09 + pulse * .07})`;
+    ctx.beginPath(); ctx.ellipse(x, y, 48 + pulse * 6, 35 + pulse * 4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = `rgba(255,221,163,${.52 + pulse * .28})`; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(x, y, 34 + pulse * 3, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = accent; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(x, y, 43 + pulse * 4, -.82, -.28); ctx.stroke();
+    ctx.strokeStyle = `rgba(255,225,178,${.58 + pulse * .25})`; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x, y - 31); ctx.lineTo(x, y - 47 - pulse * 5); ctx.stroke();
+    ctx.restore();
+  }
+
+  private drawInteractKey(ctx: CanvasRenderingContext2D, x: number, y: number, pulse: number, close: boolean): void {
+    const w = close ? 30 : 26, h = close ? 29 : 25;
+    ctx.save();
+    ctx.fillStyle = `rgba(18,22,22,${.94})`; ctx.strokeStyle = `rgba(255,222,158,${.72 + pulse * .28})`; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(x - w / 2, y - h / 2, w, h, 5); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#fff0cc'; ctx.font = `900 ${close ? 17 : 15}px Segoe UI, Arial`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('E', x, y + .5);
+    ctx.restore();
   }
 
   private drawObjectiveFeature(ctx: CanvasRenderingContext2D, x: number, y: number, stageId: number, nodeIndex: number, accent: string): void {

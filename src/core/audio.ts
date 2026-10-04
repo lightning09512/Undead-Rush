@@ -36,6 +36,7 @@ export class Audio {
   private lastDroneShotTime = 0;
   private lastCreditPickupTime = 0;
   private lastSupplyPickupTime = 0;
+  private playerFootstepTimer = 0;
   private resumeFailureLogged = false;
   private recordedBuffers = new Map<string, AudioBuffer>();
   private recordedBuffersPromise: Promise<void> | null = null;
@@ -922,6 +923,57 @@ export class Audio {
     if (now - this.lastPlayerHitTime < 180) return;
     this.lastPlayerHitTime = now;
     this.playTone(180, 0.1, 'triangle', 0.22);
+  }
+
+  /** Quiet, weighty boot steps with a little grit; cadence follows player speed. */
+  updatePlayerFootsteps(dt: number, moving: boolean, speed: number): void {
+    if (!moving || speed < 24) {
+      this.playerFootstepTimer = 0;
+      return;
+    }
+
+    this.playerFootstepTimer -= dt;
+    if (this.playerFootstepTimer > 0) return;
+    this.playerFootstepTimer = Math.max(0.25, Math.min(0.43, 0.43 * 180 / Math.max(120, speed))) * (0.92 + Math.random() * 0.16);
+    this.playerFootstep();
+  }
+
+  private playerFootstep(): void {
+    if (!this.ensureContext() || !this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const variation = 0.94 + Math.random() * 0.12;
+
+    // A muted sole impact and short concrete grit, kept well below weapon level.
+    const thud = ctx.createOscillator();
+    const thudGain = ctx.createGain();
+    thud.type = 'triangle';
+    thud.frequency.setValueAtTime(92 * variation, t);
+    thud.frequency.exponentialRampToValueAtTime(48 * variation, t + 0.085);
+    thudGain.gain.setValueAtTime(0.115, t);
+    thudGain.gain.exponentialRampToValueAtTime(0.001, t + 0.105);
+    thud.connect(thudGain);
+    thudGain.connect(this.sfxGain);
+    thud.start(t);
+    thud.stop(t + 0.11);
+
+    if (this.noiseBuffer) {
+      const grit = ctx.createBufferSource();
+      const filter = ctx.createBiquadFilter();
+      const gritGain = ctx.createGain();
+      grit.buffer = this.noiseBuffer;
+      grit.playbackRate.value = 0.72 + Math.random() * 0.18;
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(620 + Math.random() * 180, t);
+      filter.Q.value = 0.8;
+      gritGain.gain.setValueAtTime(0.052, t);
+      gritGain.gain.exponentialRampToValueAtTime(0.001, t + 0.075);
+      grit.connect(filter);
+      filter.connect(gritGain);
+      gritGain.connect(this.sfxGain);
+      grit.start(t, Math.random());
+      grit.stop(t + 0.08);
+    }
   }
 
   /** Play one distant, spatially positioned zombie groan every few seconds. */

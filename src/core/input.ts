@@ -4,7 +4,6 @@ import { getTouchActionButtons, type TouchAction } from '../ui/touch-controls';
 
 export class Input {
   touchButtonsEnabled = false;
-  campaignTouchEnabled = false;
   campaignMode = false;
   // Movement direction (normalized)
   dirX = 0;
@@ -141,17 +140,14 @@ export class Input {
 
   private findActionButton(x: number, y: number): TouchAction | null {
     if (!this.touchButtonsEnabled) return null;
-    const buttons = getTouchActionButtons(window.innerWidth, window.innerHeight, this.campaignTouchEnabled);
+    const buttons = getTouchActionButtons(window.innerWidth, window.innerHeight);
     const button = buttons.find((b) => x >= b.x && x <= b.x + b.size && y >= b.y && y <= b.y + b.size);
     return button?.id || null;
   }
 
   private activateAction(action: TouchAction): void {
-    if (action === 'fire') this.fireButtonHeld = true;
-    if (action === 'reload') this._reloadPressed = true;
-    if (action === 'grenade') this._grenadePressed = true;
     if (action === 'dash') this._dashPressed = true;
-    if (action === 'interact') this._interactPressed = true;
+    if (action === 'rage') this._ragePressed = true;
   }
 
   constructor(canvas: HTMLCanvasElement) {

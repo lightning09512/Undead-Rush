@@ -20,6 +20,8 @@ export class CampaignUI {
   armoryTab: 'guns' | 'cards' = 'guns';
   cardPage = 0;
   gunPage = 0;
+  private briefingCardPageSize = 1;
+  private briefingFirstAffordableCard = -1;
   focusedCharacter = 'survivor';
   private buttons: Button[] = [];
   private backdrop?: HTMLCanvasElement;
@@ -37,6 +39,17 @@ export class CampaignUI {
     if (b.action === 'stages') { this.page = 'stages'; return null; }
     if (b.action === 'briefing') { this.page = 'briefing'; return null; }
     if (b.action === 'armory') { this.page = 'armory'; return null; }
+    if (b.action === 'view_cards') {
+      this.page = 'armory'; this.armoryTab = 'cards';
+      this.cardPage = this.briefingFirstAffordableCard < 0 ? 0 : Math.floor(this.briefingFirstAffordableCard / this.briefingCardPageSize);
+      return null;
+    }
+    if (b.action === 'post_stage_armory') {
+      this.page = 'armory';
+      this.armoryTab = this.affordableCardCount(p) > 0 ? 'cards' : 'guns';
+      this.cardPage = this.briefingFirstAffordableCard < 0 ? 0 : Math.floor(this.briefingFirstAffordableCard / this.briefingCardPageSize);
+      return null;
+    }
     if (b.action === 'tab:guns' || b.action === 'tab:cards') { this.armoryTab = b.action === 'tab:guns' ? 'guns' : 'cards'; return null; }
     if (b.action.startsWith('cards:')) { this.cardPage = Number(b.action.slice(6)); return null; }
     if (b.action.startsWith('gunpage:')) { this.gunPage = Number(b.action.slice(8)); return null; }
@@ -111,16 +124,18 @@ export class CampaignUI {
     ctx.fillStyle = 'rgba(4, 7, 9, 0.32)'; ctx.fillRect(0, 0, w, h);
     const panelW = Math.min(980, w - 20), panelH = Math.min(760, h - 20);
     const x = (w - panelW) / 2, y = (h - panelH) / 2;
+    const narrow = panelW < 600;
+    this.briefingCardPageSize = this.cardPageSize(panelH, narrow);
+    this.briefingFirstAffordableCard = UPGRADES.findIndex(def => this.cardIsAffordable(def, p));
     ctx.fillStyle = C.background; ctx.fillRect(x, y, panelW, panelH);
     ctx.strokeStyle = C.border; ctx.lineWidth = 2; ctx.strokeRect(x, y, panelW, panelH);
     ctx.fillStyle = C.textSoft; ctx.textAlign = 'left'; ctx.font = 'bold 15px Segoe UI, Arial';
     ctx.fillText(`CHIẾN DỊCH  /  ${this.page.toUpperCase()}`, x + 20, y + 30);
     ctx.textAlign = 'right'; ctx.fillStyle = C.amberBright; ctx.fillText(`${p.credits} TÍN DỤNG`, x + panelW - 20, y + 30);
     ctx.fillStyle = C.borderSoft; ctx.fillRect(x + 20, y + 42, panelW - 40, 1);
-    const narrow = panelW < 600;
     if (this.page === 'character') this.characters(ctx, x, y, panelW, panelH, p, narrow);
     if (this.page === 'stages') this.stages(ctx, x, y, panelW, panelH, p, narrow);
-    if (this.page === 'briefing') this.briefing(ctx, x, y, panelW, panelH, narrow);
+    if (this.page === 'briefing') this.briefing(ctx, x, y, panelW, panelH, narrow, p);
     if (this.page === 'armory') this.armory(ctx, x, y, panelW, panelH, p, narrow);
     if (this.page === 'result') this.results(ctx, x, y, panelW, panelH);
     if (this.page === 'failure') this.failure(ctx, x, y, panelW, panelH);
@@ -177,15 +192,22 @@ export class CampaignUI {
     this.add(x + 22, y + h - 52, 140, 34, '← CHUẨN BỊ', 'back');
   }
 
-  private briefing(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, narrow: boolean): void {
+  private briefing(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, narrow: boolean, p: SaveSystem['data']['campaign']): void {
     const s = STAGES[this.selectedStage];
+    const affordableCards = this.affordableCardCount(p);
+    this.briefingCardPageSize = this.cardPageSize(h, narrow);
+    this.briefingFirstAffordableCard = UPGRADES.findIndex(def => this.cardIsAffordable(def, p));
     this.title(ctx, `${String(s.id).padStart(2, '0')} / ${s.name}`, x + 22, y + 80);
+    if (affordableCards > 0) {
+      const buttonW = Math.min(narrow ? 128 : 204, w * .46);
+      this.add(x + w - buttonW - 22, y + 52, buttonW, 25, `XEM THẺ · ${affordableCards}`, 'view_cards');
+    }
     if (h < 570) {
       this.copy(ctx, 'NHIỆM VỤ', s.description, x + 24, y + 116, w - 48);
       this.copy(ctx, 'MỤC TIÊU', s.objectiveLabel, x + 24, y + 190, w - 48);
       this.copy(ctx, 'ĐỐI TƯỢNG', `BOSS: ${s.bossName}`, x + 24, y + 260, w - 48);
       this.add(x + 22, y + h - 52, narrow ? 112 : 150, 34, '← BẢN ĐỒ', 'back');
-      this.add(x + w - (narrow ? 165 : 205) - 22, y + h - 52, narrow ? 165 : 205, 34, 'VÀO MÀN →', 'start');
+      this.add(x + w - (narrow ? 165 : 205) - 22, y + h - 52, narrow ? 165 : 205, 34, 'VÀO MÀN NGAY →', 'start');
       return;
     }
     this.copy(ctx, 'NHIỆM VỤ', s.description, x + 24, y + 125, w - 48);
@@ -194,14 +216,15 @@ export class CampaignUI {
     this.copy(ctx, 'ĐỐI TƯỢNG', `${s.mobIds.join(' · ')}  /  BOSS: ${s.bossName}`, x + 24, y + 365, w - 48);
     this.copy(ctx, 'CHIẾN THUẬT', 'Đạn hữu hạn. Đi qua hộp để nhặt tiếp tế; E để dùng thiết bị nhiệm vụ; R để thay đạn; Shift/Space để né. Súng P-9 có đạn dự trữ vô hạn.', x + 24, y + Math.min(445, h - 170), w - 48);
     this.add(x + 22, y + h - 52, narrow ? 112 : 150, 34, '← BẢN ĐỒ', 'back');
-    this.add(x + w - (narrow ? 165 : 205) - 22, y + h - 52, narrow ? 165 : 205, 34, 'VÀO MÀN →', 'start');
+    this.add(x + w - (narrow ? 165 : 205) - 22, y + h - 52, narrow ? 165 : 205, 34, 'VÀO MÀN NGAY →', 'start');
   }
 
   private armory(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, p: SaveSystem['data']['campaign'], narrow: boolean): void {
     this.title(ctx, 'TRẠM CHUẨN BỊ', x + 22, y + 77);
     const tabW = (w - 54) / 2;
+    const affordableCards = this.affordableCardCount(p);
     this.add(x + 22, y + 87, tabW, 31, 'VŨ KHÍ', 'tab:guns', this.armoryTab === 'guns');
-    this.add(x + 32 + tabW, y + 87, tabW, 31, 'THẺ NÂNG CẤP', 'tab:cards', this.armoryTab === 'cards');
+    this.add(x + 32 + tabW, y + 87, tabW, 31, `THẺ NÂNG CẤP${affordableCards ? `  ·  ${affordableCards}` : ''}`, 'tab:cards', this.armoryTab === 'cards');
     if (this.armoryTab === 'guns') this.drawGuns(ctx, x, y, w, h, p, narrow);
     else this.drawCards(ctx, x, y, w, h, p, narrow);
     this.add(x + 22, y + h - 52, narrow ? 105 : 145, 34, '← NHÂN VẬT', 'back');
@@ -254,14 +277,45 @@ export class CampaignUI {
     this.add(x + 32 + (w - 54) / 2, supplyY, (w - 54) / 2, 27, `TÚI Y TẾ · 45 (${p.medKits})`, 'med', p.medKits >= 3 || p.credits < 45);
   }
 
-  private cardPrice(category: string, level: number): number { return (category === 'weapon' ? 95 : 70) + level * 55; }
+  private cardPrice(category: string, level: number): number { return (category === 'weapon' ? 115 : 85) + level * 65; }
+
+  private cardPageSize(h: number, narrow: boolean): number {
+    const cols = narrow ? 1 : 2;
+    const rows = narrow
+      ? h < 510 ? 1 : h < 620 ? 2 : h < 720 ? 3 : 4
+      : h < 510 ? 1 : h < 620 ? 2 : 3;
+    return cols * rows;
+  }
+
+  private cardIsAffordable(def: typeof UPGRADES[number], p: SaveSystem['data']['campaign']): boolean {
+    const level = p.cardLevels[def.id] ?? 0;
+    if (level >= def.maxLevel || (def.gunReq && !p.ownedGuns.includes(def.gunReq))) return false;
+    const used = Object.keys(p.cardLevels).filter(key => (p.cardLevels[key] ?? 0) > 0 && (def.category === 'weapon'
+      ? UPGRADES.find(v => v.id === key)?.category === 'weapon'
+      : UPGRADES.find(v => v.id === key)?.category !== 'weapon')).length;
+    const maxSlots = def.category === 'weapon' ? MAX_WEAPON_SLOTS : MAX_PASSIVE_SLOTS;
+    const full = level === 0 && used >= maxSlots;
+    return !full && p.credits >= this.cardPrice(def.category, level);
+  }
+
+  private affordableCardCount(p: SaveSystem['data']['campaign']): number {
+    return UPGRADES.filter(def => this.cardIsAffordable(def, p)).length;
+  }
 
   private drawCards(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, p: SaveSystem['data']['campaign'], narrow: boolean): void {
-    const cols = narrow ? 1 : 2, rows = h < 420 ? 1 : h < 620 ? 2 : narrow ? 4 : 3, pageSize = cols * rows;
+    const affordableCount = this.affordableCardCount(p);
+    const cols = narrow ? 1 : 2, pageSize = this.cardPageSize(h, narrow);
+    const rows = pageSize / cols;
     const pageCount = Math.ceil(UPGRADES.length / pageSize);
     this.cardPage = Math.max(0, Math.min(pageCount - 1, this.cardPage));
     const gap = 8, bw = (w - 44 - gap * (cols - 1)) / cols;
-    const top = y + 128, bottom = y + h - 103, bh = Math.min(narrow ? 104 : 140, (bottom - top - gap * (rows - 1)) / rows);
+    const top = y + (affordableCount ? 153 : 128), bottom = y + h - 103, bh = Math.min(narrow ? 104 : 140, (bottom - top - gap * (rows - 1)) / rows);
+    if (affordableCount > 0) {
+      ctx.fillStyle = 'rgba(131,96,43,.28)'; ctx.fillRect(x + 22, y + 124, w - 44, 23);
+      ctx.strokeStyle = C.amberBright; ctx.lineWidth = 1; ctx.strokeRect(x + 22, y + 124, w - 44, 23);
+      ctx.fillStyle = C.amberBright; ctx.textAlign = 'center'; ctx.font = 'bold 11px Segoe UI, Arial';
+      ctx.fillText(`${affordableCount} THẺ CÓ THỂ MUA BẰNG TÍN DỤNG`, x + w / 2, y + 140);
+    }
     const cards = UPGRADES.slice(this.cardPage * pageSize, (this.cardPage + 1) * pageSize);
     cards.forEach((def, i) => {
       const bx = x + 22 + (i % cols) * (bw + gap), by = top + Math.floor(i / cols) * (bh + gap);
@@ -272,8 +326,9 @@ export class CampaignUI {
         ? UPGRADES.find(v => v.id === key)?.category === 'weapon'
         : UPGRADES.find(v => v.id === key)?.category !== 'weapon')).length;
       const full = level === 0 && used >= (def.category === 'weapon' ? MAX_WEAPON_SLOTS : MAX_PASSIVE_SLOTS);
+      const canBuy = !maxed && !locked && !full && p.credits >= cost;
       const accent = def.category === 'weapon' ? C.amberBright : def.category === 'effect' ? C.dangerBright : C.cyanBright;
-      this.panel(ctx, bx, by, bw, bh, accent);
+      this.panel(ctx, bx, by, bw, bh, canBuy ? C.amberBright : accent);
       ctx.fillStyle = C.black; ctx.fillRect(bx + 9, by + 9, 33, 33);
       ctx.strokeStyle = accent; ctx.strokeRect(bx + 9, by + 9, 33, 33);
       ctx.textAlign = 'center'; ctx.font = '20px Segoe UI Emoji, sans-serif'; ctx.fillText(def.icon, bx + 25, by + 34);
@@ -285,7 +340,7 @@ export class CampaignUI {
       const description = def.id === 'pickup_radius' ? 'Tăng bán kính hút vật phẩm và tín dụng' : def.description;
       if (bh >= 112) this.wrap(ctx, description, bx + 10, by + 58, bw - 20, 14, 2);
       else ctx.fillText(description, bx + 10, by + 58, bw - 20);
-      const label = maxed ? 'CẤP TỐI ĐA' : locked ? `MỞ ${def.gunReq?.toUpperCase()} TRƯỚC` : full ? 'ĐẦY Ô NÂNG CẤP' : p.credits < cost ? `THIẾU TIỀN · ${cost}` : `MUA CẤP ${level + 1} · ${cost}`;
+      const label = maxed ? 'CẤP TỐI ĐA' : locked ? `MỞ ${def.gunReq?.toUpperCase()} TRƯỚC` : full ? 'ĐẦY Ô NÂNG CẤP' : p.credits < cost ? `THIẾU TIỀN · ${cost}` : `MUA NGAY · CẤP ${level + 1} · ${cost}`;
       this.add(bx + 9, by + bh - 30, bw - 18, 23, label, `card:${def.id}`, maxed || locked || full || p.credits < cost);
     });
     this.add(x + 22, y + h - 91, 96, 25, '← TRƯỚC', `cards:${this.cardPage - 1}`, this.cardPage === 0);
@@ -302,10 +357,17 @@ export class CampaignUI {
       this.result.newStage ? `ĐÃ MỞ MÀN ${this.result.newStage}` : 'Không có màn mới'];
     ctx.textAlign = 'left'; ctx.font = '15px Segoe UI, Arial';
     rows.forEach((line, i) => { ctx.fillStyle = i === 5 ? C.amberBright : C.textSoft; ctx.fillText(line, x + 26, y + 125 + i * Math.min(49, (h - 225) / 7), w - 50); });
-    const bw = Math.min(180, (w - 64) / 3);
-    this.add(x + 22, y + h - 54, bw, 36, 'BẢN ĐỒ', 'stages');
-    this.add(x + (w - bw) / 2, y + h - 54, bw, 36, 'CHƠI LẠI', 'retry');
-    this.add(x + w - bw - 22, y + h - 54, bw, 36, 'MÀN TIẾP →', 'next', s.id >= STAGES.length);
+    if (w < 600) {
+      this.add(x + 22, y + h - 96, w - 44, 34, 'KHO VŨ KHÍ + THẺ NÂNG CẤP', 'post_stage_armory');
+      const bw = (w - 52) / 2;
+      this.add(x + 22, y + h - 54, bw, 34, 'BẢN ĐỒ', 'stages');
+      this.add(x + w - bw - 22, y + h - 54, bw, 34, 'CHƠI LẠI', 'retry');
+    } else {
+      const bw = Math.min(220, (w - 64) / 3);
+      this.add(x + 22, y + h - 54, bw, 36, 'BẢN ĐỒ', 'stages');
+      this.add(x + (w - bw) / 2, y + h - 54, bw, 36, 'CHƠI LẠI', 'retry');
+      this.add(x + w - bw - 22, y + h - 54, bw, 36, 'KHO VŨ KHÍ + THẺ', 'post_stage_armory');
+    }
   }
 
   private failure(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {

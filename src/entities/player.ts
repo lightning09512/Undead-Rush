@@ -82,6 +82,7 @@ export class Player {
   burnDamage = 0;
   slowMultiplier = 1.0;
   lifestealAmount = 0;
+  reloadSpeedMultiplier = 1;
 
   // Active skills
   dashCooldown = 0;
@@ -141,6 +142,7 @@ export class Player {
     this.burnDamage = 0;
     this.slowMultiplier = 1.0;
     this.lifestealAmount = 0;
+    this.reloadSpeedMultiplier = 1;
     this.dashCooldown = 0;
     this.dashDuration = 0;
     this.dashDirection = 0;
@@ -214,6 +216,7 @@ export class Player {
     let fireRateMult = 1;
     let speedMult = 1;
     let radiusMult = 1;
+    let reloadSpeedMult = 1;
 
     this.damageReduction = 1.0;
     this.pierceCount = 0;
@@ -221,6 +224,7 @@ export class Player {
     this.burnDamage = 0;
     this.slowMultiplier = 1.0;
     this.lifestealAmount = 0;
+    this.reloadSpeedMultiplier = 1;
     this.maxHp = PLAYER_DEFAULTS.maxHp;
 
     for (const [id, level] of this.upgrades) {
@@ -240,6 +244,7 @@ export class Player {
         case 'burning': this.burnDamage = val; break;
         case 'slowing': this.slowMultiplier = val; break;
         case 'lifesteal': this.lifestealAmount = val; break;
+        case 'rapid_reload': reloadSpeedMult = val; break;
       }
     }
 
@@ -247,6 +252,11 @@ export class Player {
     this.fireRate = PLAYER_DEFAULTS.fireRate * fireRateMult;
     this.moveSpeed = PLAYER_DEFAULTS.moveSpeed * speedMult;
     this.pickupRadius = PLAYER_DEFAULTS.pickupRadius * radiusMult;
+    this.reloadSpeedMultiplier = reloadSpeedMult;
+    const dashCard = this.upgrades.get('evasive_training') || 0;
+    const dashDef = UPGRADES.find(upgrade => upgrade.id === 'evasive_training');
+    const dashMult = dashCard > 0 && dashDef ? dashDef.values[dashCard - 1] : 1;
+    this.dashMaxCooldown = (this.loadout?.campaignMode ? 1 : 3) * dashMult;
 
     // Cap HP at max when upgrading
     if (this.hp > this.maxHp) this.hp = this.maxHp;
@@ -315,7 +325,18 @@ export class Player {
       return { damaged: false, dead: false, actualDamage: 0 };
     }
 
-    const actualDamage = Math.max(1, Math.round(amount * this.damageReduction));
+    let takenMultiplier = this.damageReduction;
+    const lowHpLevel = this.upgrades.get('last_stand') || 0;
+    if (lowHpLevel > 0 && this.hp / this.maxHp <= .3) {
+      const def = UPGRADES.find(upgrade => upgrade.id === 'last_stand');
+      if (def) takenMultiplier *= def.values[lowHpLevel - 1];
+    }
+    const reloadLevel = this.upgrades.get('reload_guard') || 0;
+    if (reloadLevel > 0 && this.loadout?.activeSlot.isReloading) {
+      const def = UPGRADES.find(upgrade => upgrade.id === 'reload_guard');
+      if (def) takenMultiplier *= def.values[reloadLevel - 1];
+    }
+    const actualDamage = Math.max(1, Math.round(amount * takenMultiplier));
     this.hp = Math.max(0, this.hp - actualDamage);
     this.invulnTimer = this.invulnDuration;
     this.flashTimer = 0.2;

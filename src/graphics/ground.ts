@@ -163,17 +163,17 @@ export class GroundRenderer {
     for (let i = 0; i < numStains; i++) {
       const sx = random() * MAP_CONFIG.width;
       const sy = random() * MAP_CONFIG.height;
-      const radius = 8 + random() * 35;
+      const radius = 14 + random() * 42;
       const isBlood = random() > 0.35;
 
       if (isBlood) {
         // Blood splatter
-        ctx.fillStyle = `rgba(${60 + Math.floor(random() * 40)}, ${5 + Math.floor(random() * 10)}, ${5 + Math.floor(random() * 10)}, ${0.12 + random() * 0.2})`;
+        ctx.fillStyle = `rgba(${38 + Math.floor(random() * 34)}, ${3 + Math.floor(random() * 8)}, ${6 + Math.floor(random() * 10)}, ${0.2 + random() * 0.24})`;
         ctx.beginPath();
-        // Irregular shape
-        for (let j = 0; j < 8; j++) {
-          const angle = (j / 8) * Math.PI * 2;
-          const r = radius * (0.5 + random() * 0.5);
+        // Blunt lobes and uneven pooling read as a smear instead of a clean icon.
+        for (let j = 0; j < 13; j++) {
+          const angle = (j / 13) * Math.PI * 2;
+          const r = radius * (0.48 + random() * 0.68);
           const px = sx + Math.cos(angle) * r;
           const py = sy + Math.sin(angle) * r;
           if (j === 0) ctx.moveTo(px, py);
@@ -182,14 +182,23 @@ export class GroundRenderer {
         ctx.closePath();
         ctx.fill();
 
+        ctx.fillStyle = `rgba(105, 13, 20, ${0.16 + random() * 0.19})`;
+        ctx.beginPath();
+        ctx.ellipse(sx - radius * .08, sy + radius * .04, radius * (.42 + random() * .2), radius * (.22 + random() * .16), random() * Math.PI, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = `rgba(41, 4, 10, ${0.35 + random() * .25})`;
+        ctx.lineWidth = 3 + random() * 6; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(sx - radius * .55, sy + radius * .18);
+        ctx.quadraticCurveTo(sx + radius * .1, sy - radius * .48, sx + radius * 1.35, sy - radius * .18); ctx.stroke();
+
         // Blood droplets radiating outward
-        for (let d = 0; d < 3 + Math.floor(random() * 5); d++) {
+        for (let d = 0; d < 7 + Math.floor(random() * 8); d++) {
           const da = random() * Math.PI * 2;
-          const dd = radius + random() * 25;
-          const dr = 2 + random() * 4;
-          ctx.fillStyle = `rgba(70, 8, 8, ${0.08 + random() * 0.12})`;
+          const dd = radius * (.85 + random() * 1.2);
+          const dr = 2 + random() * 5;
+          ctx.fillStyle = `rgba(48, 5, 12, ${0.2 + random() * 0.22})`;
           ctx.beginPath();
-          ctx.arc(sx + Math.cos(da) * dd, sy + Math.sin(da) * dd, dr, 0, Math.PI * 2);
+          ctx.ellipse(sx + Math.cos(da) * dd, sy + Math.sin(da) * dd, dr * 1.45, dr * .72, da, 0, Math.PI * 2);
           ctx.fill();
         }
       } else {
