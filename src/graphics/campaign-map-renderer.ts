@@ -1,14 +1,21 @@
 import type { Camera } from '../core/camera';
 import type { StageDef, StageBuildingDef, Point } from '../data/meta';
 
+export interface CampaignSpawnCue {
+  zoneIndex: number;
+  portalPoints: readonly Point[];
+  warningTimer: number;
+  remaining: number;
+}
+
 /** Small, code-drawn Campaign landmarks and readable objective routes. */
 export class CampaignMapRenderer {
-  draw(ctx: CanvasRenderingContext2D, camera: Camera, stage: StageDef, activeNode: number, bossSpawned: boolean, exitActive = false, exitActivated = false): void {
+  draw(ctx: CanvasRenderingContext2D, camera: Camera, stage: StageDef, activeNode: number, bossSpawned: boolean, exitActive = false, exitActivated = false, objectiveHp = 0, spawnCue?: CampaignSpawnCue): void {
     const route: Point[] = [stage.playerStart, ...stage.objectiveNodes, stage.bossSpawn];
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    for (let i = 0; i < route.length - 1; i++) {
+    if (!stage.layout) for (let i = 0; i < route.length - 1; i++) {
       const [ax, ay] = camera.worldToScreen(route[i].x, route[i].y);
       const [bx, by] = camera.worldToScreen(route[i + 1].x, route[i + 1].y);
       ctx.strokeStyle = 'rgba(12, 15, 16, 0.42)'; ctx.lineWidth = 190;
@@ -33,8 +40,14 @@ export class CampaignMapRenderer {
       ctx.fillStyle = done ? '#a5c99d' : '#f1d29a';
       ctx.font = 'bold 11px Segoe UI, Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
       const isHold = stage.objectiveHoldAt === i;
-      ctx.fillText(done ? '✓' : isHold ? `GIỮ ${i + 1}` : `Q  ${i + 1}`, x, y - 34);
+      const shoot = stage.id === 10 || stage.id === 9 && i < 2;
+      ctx.fillText(done ? '✓' : isHold ? `GIỮ ${i + 1}` : shoot ? 'BẮN PHÁ' : `E  ${i + 1}`, x, y - 34);
+      if (shoot && i === activeNode) {
+        ctx.fillStyle = '#181e1e'; ctx.fillRect(x - 28, y + 35, 56, 5);
+        ctx.fillStyle = '#bd6e5b'; ctx.fillRect(x - 28, y + 35, 56 * Math.max(0, Math.min(1, objectiveHp / (150 + (stage.id - 1) * 12 + i * 30))), 5);
+      }
     }
+    if (spawnCue) this.drawSpawnCue(ctx, camera, spawnCue);
     if (bossSpawned) {
       const [x, y] = camera.worldToScreen(stage.bossSpawn.x, stage.bossSpawn.y);
       if (camera.isVisible(stage.bossSpawn.x, stage.bossSpawn.y, 140)) {
@@ -53,6 +66,27 @@ export class CampaignMapRenderer {
       }
     }
     ctx.restore();
+  }
+
+  private drawSpawnCue(ctx: CanvasRenderingContext2D, camera: Camera, cue: CampaignSpawnCue): void {
+    const warning = cue.warningTimer > 0;
+    const pulse = .5 + .5 * Math.sin(performance.now() / 150);
+    for (const point of cue.portalPoints) {
+      if (!camera.isVisible(point.x, point.y, 62)) continue;
+      const [x, y] = camera.worldToScreen(point.x, point.y);
+      ctx.save(); ctx.translate(x, y);
+      ctx.fillStyle = warning ? '#25211a' : '#251a19';
+      ctx.strokeStyle = warning ? `rgba(219,177,96,${.65 + pulse * .3})` : `rgba(174,86,69,${.72 + pulse * .24})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(0, 0, 24, 15, -.18, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = warning ? '#d5b76e' : '#a45a4f'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(-15, -4); ctx.lineTo(13, -4); ctx.moveTo(-11, 2); ctx.lineTo(9, 2); ctx.stroke();
+      ctx.fillStyle = warning ? '#f0d39a' : '#d58b72';
+      ctx.beginPath(); ctx.moveTo(0, -25 - pulse * 3); ctx.lineTo(-6, -17); ctx.lineTo(6, -17); ctx.closePath(); ctx.fill();
+      ctx.font = 'bold 9px Segoe UI, Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.fillStyle = '#f0e6d3'; ctx.fillText(warning ? 'MỐI ĐE DỌA' : 'LỐI TRÀN', 0, -30);
+      ctx.restore();
+    }
   }
 
   private drawObjectiveFeature(ctx: CanvasRenderingContext2D, x: number, y: number, stageId: number, nodeIndex: number, accent: string): void {
@@ -97,14 +131,28 @@ export class CampaignMapRenderer {
     ctx.save(); ctx.translate(x, y); ctx.rotate(b.rotation);
     ctx.fillStyle = 'rgba(0,0,0,.42)'; ctx.fillRect(-w / 2 + 12, -h / 2 + 14, w, h);
     const floorByVariant: Record<string, string> = {
-      suburb: '#303638', fuel: '#393732', medical: '#333a39', sewer: '#2e3935', military: '#343834',
+      suburb: '#3d433e', fuel: '#454033', medical: '#46514e', sewer: '#2e3935', military: '#343834',
       mall: '#3b3a38', rail: '#353738', lab: '#303a3b', quarantine: '#3a3534', hive: '#3b3032',
     };
     const floor = b.variant ? floorByVariant[b.variant] : b.kind === 'warehouse' ? '#303638' : '#2b3031';
-    ctx.fillStyle = b.variant === 'hive' ? '#513a3b' : b.variant === 'lab' || b.variant === 'mall' ? '#474947' : b.kind === 'warehouse' ? '#444744' : '#383b3b'; ctx.fillRect(-w / 2, -h / 2, w, h);
+    const exteriorByVariant: Record<string,string> = { suburb:'#596057', fuel:'#735d3f', medical:'#697873' };
+    ctx.fillStyle = exteriorByVariant[b.variant ?? ''] ?? (b.variant === 'hive' ? '#513a3b' : b.variant === 'lab' || b.variant === 'mall' ? '#474947' : b.kind === 'warehouse' ? '#444744' : '#383b3b'); ctx.fillRect(-w / 2, -h / 2, w, h);
     ctx.fillStyle = floor;
     ctx.fillRect(-w / 2 + 18, -h / 2 + 18, w - 36, h - 36);
-    ctx.strokeStyle = '#77766b'; ctx.lineWidth = b.large ? 20 : 13;
+    if (b.variant === 'suburb') {
+      // Broken, broad floorboards are fixed to the house, never to the camera.
+      ctx.save();
+      ctx.beginPath(); ctx.rect(-w/2+19,-h/2+19,w-38,h-38); ctx.clip();
+      ctx.strokeStyle = 'rgba(157,159,138,.18)'; ctx.lineWidth = 2;
+      for (let py = -h/2 + 38; py < h/2 - 12; py += 34) {
+        ctx.beginPath(); ctx.moveTo(-w/2+21,py); ctx.lineTo(w/2-21,py); ctx.stroke();
+      }
+      ctx.fillStyle = 'rgba(17,27,27,.24)';
+      ctx.beginPath(); ctx.ellipse(-w*.2,h*.12,w*.19,h*.14,-.24,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(w*.24,-h*.18,w*.14,h*.09,.18,0,Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+    ctx.strokeStyle = b.variant === 'suburb' ? '#303a39' : '#77766b'; ctx.lineWidth = b.large ? 20 : 13;
     if (b.large) {
       ctx.beginPath();
       ctx.moveTo(-w/2+5,-h/2+5); ctx.lineTo(w/2-5,-h/2+5);
@@ -113,13 +161,46 @@ export class CampaignMapRenderer {
       ctx.moveTo(-w/2+5,h/2-5); ctx.lineTo(-126,h/2-5);
       ctx.moveTo(126,h/2-5); ctx.lineTo(w/2-5,h/2-5); ctx.stroke();
     } else ctx.strokeRect(-w / 2 + 5, -h / 2 + 5, w - 10, h - 10);
+    if (b.variant === 'suburb') {
+      // Pale top edges and a dark inner seam give each solid wall a clear height.
+      ctx.strokeStyle = '#a3aa99'; ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-w/2+11,-h/2+10); ctx.lineTo(w/2-11,-h/2+10);
+      ctx.moveTo(-w/2+11,-h/2+10); ctx.lineTo(-w/2+11,h/2-14);
+      ctx.moveTo(w/2-11,-h/2+10); ctx.lineTo(w/2-11,h/2-14);
+      ctx.moveTo(-w/2+11,h/2-10); ctx.lineTo(-126,h/2-10);
+      ctx.moveTo(126,h/2-10); ctx.lineTo(w/2-11,h/2-10); ctx.stroke();
+      ctx.fillStyle = '#1b292b';
+      ctx.fillRect(-w*.26,-h/2+3,w*.2,10);
+      ctx.fillRect(w*.12,-h/2+3,w*.2,10);
+      ctx.fillStyle = '#87a6a4';
+      ctx.fillRect(-w*.25,-h/2+5,w*.18,4);
+      ctx.fillRect(w*.13,-h/2+5,w*.18,4);
+    }
     // A doorway remains visibly open and matches the collision geometry.
     if (b.large) {
       ctx.strokeStyle = '#282c2d'; ctx.lineWidth = 25;
       ctx.beginPath(); ctx.moveTo(-126, h / 2 - 3); ctx.lineTo(-126, h / 2 - 32); ctx.moveTo(126, h / 2 - 3); ctx.lineTo(126, h / 2 - 32); ctx.stroke();
       ctx.fillStyle = accent; ctx.globalAlpha = .5; ctx.fillRect(-38, h / 2 - 17, 76, 5); ctx.globalAlpha = 1;
-      ctx.strokeStyle = 'rgba(190,184,160,.18)'; ctx.lineWidth = 2;
-      for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(i * 34, -h / 2 + 28); ctx.lineTo(i * 34, h / 2 - 38); ctx.stroke(); }
+      if(b.variant==='suburb'){
+        ctx.fillStyle='rgba(14,24,24,.45)'; ctx.fillRect(-122,h/2-10,244,9);
+        ctx.fillStyle='#a99b78'; ctx.fillRect(-118,h/2-6,236,3);
+        ctx.fillStyle='rgba(116,91,64,.68)';ctx.beginPath();ctx.moveTo(-w*.36,-h*.31);ctx.lineTo(-w*.10,-h*.36);ctx.lineTo(-w*.06,-h*.08);ctx.lineTo(-w*.33,-h*.03);ctx.closePath();ctx.fill();
+        ctx.fillStyle='#6d695a';ctx.fillRect(-w*.39,-h*.42,w*.29,h*.17);ctx.strokeStyle='#a69b7f';ctx.lineWidth=3;ctx.strokeRect(-w*.39,-h*.42,w*.29,h*.17);
+        ctx.fillStyle='#b9ae96';ctx.fillRect(-w*.37,-h*.4,w*.08,h*.09);ctx.fillStyle='#5c574a';ctx.fillRect(-w*.3,-h*.24,w*.14,h*.06);
+        ctx.fillStyle='#69665b';ctx.fillRect(w*.12,-h*.34,w*.25,h*.16);ctx.strokeStyle='#393d3a';ctx.lineWidth=3;ctx.strokeRect(w*.12,-h*.34,w*.25,h*.16);ctx.fillStyle='#b6ad96';ctx.fillRect(w*.15,-h*.3,w*.08,h*.07);ctx.fillStyle='#827960';ctx.fillRect(w*.23,-h*.27,w*.11,h*.09);
+        ctx.fillStyle='#857b65';ctx.fillRect(-w*.1,h*.13,w*.2,h*.12);ctx.strokeStyle='#423f38';ctx.lineWidth=3;ctx.strokeRect(-w*.1,h*.13,w*.2,h*.12);ctx.fillStyle='#c2b69c';ctx.fillRect(-w*.045,h*.145,w*.09,h*.065);
+        ctx.strokeStyle='rgba(205,186,140,.72)';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(-w*.23,h*.18);ctx.lineTo(-w*.13,h*.18);ctx.moveTo(w*.12,h*.18);ctx.lineTo(w*.22,h*.18);ctx.stroke();
+      }else if(b.variant==='fuel'){
+        ctx.strokeStyle='rgba(201,160,91,.55)';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(-w*.39,h*.25);ctx.lineTo(-w*.19,h*.25);ctx.moveTo(w*.19,h*.25);ctx.lineTo(w*.39,h*.25);ctx.stroke();
+        ctx.fillStyle='#5b5548';ctx.fillRect(-w*.34,-h*.28,w*.16,h*.23);ctx.fillRect(w*.18,-h*.28,w*.16,h*.23);ctx.strokeStyle='#a98045';ctx.lineWidth=3;ctx.strokeRect(-w*.34,-h*.28,w*.16,h*.23);ctx.strokeRect(w*.18,-h*.28,w*.16,h*.23);
+        ctx.fillStyle='#c99a52';ctx.fillRect(-w*.31,-h*.24,w*.10,h*.06);ctx.fillRect(w*.21,-h*.24,w*.10,h*.06);
+      }else if(b.variant==='medical'){
+        ctx.strokeStyle='rgba(181,196,185,.42)';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(-w*.38,-h*.1);ctx.lineTo(-w*.18,-h*.1);ctx.moveTo(w*.18,-h*.1);ctx.lineTo(w*.38,-h*.1);ctx.stroke();
+      }else{
+        ctx.strokeStyle = 'rgba(190,184,160,.18)'; ctx.lineWidth = 2;
+        for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(i * 34, -h / 2 + 28); ctx.lineTo(i * 34, h / 2 - 38); ctx.stroke(); }
+      }
     } else {
       ctx.strokeStyle = '#202425'; ctx.lineWidth = 11; ctx.beginPath(); ctx.moveTo(-w * .35, -h * .2); ctx.lineTo(-w * .12, h * .05); ctx.lineTo(w * .2, -h * .12); ctx.stroke();
       ctx.fillStyle = 'rgba(156,121,89,.28)'; ctx.fillRect(w * .1, h * .18, w * .2, 8);

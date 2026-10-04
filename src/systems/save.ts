@@ -25,7 +25,28 @@ export interface SaveData {
 
   // Settings
   soundEnabled: boolean;
+  campaign: CampaignProgress;
 }
+
+export interface CampaignProgress {
+  credits: number;
+  selectedCharacter: string;
+  unlockedCharacters: string[];
+  unlockedStage: number;
+  completedStages: number[];
+  ownedGuns: string[];
+  equippedGun: string;
+  gunLevels: Record<string, number>;
+  ammoPacks: number;
+  medKits: number;
+  cardLevels: Record<string, number>;
+}
+
+const newCampaign = (): CampaignProgress => ({
+  credits: 160, selectedCharacter: 'survivor', unlockedCharacters: ['survivor'],
+  unlockedStage: 1, completedStages: [], ownedGuns: ['p9'], equippedGun: 'p9',
+  gunLevels: {}, ammoPacks: 0, medKits: 0, cardLevels: {},
+});
 
 const SAVE_KEY = 'undead_rush_save';
 
@@ -43,6 +64,7 @@ const DEFAULT_SAVE: SaveData = {
   stagesCompleted: 0,
   completedStages: [],
   soundEnabled: true,
+  campaign: newCampaign(),
 };
 
 export class SaveSystem {
@@ -52,7 +74,7 @@ export class SaveSystem {
 
   constructor(persistent = true) {
     this.persistent = persistent;
-    this.data = { ...DEFAULT_SAVE, permUpgrades: {}, unlockedCharacters: ['survivor'], completedStages: [] };
+    this.data = { ...DEFAULT_SAVE, permUpgrades: {}, unlockedCharacters: ['survivor'], completedStages: [], campaign: newCampaign() };
     if (persistent) this.load();
   }
 
@@ -61,11 +83,19 @@ export class SaveSystem {
       const raw = localStorage.getItem(SAVE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<SaveData>;
-        this.data = { ...DEFAULT_SAVE, ...parsed };
+        const legacyStages = parsed.campaign ? [] : (parsed.completedStages ?? []);
+        this.data = { ...DEFAULT_SAVE, ...parsed,
+          campaign: { ...newCampaign(), ...(parsed.campaign ?? {}),
+            gunLevels: { ...(parsed.campaign?.gunLevels ?? {}) },
+            cardLevels: { ...(parsed.campaign?.cardLevels ?? {}) },
+            ownedGuns: [...new Set([...(parsed.campaign?.ownedGuns ?? []), 'p9'])],
+            completedStages: [...(parsed.campaign?.completedStages ?? legacyStages)],
+            unlockedStage: parsed.campaign?.unlockedStage ?? Math.min(10, Math.max(1, (parsed.stagesCompleted ?? 0) + 1)),
+            unlockedCharacters: [...(parsed.campaign?.unlockedCharacters ?? ['survivor'])] } };
       }
     } catch {
       // localStorage might be blocked
-      this.data = { ...DEFAULT_SAVE };
+      this.data = { ...DEFAULT_SAVE, campaign: newCampaign() };
     }
   }
 
@@ -133,8 +163,33 @@ export class SaveSystem {
     this.save();
   }
 
+  /** Campaign currency and unlocks never touch Survival gold or records. */
+  spendCampaign(cost: number): boolean {
+    if (cost < 0 || this.data.campaign.credits < cost) return false;
+    this.data.campaign.credits -= cost;
+    this.save();
+    return true;
+  }
+
+  collectCampaignCredits(amount: number): void {
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    this.data.campaign.credits += Math.floor(amount);
+    this.save();
+  }
+
+  completeCampaignStage(stage: number, baseReward: number, kills: number, optionalDone: number): number {
+    const progress = this.data.campaign;
+    if (progress.completedStages.includes(stage)) return 0;
+    const reward = baseReward + Math.min(80, Math.floor(kills / 3)) + optionalDone * 35;
+    progress.completedStages.push(stage);
+    progress.unlockedStage = Math.max(progress.unlockedStage, Math.min(10, stage + 1));
+    progress.credits += reward;
+    this.save();
+    return reward;
+  }
+
   resetAll(): void {
-    this.data = { ...DEFAULT_SAVE };
+    this.data = { ...DEFAULT_SAVE, campaign: newCampaign() };
     this.save();
   }
 }

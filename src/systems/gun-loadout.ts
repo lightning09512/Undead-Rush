@@ -5,6 +5,9 @@ import { BulletSystem } from '../entities/bullets';
 import { Audio } from '../core/audio';
 import { Camera } from '../core/camera';
 import { Input } from '../core/input';
+import { drawGunArt } from '../graphics/campaign-menu-art';
+import { heldGunShape } from '../graphics/held-gun';
+import { BulletCasings } from '../graphics/bullet-casings';
 
 export interface GunDef {
   id: string;
@@ -12,6 +15,7 @@ export interface GunDef {
   shortName: string;   // 'AR-7', 'SG-12', 'SMG-9'
   slotKey: string;     // '1', '2', '3'
   type: 'rifle' | 'shotgun' | 'smg';
+  soundType?: 'pistol' | 'rifle' | 'shotgun' | 'smg';
   magSize: number;     // 30, 8, 40
   fireRate: number;    // shots per sec: 9.1 (545 RPM), 2.1 (126 RPM), 13.0 (780 RPM)
   rpm: number;         // 545, 126, 780
@@ -23,6 +27,13 @@ export interface GunDef {
   spreadBase: number;  // base spread angle in radians
   spreadMax: number;   // max spray spread angle in radians
   recoilImpulse: number;
+  campaignOnly?: boolean;
+  campaignCost?: number;
+  unlockStage?: number;
+  reserveMagazines?: number;
+  extraPierce?: number;
+  extraBlastRadius?: number;
+  extraBurnDamage?: number;
 }
 
 export function createDefaultGunDefs(): GunDef[] {
@@ -82,9 +93,48 @@ export function createDefaultGunDefs(): GunDef[] {
   ];
 }
 
+/** Ten Campaign weapons, ordered by the chapter that first permits purchase. */
+export function createCampaignGunDefs(): GunDef[] {
+  const [ar7, sg12, smg9] = createDefaultGunDefs();
+  return [
+    { id:'p9', name:'P-9', shortName:'P-9', slotKey:'1', type:'rifle', soundType:'pistol', magSize:12, fireRate:3.1, rpm:186, baseDamage:14,
+      bulletSpeed:900, bulletColor:'#ddd1b3', reloadDuration:1.65, spreadBase:.02, spreadMax:.07, recoilImpulse:2.5,
+      campaignOnly:true, campaignCost:0, unlockStage:1, reserveMagazines:8 },
+    { ...ar7, campaignOnly:true, campaignCost:180, unlockStage:2, reserveMagazines:6 },
+    { ...smg9, campaignOnly:true, campaignCost:260, unlockStage:3, reserveMagazines:5 },
+    { ...sg12, campaignOnly:true, campaignCost:360, unlockStage:4, reserveMagazines:6 },
+    { id:'dmr55', name:'DMR-55', shortName:'DMR-55', slotKey:'5', type:'rifle', magSize:10, fireRate:2.2, rpm:132,
+      baseDamage:48, bulletSpeed:1420, bulletColor:'#e8d8a2', reloadDuration:2.15, spreadBase:.004, spreadMax:.035, recoilImpulse:8.2,
+      campaignOnly:true, campaignCost:520, unlockStage:5, reserveMagazines:7, extraPierce:1 },
+    { id:'bulldog', name:'BULLDOG-10', shortName:'BULLDOG', slotKey:'6', type:'shotgun', magSize:10, fireRate:2.5, rpm:150,
+      baseDamage:17, pellets:10, bulletSpeed:990, bulletColor:'#ffb653', reloadDuration:2.4, spreadBase:.21, spreadMax:.34, recoilImpulse:14,
+      campaignOnly:true, campaignCost:700, unlockStage:6, reserveMagazines:6 },
+    { id:'lmg6', name:'LMG-6', shortName:'LMG-6', slotKey:'7', type:'smg', magSize:72, fireRate:11.5, rpm:690,
+      baseDamage:19, bulletSpeed:1130, bulletColor:'#ffd45b', reloadDuration:3.0, spreadBase:.025, spreadMax:.15, recoilImpulse:6.4,
+      campaignOnly:true, campaignCost:920, unlockStage:7, reserveMagazines:4 },
+    { id:'flamer8', name:'FLAMER-8', shortName:'FLAMER', slotKey:'8', type:'smg', magSize:48, fireRate:8.5, rpm:510,
+      baseDamage:10, bulletSpeed:680, bulletColor:'#ff7444', reloadDuration:2.7, spreadBase:.04, spreadMax:.19, recoilImpulse:3.8,
+      campaignOnly:true, campaignCost:1180, unlockStage:8, reserveMagazines:4, extraBurnDamage:16 },
+    { id:'rpg4', name:'RPG-4', shortName:'RPG-4', slotKey:'9', type:'rifle', magSize:4, fireRate:.72, rpm:43,
+      baseDamage:92, bulletSpeed:620, bulletColor:'#ff8e47', reloadDuration:2.8, spreadBase:.006, spreadMax:.04, recoilImpulse:15,
+      campaignOnly:true, campaignCost:1500, unlockStage:9, reserveMagazines:5, extraBlastRadius:92 },
+    { id:'rail_lance', name:'RAIL LANCE', shortName:'RAIL', slotKey:'0', type:'rifle', magSize:6, fireRate:1.05, rpm:63,
+      baseDamage:112, bulletSpeed:1660, bulletColor:'#75d5df', reloadDuration:2.45, spreadBase:0, spreadMax:.018, recoilImpulse:13,
+      campaignOnly:true, campaignCost:1950, unlockStage:10, reserveMagazines:5, extraPierce:3 },
+  ];
+}
+
+export function createAllGunDefs(): GunDef[] {
+  const campaign = createCampaignGunDefs();
+  const byId = new Map(campaign.map(def => [def.id, def]));
+  return [byId.get('ar7')!, byId.get('sg12')!, byId.get('smg9')!,
+    ...campaign.filter(def => !['ar7', 'sg12', 'smg9', 'p9'].includes(def.id)), byId.get('p9')!];
+}
+
 export interface GunSlotState {
   def: GunDef;
   currentAmmo: number;
+  reserveAmmo: number;
   isReloading: boolean;
   reloadTimer: number;
   reloadProgress: number;
@@ -94,8 +144,11 @@ export interface GunSlotState {
 }
 
 export class GunLoadout {
+  readonly casings = new BulletCasings();
   slots: GunSlotState[] = [];
   activeSlotIndex = 0;
+  campaignMode = false;
+  private campaignGunLevels: Record<string, number> = {};
 
   /** Unlocked guns that the player has picked up in the world (starts with AR-7 only) */
   unlockedGunIds: Set<string> = new Set(['ar7']);
@@ -116,10 +169,14 @@ export class GunLoadout {
   }
 
   reset(): void {
-    const defs = createDefaultGunDefs();
+    this.casings.clear();
+    this.campaignMode = false;
+    this.campaignGunLevels = {};
+    const defs = createAllGunDefs();
     this.slots = defs.map((def) => ({
       def,
       currentAmmo: def.magSize,
+      reserveAmmo: 0,
       isReloading: false,
       reloadTimer: 0,
       reloadProgress: 0,
@@ -127,13 +184,75 @@ export class GunLoadout {
       sprayHeat: 0,
       fireCooldown: 0,
     }));
-    // Player starts with only AR-7 unlocked! Other guns must be picked up in the world!
+    // Survival keeps the same starting rifle and pickup-driven unlocks.
     this.unlockedGunIds = new Set(['ar7']);
     this.activeSlotIndex = 0;
     this.grenadesCurrent = 3;
     this.grenadeRechargeTimer = this.grenadeRechargeMax;
     this.ragePercent = 0;
     this.rageActiveTimer = 0;
+  }
+
+  /** A weak, unlimited reserve sidearm keeps Campaign completable without supplies. */
+  configureCampaign(owned: string[], equipped: string, levels: Record<string, number>, ammoPacks: number, _stage = 1): void {
+    this.campaignMode = true;
+    this.campaignGunLevels = { ...levels };
+    for (const def of createCampaignGunDefs()) {
+      const slot = this.slots.find(value => value.def.id === def.id);
+      if (slot) slot.def = { ...def };
+    }
+    // Stage gates purchases in the armory, not weapons already purchased.
+    // Keep the full owned arsenal available when replaying an earlier chapter.
+    const available = this.slots.filter(slot => slot.def.campaignOnly
+      && (slot.def.id === 'p9' || owned.includes(slot.def.id)));
+    this.unlockedGunIds = new Set(available.map(slot => slot.def.id));
+    this.unlockedGunIds.add('p9');
+    const packBonus = Math.max(0, ammoPacks) * 2;
+    for (const slot of available) {
+      const level = Math.max(0, Math.min(3, levels[slot.def.id] ?? 0));
+      slot.def = { ...slot.def, baseDamage: Math.round(slot.def.baseDamage * (1 + level * .12)) };
+      slot.currentAmmo = slot.def.magSize;
+      slot.reserveAmmo = slot.def.id === 'p9' ? -1
+        : slot.def.magSize * ((slot.def.reserveMagazines ?? 5) + packBonus);
+    }
+    for (const slot of this.slots.filter(value => !this.unlockedGunIds.has(value.def.id))) slot.reserveAmmo = 0;
+    const primary = available.some(slot => slot.def.id === equipped) ? equipped : 'p9';
+    this.activeSlotIndex = Math.max(0, this.slots.findIndex(slot => slot.def.id === primary));
+    this.grenadesCurrent = 2;
+  }
+
+  addCampaignAmmo(magazines = 2): void {
+    if (!this.campaignMode) return;
+    for (const slot of this.unlockedSlots) {
+      if (slot.reserveAmmo < 0) continue;
+      slot.reserveAmmo = Math.min(slot.def.magSize * 12, slot.reserveAmmo + slot.def.magSize * magazines);
+    }
+  }
+
+  canAddCampaignAmmoForGun(gunId: string): boolean {
+    const slot = this.slots.find(value => value.def.id === gunId);
+    return this.campaignMode && !!slot && this.unlockedGunIds.has(gunId)
+      && slot.reserveAmmo >= 0 && slot.reserveAmmo < slot.def.magSize * 12;
+  }
+
+  addCampaignAmmoForGun(gunId: string, rounds: number): number {
+    if (!this.canAddCampaignAmmoForGun(gunId)) return 0;
+    const slot = this.slots.find(value => value.def.id === gunId)!;
+    const before = slot.reserveAmmo;
+    slot.reserveAmmo = Math.min(slot.def.magSize * 12, before + Math.max(0, Math.floor(rounds)));
+    return slot.reserveAmmo - before;
+  }
+
+  collectCampaignGun(gunId: string, audio?: Audio): boolean {
+    if (!this.campaignMode || !this.unlockGun(gunId, audio)) return false;
+    const slot = this.slots.find(value => value.def.id === gunId);
+    if (slot) slot.reserveAmmo = slot.def.magSize * (slot.def.reserveMagazines ?? 5);
+    return true;
+  }
+
+  canAddCampaignAmmo(): boolean {
+    return this.campaignMode && this.unlockedSlots.some(slot =>
+      slot.reserveAmmo >= 0 && slot.reserveAmmo < slot.def.magSize * 12);
   }
 
   get activeSlot(): GunSlotState {
@@ -147,7 +266,8 @@ export class GunLoadout {
   }
 
   get unlockedSlots(): GunSlotState[] {
-    return this.slots.filter((s) => this.unlockedGunIds.has(s.def.id));
+    const unlocked = this.slots.filter((s) => this.unlockedGunIds.has(s.def.id));
+    return this.campaignMode ? unlocked.sort((a, b) => (a.def.unlockStage ?? 1) - (b.def.unlockStage ?? 1)) : unlocked;
   }
 
   hasGun(gunId: string): boolean {
@@ -203,7 +323,7 @@ export class GunLoadout {
       }
       case 'ar7_heavy_caliber': {
         const ar7 = this.getGunDef('ar7');
-        if (ar7) ar7.baseDamage = Math.round(20 * (1 + 0.25 * level));
+        if (ar7) ar7.baseDamage = Math.round(20 * (1 + (this.campaignMode ? (this.campaignGunLevels.ar7 ?? 0) * .12 : 0)) * (1 + 0.25 * level));
         break;
       }
       case 'ar7_rapid_trigger': {
@@ -255,7 +375,7 @@ export class GunLoadout {
       }
       case 'smg9_hollow_point': {
         const smg = this.getGunDef('smg9');
-        if (smg) smg.baseDamage = Math.round(14 * (1 + 0.3 * level));
+        if (smg) smg.baseDamage = Math.round(14 * (1 + (this.campaignMode ? (this.campaignGunLevels.smg9 ?? 0) * .12 : 0)) * (1 + 0.3 * level));
         break;
       }
     }
@@ -303,6 +423,7 @@ export class GunLoadout {
     const slot = this.activeSlot;
     if (slot.isReloading) return;
     if (slot.currentAmmo >= slot.def.magSize) return;
+    if (this.campaignMode && slot.reserveAmmo === 0) return;
 
     slot.isReloading = true;
     slot.reloadTimer = 0;
@@ -324,7 +445,7 @@ export class GunLoadout {
 
     this.ragePercent = 0;
     this.rageActiveTimer = this.rageDuration;
-    this.activeSlot.currentAmmo = this.activeSlot.def.magSize;
+    if (!this.campaignMode) this.activeSlot.currentAmmo = this.activeSlot.def.magSize;
     this.activeSlot.isReloading = false;
 
     if (audio) {
@@ -340,10 +461,14 @@ export class GunLoadout {
     audio: Audio,
     camera: Camera
   ): void {
+    this.casings.update(dt);
     // ── 1. Weapon selection inputs (only switches to unlocked weapons) ──
     const requestedSlot = input.weaponSelect;
-    if (requestedSlot !== null && requestedSlot >= 0 && requestedSlot < this.slots.length) {
-      if (this.unlockedGunIds.has(this.slots[requestedSlot].def.id)) {
+    if (requestedSlot !== null && requestedSlot >= 0) {
+      if (this.campaignMode) {
+        const requested = this.unlockedSlots[requestedSlot];
+        if (requested) this.switchSlot(this.slots.indexOf(requested), audio);
+      } else if (requestedSlot < this.slots.length && this.unlockedGunIds.has(this.slots[requestedSlot].def.id)) {
         this.switchSlot(requestedSlot, audio);
       }
     }
@@ -367,7 +492,7 @@ export class GunLoadout {
     }
 
     // ── 5. Tactical cooldowns ──
-    if (this.grenadesCurrent < this.maxGrenades) {
+    if (!this.campaignMode && this.grenadesCurrent < this.maxGrenades) {
       this.grenadeRechargeTimer -= dt;
       if (this.grenadeRechargeTimer <= 0) {
         this.grenadesCurrent++;
@@ -404,7 +529,10 @@ export class GunLoadout {
         // Finish reload
         if (slot.reloadTimer >= slot.def.reloadDuration) {
           slot.isReloading = false;
-          slot.currentAmmo = slot.def.magSize;
+          const missing = slot.def.magSize - slot.currentAmmo;
+          const loaded = this.campaignMode && slot.reserveAmmo >= 0 ? Math.min(missing, slot.reserveAmmo) : missing;
+          slot.currentAmmo += loaded;
+          if (this.campaignMode && slot.reserveAmmo >= 0) slot.reserveAmmo -= loaded;
           slot.reloadProgress = 0;
         }
       }
@@ -426,7 +554,10 @@ export class GunLoadout {
           active.fireCooldown = 0.22;
         }
       } else if (active.currentAmmo <= 0) {
-        audio.emptyClick();
+        if (active.fireCooldown <= 0) {
+          audio.emptyClick();
+          active.fireCooldown = 0.22;
+        }
         this.startReload(audio);
       } else if (active.fireCooldown <= 0) {
         this.fireActiveGun(player, bullets, audio, camera);
@@ -448,7 +579,7 @@ export class GunLoadout {
     const damageMult = player.bulletDamage / 15.0;
     const effectiveDamage = Math.round(def.baseDamage * damageMult * (this.isRageActive ? 1.3 : 1.0));
 
-    if (!this.isRageActive) {
+    if (!this.isRageActive || this.campaignMode) {
       slot.currentAmmo--;
     }
 
@@ -458,7 +589,7 @@ export class GunLoadout {
     if (def.type === 'shotgun') {
       const pellets = def.pellets || 7;
       const fragUpgrade = player.upgrades.get('sg12_frag_rounds') || 0;
-      const expRadius = fragUpgrade > 0 ? 30 + fragUpgrade * 15 : 0;
+      const expRadius = Math.max(fragUpgrade > 0 ? 30 + fragUpgrade * 15 : 0, def.extraBlastRadius ?? 0);
 
       for (let i = 0; i < pellets; i++) {
         const pelletAngle =
@@ -473,7 +604,7 @@ export class GunLoadout {
           def.bulletColor,
           0,
           expRadius,
-          player.burnDamage,
+          player.burnDamage + (def.extraBurnDamage ?? 0),
           0,
           'shotgun'
         );
@@ -490,21 +621,22 @@ export class GunLoadout {
         def.bulletSpeed,
         def.type === 'smg' ? 3.5 : 4.0,
         def.bulletColor,
-        player.pierceCount,
-        player.explosiveRadius,
-        player.burnDamage,
+        player.pierceCount + (def.extraPierce ?? 0),
+        Math.max(player.explosiveRadius, def.extraBlastRadius ?? 0),
+        player.burnDamage + (def.extraBurnDamage ?? 0),
         player.slowMultiplier < 1 ? player.slowMultiplier : 0
       );
-      audio.shoot(def.type);
+      audio.shoot(def.soundType ?? def.type);
       camera.shake(1.0 + slot.sprayHeat * 1.6, 0.05);
     }
 
     player.recoilX -= Math.cos(player.aimAngle) * def.recoilImpulse;
     player.recoilY -= Math.sin(player.aimAngle) * def.recoilImpulse;
     player.muzzleFlashTimer = def.type === 'smg' ? 0.04 : 0.06;
+    this.casings.spawn(player.x, player.y, player.aimAngle, heldGunShape(def));
     slot.fireCooldown = 1 / effectiveFireRate;
 
-    if (slot.currentAmmo <= 0 && !this.isRageActive) {
+    if (slot.currentAmmo <= 0 && (!this.isRageActive || this.campaignMode)) {
       this.startReload(audio);
     }
   }
@@ -539,225 +671,102 @@ export class GunLoadout {
     camera.shake(1.8, 0.08);
   }
 
-  // ─── Compact weapon HUD ───
+  // The left rail and its click targets share this layout on every viewport.
+  private weaponHudLayout(canvasW: number, canvasH: number) {
+    const x = 10;
+    const width = Math.min(canvasW - 20, canvasW < 760 ? 176 : 218);
+    const infoHeight = canvasH < 650 ? 94 : 108;
+    const infoY = canvasH - infoHeight - 10;
+    const listTop = canvasH < 650 ? 155 : 208; // Below the health/equipment HUD.
+    const rowHeight = canvasH < 650 ? 29 : 34;
+    const count = this.unlockedSlots.length;
+    const visibleCount = Math.min(count, Math.max(0, Math.floor((infoY - listTop - 8) / rowHeight)));
+    const activeIndex = this.unlockedSlots.indexOf(this.activeSlot);
+    const first = Math.max(0, Math.min(count - visibleCount, activeIndex - Math.floor(visibleCount / 2)));
+    return { x, width, infoY, infoHeight, listTop, rowHeight, visibleCount, first };
+  }
 
-  drawHUD(
-    ctx: CanvasRenderingContext2D,
-    canvasW: number,
-    canvasH: number,
-    player: Player
-  ): void {
-    const cardW = Math.min(350, Math.max(180, canvasW - 24));
-    const cardH = 106;
-    const cardX = (canvasW - cardW) / 2;
-    const cardY = canvasH - cardH - 12;
-
-    ctx.save();
-
-    // ── 1. Main Card Container ──
-    ctx.fillStyle = 'rgba(22, 29, 33, 0.96)';
-    ctx.strokeStyle = 'rgba(112, 133, 139, 0.7)';
-    ctx.lineWidth = 1;
-    this.roundRect(ctx, cardX, cardY, cardW, cardH, 10);
-    ctx.fill();
-    ctx.stroke();
-
-    // ── 2. Top Weapon Switcher Pills (Only shows UNLOCKED weapons) ──
+  drawHUD(ctx: CanvasRenderingContext2D, canvasW: number, canvasH: number, player: Player): void {
+    const { x, width, infoY, infoHeight, listTop, rowHeight, visibleCount, first } = this.weaponHudLayout(canvasW, canvasH);
     const unlocked = this.unlockedSlots;
-    const pillH = 23;
-    const pillGap = unlocked.length > 3 ? 4 : 8;
-    const pillW = Math.min(94, (cardW - 24 - pillGap * Math.max(0, unlocked.length - 1)) / Math.max(1, unlocked.length));
-    const totalPillsW = unlocked.length * pillW + (unlocked.length - 1) * pillGap;
-    const pillsStartX = cardX + (cardW - totalPillsW) / 2;
-    const pillY = cardY + 9;
-
-    for (let i = 0; i < unlocked.length; i++) {
-      const slot = unlocked[i];
-      const px = pillsStartX + i * (pillW + pillGap);
-      const isActive = slot === this.activeSlot;
-
-      ctx.save();
-      if (isActive) {
-        ctx.fillStyle = '#76572f';
-        this.roundRect(ctx, px, pillY, pillW, pillH, 11);
-        ctx.fill();
-
-        ctx.fillStyle = '#f2eee5';
-        ctx.font = `bold ${Math.max(9, Math.min(12, pillW * 0.13))}px 'Segoe UI', Arial, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(slot.def.name, px + pillW / 2, pillY + pillH / 2, Math.max(8, pillW - 8));
-      } else {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.035)';
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.09)';
-        ctx.lineWidth = 1;
-        this.roundRect(ctx, px, pillY, pillW, pillH, 11);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.fillStyle = '#94a3b8';
-        ctx.font = `bold ${Math.max(9, Math.min(12, pillW * 0.13))}px 'Segoe UI', Arial, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(slot.def.name, px + pillW / 2, pillY + pillH / 2, Math.max(8, pillW - 8));
-      }
-      ctx.restore();
-    }
-
-    // ── 3. Central Ammo Display (or Reloading Progress) ──
     const active = this.activeSlot;
-    const ammoY = cardY + 45;
-
+    const ammoLow = active.currentAmmo <= Math.ceil(active.def.magSize * .2);
+    const accent = active.isReloading ? '#d9ae68' : ammoLow ? '#da7469' : '#a9c5c3';
     ctx.save();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 1;
+    if (visibleCount > 0) {
+      const listHeight = visibleCount * rowHeight + 22;
+      ctx.fillStyle = 'rgba(10, 17, 19, .86)'; ctx.strokeStyle = 'rgba(119, 144, 145, .62)';
+      this.roundRect(ctx, x, listTop, width, listHeight, 4); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#aabbb9'; ctx.font = '700 9px Segoe UI, Arial';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText('VŨ KHÍ  ·  CUỘN / PHÍM SỐ', x + 9, listTop + 11, width - 58);
+      ctx.textAlign = 'right'; ctx.fillText(`${unlocked.indexOf(active) + 1}/${unlocked.length}`, x + width - 9, listTop + 11);
+      for (let visible = 0; visible < visibleCount; visible++) {
+        const slot = unlocked[first + visible];
+        const rowY = listTop + 22 + visible * rowHeight;
+        const selected = slot === active;
+        ctx.fillStyle = selected ? 'rgba(119, 91, 48, .82)' : 'rgba(53, 66, 69, .55)';
+        ctx.fillRect(x + 4, rowY + 1, width - 8, rowHeight - 2);
+        if (selected) { ctx.fillStyle = '#dfbb7e'; ctx.fillRect(x + 4, rowY + 1, 3, rowHeight - 2); }
+        ctx.fillStyle = selected ? '#fff0d5' : '#aebcba';
+        ctx.font = '800 11px Segoe UI, Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText(slot.def.slotKey, x + 12, rowY + rowHeight / 2);
+        drawGunArt(ctx, x + 29, rowY + 3, width < 200 ? 55 : 67, rowHeight - 6, slot.def.id);
+        ctx.fillStyle = selected ? '#f4eee0' : '#c3d0ce';
+        ctx.font = '700 10px Segoe UI, Arial';
+        ctx.fillText(slot.def.shortName, x + (width < 200 ? 91 : 104), rowY + rowHeight / 2, width - (width < 200 ? 99 : 112));
+      }
+      if (first > 0) { ctx.fillStyle = '#dfbb7e'; ctx.fillRect(x + width - 3, listTop + 23, 2, 8); }
+      if (first + visibleCount < unlocked.length) { ctx.fillStyle = '#dfbb7e'; ctx.fillRect(x + width - 3, listTop + listHeight - 10, 2, 8); }
+    }
 
+    ctx.fillStyle = 'rgba(10, 17, 19, .94)'; ctx.strokeStyle = 'rgba(136, 157, 158, .72)';
+    this.roundRect(ctx, x, infoY, width, infoHeight, 4); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = accent; ctx.fillRect(x + 1, infoY + 7, 3, 39);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#f0eee7'; ctx.font = '800 13px Segoe UI, Arial';
+    ctx.fillText(active.def.shortName, x + 11, infoY + 15, width - 106);
+    ctx.textAlign = 'right'; ctx.fillStyle = accent; ctx.font = '800 20px Segoe UI, Arial';
+    ctx.fillText(this.isRageActive && !this.campaignMode ? '∞' : String(active.currentAmmo), x + width - 32, infoY + 17);
+    ctx.fillStyle = '#b6c3c1'; ctx.font = '700 10px Segoe UI, Arial';
+    ctx.fillText('/' + active.def.magSize, x + width - 9, infoY + 19);
+    ctx.textAlign = 'left'; ctx.font = '600 9px Segoe UI, Arial';
+    ctx.fillStyle = active.isReloading ? '#e1ba78' : '#a4b7b6';
+    ctx.fillText(active.isReloading ? 'THAY ĐẠN' : 'R · THAY ĐẠN', x + 11, infoY + 36);
+    ctx.textAlign = 'right'; ctx.fillStyle = '#b6c3c1';
+    ctx.fillText(this.campaignMode ? `DỰ TRỮ ${active.reserveAmmo < 0 ? '∞' : active.reserveAmmo}` : 'ĐẠN VÔ HẠN', x + width - 10, infoY + 36);
     if (active.isReloading) {
-      const remainingSec = Math.max(0, active.def.reloadDuration - active.reloadTimer);
-      ctx.fillStyle = '#fbbf24';
-      ctx.font = `bold 13px 'Segoe UI', Arial, sans-serif`;
-      ctx.fillText(`ĐANG THAY ĐẠN... ${remainingSec.toFixed(1)}s`, cardX + cardW / 2, ammoY - 4);
-
-      const barW = Math.min(140, cardW - 56);
-      const barH = 4;
-      const barX = cardX + (cardW - barW) / 2;
-      const barY = ammoY + 10;
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-      this.roundRect(ctx, barX, barY, barW, barH, 3);
-      ctx.fill();
-      ctx.fillStyle = '#d4aa63';
-      this.roundRect(ctx, barX, barY, barW * active.reloadProgress, barH, 3);
-      ctx.fill();
+      ctx.fillStyle = '#324045'; ctx.fillRect(x + 9, infoY + 47, width - 18, 3);
+      ctx.fillStyle = '#d9ae68'; ctx.fillRect(x + 9, infoY + 47, (width - 18) * active.reloadProgress, 3);
+    } else { ctx.fillStyle = 'rgba(255,255,255,.1)'; ctx.fillRect(x + 9, infoY + 49, width - 18, 1); }
+    const dashReady = player.dashCooldown <= 0;
+    ctx.textAlign = 'left'; ctx.font = '700 10px Segoe UI, Arial';
+    ctx.fillStyle = '#dfc289'; ctx.fillText(`G  LỰU  ${this.grenadesCurrent}/${this.maxGrenades}`, x + 11, infoY + 65);
+    ctx.fillStyle = dashReady ? '#8ec3c7' : '#9aa7a8';
+    ctx.fillText(dashReady ? 'SHIFT  LƯỚT SẴN' : `SHIFT  LƯỚT ${player.dashCooldown.toFixed(1)}s`, x + 11, infoY + 82);
+    if (infoHeight > 100) {
+      ctx.fillStyle = this.ragePercent >= 100 || this.isRageActive ? '#d6a078' : '#aab7b7';
+      const rage = this.isRageActive ? `NỘ ${this.rageActiveTimer.toFixed(1)}s`
+        : this.ragePercent >= 100 ? 'NỘ SẴN' : `NỘ ${Math.floor(this.ragePercent)}%`;
+      ctx.fillText(`F  ${rage}`, x + 11, infoY + 99);
     } else {
-      const current = active.currentAmmo;
-      const max = active.def.magSize;
-      const isLow = current <= Math.ceil(max * 0.2);
-
-      ctx.font = `bold 25px 'Segoe UI', Arial, sans-serif`;
-      const curText = this.isRageActive ? '∞' : `${current}`;
-      const curW = ctx.measureText(curText).width;
-      ctx.font = `bold 14px 'Segoe UI', Arial, sans-serif`;
-      const maxText = `/${max}`;
-      const maxW = ctx.measureText(maxText).width;
-      const startX = cardX + (cardW - (curW + maxW)) / 2;
-
-      ctx.fillStyle = isLow ? '#e07869' : '#f1eee7';
-      ctx.font = `bold 25px 'Segoe UI', Arial, sans-serif`;
-      ctx.textAlign = 'left';
-      ctx.fillText(curText, startX, ammoY);
-
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = `bold 14px 'Segoe UI', Arial, sans-serif`;
-      ctx.fillText(maxText, startX + curW, ammoY + 3);
+      ctx.textAlign = 'right'; ctx.fillStyle = '#b7a092';
+      ctx.fillText(`F NỘ ${Math.floor(this.ragePercent)}%`, x + width - 9, infoY + 65, width * .48);
     }
-    ctx.restore();
-
-    // ── 4. Thin Horizontal Divider Line ──
-    const divY = cardY + 63;
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.09)';
-    ctx.fillRect(cardX + 24, divY, cardW - 48, 1);
-
-    // ── 5. Weapon Stats Subline ──
-    const damageMult = player.bulletDamage / 15.0;
-    const effDmg = Math.round(active.def.baseDamage * damageMult * (this.isRageActive ? 1.3 : 1.0));
-    const statText = `${effDmg} sát thương · ${active.def.rpm} RPM`;
-
-    ctx.save();
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = `${cardW < 320 ? 9 : 10}px 'Segoe UI', Arial, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(statText, cardX + cardW / 2, cardY + 73);
-    ctx.restore();
-
-    // ── 6. Bottom Tactical Row ──
-    const botY = cardY + 93;
-
-    const grenadeRechargeSec = Math.ceil(this.grenadeRechargeTimer);
-    const grenadeExtra =
-      this.grenadesCurrent < this.maxGrenades
-        ? ` (+1 sau ${grenadeRechargeSec}s)`
-        : '';
-    const compact = cardW < 320;
-    const grenadeStr = compact
-      ? `LỰU ${this.grenadesCurrent}/${this.maxGrenades}${this.grenadesCurrent < this.maxGrenades ? ` +${grenadeRechargeSec}s` : ''}`
-      : `LỰU ĐẠN ${this.grenadesCurrent}/${this.maxGrenades}${grenadeExtra}`;
-
-    const isDashReady = player.dashCooldown <= 0;
-    const dashStr = isDashReady
-      ? compact ? 'LƯỚT SẴN' : 'LƯỚT: SẴN'
-      : `LƯỚT ${player.dashCooldown.toFixed(1)}s`;
-
-    let rageStr = `NỘ: ${Math.floor(this.ragePercent)}%`;
-    let rageColor = '#94a3b8';
-    if (this.isRageActive) {
-      rageStr = `NỘ ${this.rageActiveTimer.toFixed(1)}s`;
-      rageColor = '#e07869';
-    } else if (this.ragePercent >= 100) {
-      rageStr = 'NỘ ĐẦY · F';
-      rageColor = '#d4aa63';
-    }
-
-    ctx.save();
-    ctx.font = `bold ${compact ? 8.5 : 9.5}px 'Segoe UI', Arial, sans-serif`;
-    ctx.textBaseline = 'middle';
-
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#d4aa63';
-    ctx.fillText(grenadeStr, cardX + 16, botY);
-
-    ctx.textAlign = 'center';
-    ctx.fillStyle = isDashReady ? '#76b4c1' : '#849196';
-    ctx.fillText(dashStr, cardX + cardW / 2, botY);
-
-    ctx.textAlign = 'right';
-    ctx.fillStyle = rageColor;
-    ctx.fillText(rageStr, cardX + cardW - 16, botY);
-
-    ctx.restore();
-
     ctx.restore();
   }
 
-  /**
-   * Handle mouse/touch clicks on weapon pills to switch guns directly
-   */
-  handleClick(
-    clickX: number,
-    clickY: number,
-    canvasW: number,
-    canvasH: number,
-    audio?: Audio
-  ): boolean {
-    const cardW = Math.min(350, Math.max(180, canvasW - 24));
-    const cardH = 106;
-    const cardX = (canvasW - cardW) / 2;
-    const cardY = canvasH - cardH - 12;
-
-    const unlocked = this.unlockedSlots;
-    const pillH = 23;
-    const pillGap = unlocked.length > 3 ? 4 : 8;
-    const pillW = Math.min(94, (cardW - 24 - pillGap * Math.max(0, unlocked.length - 1)) / Math.max(1, unlocked.length));
-    const totalPillsW = unlocked.length * pillW + (unlocked.length - 1) * pillGap;
-    const pillsStartX = cardX + (cardW - totalPillsW) / 2;
-    const pillY = cardY + 9;
-
-    for (let i = 0; i < unlocked.length; i++) {
-      const px = pillsStartX + i * (pillW + pillGap);
-      if (
-        clickX >= px &&
-        clickX <= px + pillW &&
-        clickY >= pillY &&
-        clickY <= pillY + pillH
-      ) {
-        const realIdx = this.slots.indexOf(unlocked[i]);
-        if (realIdx >= 0) {
-          this.switchSlot(realIdx, audio);
-        }
-        return true;
-      }
+  handleClick(clickX: number, clickY: number, canvasW: number, canvasH: number, audio?: Audio): boolean {
+    const { x, width, listTop, rowHeight, visibleCount, first } = this.weaponHudLayout(canvasW, canvasH);
+    if (clickX < x || clickX > x + width) return false;
+    for (let visible = 0; visible < visibleCount; visible++) {
+      const rowY = listTop + 22 + visible * rowHeight;
+      if (clickY < rowY || clickY >= rowY + rowHeight) continue;
+      const slot = this.unlockedSlots[first + visible];
+      if (slot) this.switchSlot(this.slots.indexOf(slot), audio);
+      return true;
     }
-
     return false;
   }
 

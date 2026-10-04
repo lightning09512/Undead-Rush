@@ -50,8 +50,11 @@ export class LightingRenderer {
     ctx.fillRect(0, 0, size, size);
   }
 
-  drawVignette(ctx: CanvasRenderingContext2D) {
+  drawVignette(ctx: CanvasRenderingContext2D, opacity = 1) {
+    ctx.save();
+    ctx.globalAlpha = opacity;
     ctx.drawImage(this.vignetteCanvas, 0, 0);
+    ctx.restore();
   }
 
   drawGlow(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, color: string, alpha: number = 1.0) {

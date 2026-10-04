@@ -12,7 +12,7 @@ export interface EnemyProjectile {
   color: string;
   damage: number;
   life: number;
-  type: 'poison' | 'boss_orb' | 'boss_wave';
+  type: 'poison' | 'boss_orb' | 'boss_wave' | 'boss_acid' | 'boss_shard';
 }
 
 function createProj(): EnemyProjectile {
@@ -57,6 +57,22 @@ export class EnemyProjectileSystem {
         p.size = 12;
         p.color = '#ff2222';
         break;
+      case 'boss_acid':
+        p.size = 10;
+        p.color = '#a7c568';
+        break;
+      case 'boss_shard':
+        p.size = 8;
+        p.color = '#c8c5b7';
+        break;
+    }
+  }
+
+  fireFan(x:number,y:number,angle:number,count:number,spread:number,speed:number,damage:number,type:'boss_acid'|'boss_shard'):void {
+    if(count<=0)return;
+    for(let i=0;i<count;i++){
+      const t=count===1?0:i/(count-1)-.5;
+      this.fire(x,y,angle+t*spread,speed*(1-Math.abs(t)*.12),damage,type);
     }
   }
 
@@ -91,21 +107,21 @@ export class EnemyProjectileSystem {
       if (!camera.isVisible(p.x, p.y)) continue;
       const [sx, sy] = camera.worldToScreen(p.x, p.y);
 
-      ctx.shadowColor = p.color;
-      ctx.shadowBlur = 10;
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(sx, sy, p.size, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Inner glow
-      ctx.fillStyle = '#ffffff';
-      ctx.globalAlpha = 0.5;
-      ctx.beginPath();
-      ctx.arc(sx, sy, p.size * 0.4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.shadowBlur = 0;
+      const angle=Math.atan2(p.vy,p.vx);
+      ctx.save();ctx.translate(sx,sy);ctx.rotate(angle);
+      if(p.type==='boss_acid'){
+        ctx.fillStyle='#46583a';ctx.beginPath();ctx.ellipse(-2,2,p.size*1.18,p.size*.86,0,0,Math.PI*2);ctx.fill();
+        ctx.fillStyle='#b5cf6c';ctx.beginPath();ctx.ellipse(0,0,p.size*.82,p.size*.58,-.15,0,Math.PI*2);ctx.fill();
+        ctx.fillStyle='rgba(237,231,174,.8)';ctx.beginPath();ctx.ellipse(p.size*.23,-p.size*.2,p.size*.21,p.size*.12,-.25,0,Math.PI*2);ctx.fill();
+        ctx.strokeStyle='rgba(115,133,68,.58)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-p.size*1.9,0);ctx.lineTo(-p.size*.82,0);ctx.stroke();
+      }else if(p.type==='boss_shard'){
+        ctx.fillStyle='#686e68';ctx.beginPath();ctx.moveTo(-p.size*1.5,0);ctx.lineTo(p.size*.2,-p.size*.62);ctx.lineTo(p.size*1.45,-p.size*.15);ctx.lineTo(p.size*.05,p.size*.7);ctx.closePath();ctx.fill();
+        ctx.strokeStyle='#ddd5bd';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-p.size*.7,p.size*.1);ctx.lineTo(p.size,p.size*-.1);ctx.stroke();
+      }else{
+        ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(0,0,p.size,0,Math.PI*2);ctx.fill();
+        ctx.fillStyle='#f2e8d8';ctx.globalAlpha=.62;ctx.beginPath();ctx.arc(-p.size*.12,-p.size*.12,p.size*.4,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;
+      }
+      ctx.restore();
     }
   }
 }

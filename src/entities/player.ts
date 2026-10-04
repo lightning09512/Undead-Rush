@@ -6,7 +6,8 @@ import type { UpgradeDef } from '../data/upgrades';
 import { Camera } from '../core/camera';
 import { EntityRenderer } from '../graphics/entity-renderer';
 import type { GunLoadout } from '../systems/gun-loadout';
-import { resolveBuildingCollision } from './map-geometry';
+import { drawHeldGun, heldGunShape } from '../graphics/held-gun';
+import { getCampaignBounds, resolveBuildingCollision, resolveCampaignMovement } from './map-geometry';
 
 export interface DamageResult {
   damaged: boolean;
@@ -24,6 +25,9 @@ export class Player {
   recoilX = 0;
   recoilY = 0;
   muzzleFlashTimer = 0;
+  visualCharacterId = 'survivor';
+  private displayedGunId = '';
+  private switchVisualTimer = 0;
 
   // Stats (current, after upgrades)
   maxHp: number;
@@ -151,6 +155,8 @@ export class Player {
     this.recoilX = 0;
     this.recoilY = 0;
     this.muzzleFlashTimer = 0;
+    this.displayedGunId = '';
+    this.switchVisualTimer = 0;
   }
 
   applyUpgrade(upgradeId: string): void {
@@ -247,7 +253,11 @@ export class Player {
   }
 
   move(dirX: number, dirY: number, dt: number, collideBuildings = true): void {
+    const previousX = this.x, previousY = this.y;
     let targetSpeed = this.moveSpeed;
+    if (this.loadout?.campaignMode && this.loadout.activeSlot.def.id === 'smg9') {
+      targetSpeed *= 1 + .15 * (this.upgrades.get('smg9_featherweight') || 0);
+    }
     const speedBuff = this.buffs.get('speed_boost');
     if (speedBuff) targetSpeed *= speedBuff.value;
 
@@ -273,6 +283,7 @@ export class Player {
 
     this.x += this.vx * dt;
     this.y += this.vy * dt;
+    [this.x, this.y] = resolveCampaignMovement(previousX, previousY, this.x, this.y, this.size * 0.72);
 
     // Direction facing based on aim angle
     if (Math.abs(Math.cos(this.aimAngle)) > 0.1) {
@@ -280,8 +291,9 @@ export class Player {
     }
 
     // Clamp to map
-    this.x = Math.max(this.size, Math.min(MAP_CONFIG.width - this.size, this.x));
-    this.y = Math.max(this.size, Math.min(MAP_CONFIG.height - this.size, this.y));
+    const bounds = getCampaignBounds();
+    this.x = Math.max((bounds?.x ?? 0) + this.size, Math.min((bounds ? bounds.x + bounds.w : MAP_CONFIG.width) - this.size, this.x));
+    this.y = Math.max((bounds?.y ?? 0) + this.size, Math.min((bounds ? bounds.y + bounds.h : MAP_CONFIG.height) - this.size, this.y));
     if (collideBuildings) [this.x, this.y] = resolveBuildingCollision(this.x, this.y, this.size * 0.72);
   }
 
@@ -306,7 +318,7 @@ export class Player {
     const actualDamage = Math.max(1, Math.round(amount * this.damageReduction));
     this.hp = Math.max(0, this.hp - actualDamage);
     this.invulnTimer = this.invulnDuration;
-    this.flashTimer = 0.12;
+    this.flashTimer = 0.2;
 
     return {
       damaged: true,
@@ -354,22 +366,36 @@ export class Player {
     this.recoilX -= this.recoilX * 10 * dt;
     this.recoilY -= this.recoilY * 10 * dt;
     if (this.muzzleFlashTimer > 0) this.muzzleFlashTimer -= dt;
+    const gunId = this.loadout?.activeSlot.def.id ?? 'ar7';
+    if (this.displayedGunId && this.displayedGunId !== gunId) this.switchVisualTimer = .18;
+    this.displayedGunId = gunId;
+    this.switchVisualTimer = Math.max(0, this.switchVisualTimer - dt);
 
     // Animation: continuous timer for idle breathing & locomotion
     this.animTimer += dt;
   }
 
-  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+  draw(ctx: CanvasRenderingContext2D, camera: Camera, campaign = false): void {
     const [sx, sy] = camera.worldToScreen(this.x, this.y);
+    const slot = this.loadout?.activeSlot;
+    const gun = slot?.def;
+    const shape = gun ? heldGunShape(gun) : undefined;
+    const reload = slot?.isReloading ? slot.reloadProgress : 0;
+    const idleBreath = Math.sin(this.animTimer * 2.3) * (this.isMoving ? .35 : .85);
+    const chestTone = this.visualCharacterId === 'medic' ? '#858d80'
+      : this.visualCharacterId === 'scout' ? '#6c6650'
+      : this.visualCharacterId === 'soldier' ? '#56644e'
+      : this.visualCharacterId === 'engineer' ? '#756a51'
+      : this.visualCharacterId === 'berserker' ? '#713e3e' : '#52636a';
 
     // ─── 0. Volumetric Tactical Weapon Light (Horror Flashlight Beam) ───
     const flashLen = 360;
     const flashHalfAngle = 0.36; // ~21 deg half cone
-    const flashOriginX = sx + Math.cos(this.aimAngle) * 22;
-    const flashOriginY = sy + Math.sin(this.aimAngle) * 22;
+    const flashOriginX = sx + Math.cos(this.aimAngle) * (shape?.muzzle ?? 28);
+    const flashOriginY = sy + Math.sin(this.aimAngle) * (shape?.muzzle ?? 28);
 
     ctx.save();
-    const flashAlpha = this.muzzleFlashTimer > 0 ? 0.42 : 0.22;
+    const flashAlpha = campaign ? (this.muzzleFlashTimer > 0 ? .14 : .055) : (this.muzzleFlashTimer > 0 ? 0.42 : 0.22);
     const flashGrad = ctx.createRadialGradient(flashOriginX, flashOriginY, 12, flashOriginX, flashOriginY, flashLen);
     flashGrad.addColorStop(0, `rgba(235, 250, 255, ${flashAlpha})`);
     flashGrad.addColorStop(0.25, `rgba(200, 235, 255, ${flashAlpha * 0.8})`);
@@ -466,11 +492,14 @@ export class Player {
     ctx.fillStyle = '#111412';
     this.roundRect(ctx, 4 + stride, -10, 5, 7, 2.5); ctx.fill();
     this.roundRect(ctx, 4 - stride, 3, 5, 7, 2.5); ctx.fill();
+    ctx.strokeStyle = '#788077';ctx.lineWidth = 1;
+    ctx.beginPath();ctx.moveTo(-1 + stride,-8);ctx.lineTo(5 + stride,-8);
+    ctx.moveTo(-1 - stride,5);ctx.lineTo(5 - stride,5);ctx.stroke();
     ctx.restore();
 
     // ─── 5. Thân trên, Áo giáp & Súng hướng theo chuột (aimAngle) ───
     ctx.save();
-    ctx.translate(sx + this.recoilX, sy + this.recoilY);
+    ctx.translate(sx + this.recoilX, sy + this.recoilY + idleBreath);
     ctx.rotate(this.aimAngle);
 
     // Balo tác chiến sau lưng với đổ bóng 3D
@@ -503,11 +532,27 @@ export class Player {
 
     // Tấm giáp ngực màu ô-liu với gờ nổi
     const chestGrad = ctx.createLinearGradient(-9, -11, 8, 11);
-    chestGrad.addColorStop(0, isFlashing ? '#ffffff' : '#6e5f46');
-    chestGrad.addColorStop(1, isFlashing ? '#ffffff' : '#3b3323');
+    chestGrad.addColorStop(0, isFlashing ? '#ffffff' : chestTone);
+    chestGrad.addColorStop(1, isFlashing ? '#ffffff' : '#303b3a');
     ctx.fillStyle = chestGrad;
     this.roundRect(ctx, -9, -11, 17, 22, 4);
     ctx.fill();
+    ctx.strokeStyle = 'rgba(183,191,177,.38)';ctx.lineWidth = 1.2;
+    ctx.beginPath();ctx.moveTo(-8,-6);ctx.lineTo(5,-6);ctx.moveTo(-8,7);ctx.lineTo(5,7);
+    ctx.moveTo(-4,-10);ctx.lineTo(-4,10);ctx.stroke();
+    ctx.fillStyle = '#20292a';ctx.fillRect(-9,-2,4,5);ctx.fillRect(5,-2,3,5);
+    if (this.visualCharacterId === 'medic') {
+      ctx.fillStyle='#d9ddd0';ctx.fillRect(-2,-5,7,9);
+      ctx.fillStyle='#9d5049';ctx.fillRect(0,-4,3,7);ctx.fillRect(-1,-2,5,2);
+    } else if (this.visualCharacterId === 'engineer') {
+      ctx.fillStyle='#c6a56f';ctx.fillRect(-8,6,7,4);ctx.fillRect(3,6,5,3);
+    } else if (this.visualCharacterId === 'scout') {
+      ctx.strokeStyle='#baa377';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-9,-8);ctx.lineTo(8,8);ctx.stroke();
+    } else if (this.visualCharacterId === 'soldier') {
+      ctx.fillStyle='#8d9b83';ctx.fillRect(-7,-4,3,9);ctx.fillRect(3,-4,3,9);
+    } else if (this.visualCharacterId === 'berserker') {
+      ctx.strokeStyle='#a4544f';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-8,-3);ctx.lineTo(6,4);ctx.stroke();
+    }
 
     // Phù hiệu cánh-kiếm phát sáng cyan ở vai trái
     ctx.fillStyle = '#30353a';
@@ -520,46 +565,34 @@ export class Player {
     ctx.fill();
     ctx.shadowBlur = 0;
 
-    // Tay áo & Cẳng tay cầm súng
+    // Arms follow the grip and fore-end of the selected weapon.
+    const support = shape?.support ?? 25;
+    const grip = shape?.grip ?? 13;
+    const switchDip = this.switchVisualTimer > 0 && this.muzzleFlashTimer <= 0
+      ? Math.sin(this.switchVisualTimer / .18 * Math.PI) * 5 : 0;
     ctx.lineCap = 'round';
-    ctx.strokeStyle = '#2c3033';
+    ctx.strokeStyle = chestTone;
     ctx.lineWidth = 5.5;
     ctx.beginPath();
-    ctx.moveTo(0, -12); ctx.lineTo(7, -8);
-    ctx.moveTo(0, 12); ctx.lineTo(10, 7);
+    ctx.moveTo(0, -12); ctx.lineTo(grip - 5, -6 + switchDip);
+    ctx.moveTo(0, 12); ctx.lineTo(support - 6, 6 + switchDip);
     ctx.stroke();
 
     ctx.strokeStyle = '#b7876a';
     ctx.lineWidth = 4.2;
     ctx.beginPath();
-    ctx.moveTo(7, -8); ctx.lineTo(14, -4);
-    ctx.moveTo(10, 7); ctx.lineTo(20, 2);
+    ctx.moveTo(grip - 5, -6 + switchDip); ctx.lineTo(grip, -3 + switchDip);
+    ctx.moveTo(support - 6, 6 + switchDip); ctx.lineTo(support, 2 + switchDip);
     ctx.stroke();
 
-    // Khẩu súng trường tác chiến với metallic highlight
-    const gunGrad = ctx.createLinearGradient(12, -4, 27, 4);
-    gunGrad.addColorStop(0, '#2b333a');
-    gunGrad.addColorStop(0.5, '#44515c');
-    gunGrad.addColorStop(1, '#171b1f');
-    ctx.fillStyle = gunGrad;
-    ctx.fillRect(12, -3.5, 15, 7);
+    ctx.save();ctx.translate(0, switchDip + reload * 3);
+    if (gun) drawHeldGun(ctx, gun, reload);
+    ctx.restore();
 
-    // Nòng súng & Ống hãm nảy (muzzle compensator)
-    ctx.fillStyle = '#0a0d0e';
-    ctx.fillRect(25, -1.8, 7, 3.6);
-
-    // Tactical Flashlight gắn trên nòng súng
-    ctx.fillStyle = '#222';
-    ctx.fillRect(18, 3.5, 8, 3.2);
-    ctx.fillStyle = '#e6ffff';
-    ctx.beginPath();
-    ctx.arc(26, 5.1, 1.6, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Bàn tay găng tác chiến đen
+    // Gloves sit over the weapon rather than floating beside it.
     ctx.fillStyle = '#15181a';
-    ctx.beginPath(); ctx.arc(14, -4, 3.4, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(20, 2, 3.4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(grip, -3 + switchDip, 3.4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(support, 2 + switchDip, 3.4, 0, Math.PI * 2); ctx.fill();
 
     // Đầu nhân vật: Nón cối đặc nhiệm 3D với kính ngắm điện tử phát sáng Cyan
     const helmGrad = ctx.createRadialGradient(-2, -2, 1, -1.5, 0, 10);
@@ -568,12 +601,14 @@ export class Player {
     helmGrad.addColorStop(1, isFlashing ? '#ffffff' : '#14181a');
     ctx.fillStyle = helmGrad;
     ctx.beginPath(); ctx.arc(-1.5, 0, 10, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = this.visualCharacterId === 'scout' ? '#b49b65'
+      : this.visualCharacterId === 'medic' ? '#ced7cf' : '#75837e';
+    ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(-1.5,0,8.3,Math.PI*.66,Math.PI*1.36);ctx.stroke();
 
     // Kính nhìn đêm / Visor HUD phát sáng Cyan
     ctx.save();
-    ctx.shadowColor = '#00f0ff';
-    ctx.shadowBlur = 6;
-    ctx.fillStyle = '#00e5ff';
+    ctx.fillStyle = this.visualCharacterId === 'medic' ? '#d9ece3'
+      : this.visualCharacterId === 'berserker' ? '#d69a84' : '#9fd8db';
     this.roundRect(ctx, 2.5, -4.5, 3.5, 9, 1.5);
     ctx.fill();
     ctx.restore();
@@ -583,10 +618,11 @@ export class Player {
       ctx.globalCompositeOperation = 'lighter';
       ctx.fillStyle = 'rgba(255, 220, 100, 0.95)';
       ctx.beginPath();
-      ctx.moveTo(32, -5); ctx.lineTo(48 + Math.random() * 8, 0); ctx.lineTo(32, 5); ctx.closePath();
+      const muzzle = shape?.muzzle ?? 32;
+      ctx.moveTo(muzzle, -3); ctx.lineTo(muzzle + 9, 0); ctx.lineTo(muzzle, 3); ctx.closePath();
       ctx.fill();
       ctx.fillStyle = '#ffffff';
-      ctx.beginPath(); ctx.arc(34, 0, 4.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(muzzle + 1, 0, 2.6, 0, Math.PI * 2); ctx.fill();
       ctx.globalCompositeOperation = 'source-over';
     }
 

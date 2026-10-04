@@ -12,10 +12,14 @@ export function drawCampaignBoss(ctx: CanvasRenderingContext2D, z: Zombie, x: nu
   ctx.fillStyle = 'rgba(0,0,0,.42)';
   ctx.beginPath(); ctx.ellipse(4, 7, r * 1.12, r * .78, 0, 0, Math.PI * 2); ctx.fill();
   if (id === 3) {
-    ctx.fillStyle = '#44484a'; ctx.strokeStyle = '#242728'; ctx.lineWidth = Math.max(3, r * .08);
-    ctx.fillRect(-r*.92,-r*.36,r*1.52,r*.72); ctx.strokeRect(-r*.92,-r*.36,r*1.52,r*.72);
-    ctx.strokeStyle = '#aaa28f'; ctx.lineWidth = Math.max(2,r*.045);
-    ctx.beginPath(); ctx.moveTo(-r*.72,-r*.47); ctx.lineTo(r*.7,-r*.47); ctx.moveTo(-r*.72,r*.47); ctx.lineTo(r*.7,r*.47); ctx.stroke();
+    // A battered operating gurney trails the butcher during its charge.
+    ctx.fillStyle='rgba(0,0,0,.3)';ctx.fillRect(-r*1.5,-r*.47,r*1.62,r*.94);
+    ctx.fillStyle='#4d5854';ctx.strokeStyle='#262d2b';ctx.lineWidth=Math.max(3,r*.07);
+    ctx.fillRect(-r*1.42,-r*.39,r*1.4,r*.78);ctx.strokeRect(-r*1.42,-r*.39,r*1.4,r*.78);
+    ctx.fillStyle='#b7b3a3';ctx.fillRect(-r*1.25,-r*.28,r*1.04,r*.56);ctx.strokeStyle='#444e4b';ctx.strokeRect(-r*1.25,-r*.28,r*1.04,r*.56);
+    ctx.fillStyle='#8d514d';ctx.fillRect(-r*.83,-r*.2,r*.16,r*.39);
+    ctx.strokeStyle='#aaa28f';ctx.lineWidth=Math.max(2,r*.045);ctx.beginPath();ctx.moveTo(-r*1.4,-r*.47);ctx.lineTo(r*.16,-r*.47);ctx.moveTo(-r*1.4,r*.47);ctx.lineTo(r*.16,r*.47);ctx.stroke();
+    ctx.fillStyle='#292e2c';for(const wx of [-r*1.2,-r*.22])for(const wy of [-r*.49,r*.49]){ctx.beginPath();ctx.arc(wx,wy,r*.095,0,Math.PI*2);ctx.fill();}
   }
   if (id === 2) {
     // The Họng Bơm's ruptured hoses drag from its distended abdomen.
@@ -40,6 +44,12 @@ export function drawCampaignBoss(ctx: CanvasRenderingContext2D, z: Zombie, x: nu
       ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(kx, ky); ctx.lineTo(ex, ey); ctx.stroke();
       ctx.fillStyle = '#ad9b82'; ctx.beginPath(); ctx.arc(kx, ky, r*.055, 0, Math.PI*2); ctx.fill();
     }
+  } else if(id===1||id===2||id===3){
+    ctx.strokeStyle=id===1?'#555c52':id===2?'#493e37':'#606a65';ctx.lineWidth=Math.max(4,r*.13);ctx.lineCap='round';
+    ctx.beginPath();ctx.moveTo(-r*.22,-r*.26);ctx.lineTo(-r*.72,-r*.38);ctx.lineTo(-r*.93,-r*.1);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(-r*.2,r*.24);ctx.lineTo(-r*.7,r*.47);ctx.lineTo(-r*.8,r*.83);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(r*.08,-r*.28);ctx.lineTo(r*.53,-r*.42);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(r*.1,r*.23);ctx.lineTo(r*.52,r*.43);ctx.lineTo(r*.66,r*.78);ctx.stroke();
   } else {
     ctx.beginPath(); ctx.moveTo(-r * .22, -r * .35); ctx.lineTo(-r * .72, -r * .72); ctx.lineTo(-r * .92, -r * .3); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(-r * .18, r * .28); ctx.lineTo(-r * .68, r * .48); ctx.lineTo(-r * .84, r * .92); ctx.stroke();
@@ -52,9 +62,53 @@ export function drawCampaignBoss(ctx: CanvasRenderingContext2D, z: Zombie, x: nu
   ctx.beginPath();
   if (id === 9) { ctx.ellipse(0, 0, r * .78, r * .55, -.12, 0, Math.PI * 2); }
   else if (id === 10) { ctx.moveTo(-r*.8,-r*.35); ctx.quadraticCurveTo(-r*.8,-r*.78,-r*.35,-r*.7); ctx.quadraticCurveTo(-r*.1,-r*1.02,r*.12,-r*.55); ctx.quadraticCurveTo(r*.72,-r*.67,r*.68,-r*.12); ctx.quadraticCurveTo(r*.93,r*.24,r*.48,r*.45); ctx.quadraticCurveTo(r*.22,r*.88,-r*.12,r*.55); ctx.quadraticCurveTo(-r*.62,r*.78,-r*.8,r*.28); ctx.closePath(); }
-  else if (id === 2) { ctx.ellipse(-r*.12,0,r*.82,r*.68,-.16,0,Math.PI*2); }
+  else if (id === 2) { const swell=z.campaignAttackKind==='fan'&&z.specialState==='windup'?1+z.visualWindup*.16:1;ctx.ellipse(-r*.12,0,r*.82*swell,r*.68*swell,-.16,0,Math.PI*2); }
   else { ctx.ellipse(-r*.06, 0, r*.7, r*.53, id === 5 ? -.38 : .12, 0, Math.PI*2); }
   ctx.fill(); ctx.stroke();
+
+  if(id===1){
+    // Militia jacket, radio harness and battered whistle silhouette.
+    ctx.fillStyle=flash?'#dfd6c7':'#59604f';ctx.beginPath();ctx.moveTo(-r*.28,-r*.42);ctx.lineTo(r*.2,-r*.48);ctx.lineTo(r*.37,r*.33);ctx.lineTo(-r*.12,r*.47);ctx.closePath();ctx.fill();
+    ctx.strokeStyle='#2b302b';ctx.lineWidth=r*.055;ctx.beginPath();ctx.moveTo(-r*.13,-r*.38);ctx.lineTo(r*.11,r*.36);ctx.moveTo(-r*.23,r*.03);ctx.lineTo(r*.28,-r*.08);ctx.stroke();
+    ctx.fillStyle='#c39c58';ctx.beginPath();ctx.arc(-r*.09,-r*.25,r*.07,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#716143';ctx.lineWidth=r*.045;ctx.beginPath();ctx.moveTo(r*.25,-r*.5);ctx.lineTo(r*.42,-r*.73);ctx.lineTo(r*.62,-r*.72);ctx.stroke();
+  }else if(id===2){
+    // Pale swollen sacs with stressed seams. Their swell is tied to the visible windup.
+    const pulse=z.campaignAttackKind==='fan'&&z.specialState==='windup'?1+z.visualWindup*.18:1;
+    ctx.fillStyle=flash?'#e3d5bd':'#835c50';ctx.strokeStyle='#493738';ctx.lineWidth=Math.max(2,r*.035);
+    for(const [sx,sy,rx,ry] of [[-.42,-.3,.24,.19],[.05,-.39,.27,.2],[.48,-.18,.22,.19],[-.24,.34,.27,.18],[.35,.34,.24,.2]] as number[][]){
+      ctx.beginPath();ctx.ellipse(sx*r,sy*r,rx*r*pulse,ry*r*pulse,.2,0,Math.PI*2);ctx.fill();ctx.stroke();
+      ctx.strokeStyle='#bf8b73';ctx.lineWidth=Math.max(1.5,r*.022);ctx.beginPath();ctx.arc(sx*r,sy*r,rx*r*.65,.3,2.35);ctx.stroke();ctx.strokeStyle='#493738';ctx.lineWidth=Math.max(2,r*.035);
+    }
+    ctx.fillStyle='#262923';ctx.beginPath();ctx.ellipse(r*.66,-r*.06,r*.18,r*.12,-.12,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#b1c570';ctx.beginPath();ctx.ellipse(r*.79,-r*.06,r*.09,r*.052,0,0,Math.PI*2);ctx.fill();
+  }else if(id===3){
+    // Blood-dark surgical apron and the medic's torn mask.
+    ctx.fillStyle=flash?'#ddd8ca':'#697470';ctx.beginPath();ctx.moveTo(-r*.22,-r*.38);ctx.lineTo(r*.23,-r*.4);ctx.lineTo(r*.43,r*.42);ctx.lineTo(-r*.12,r*.48);ctx.closePath();ctx.fill();
+    ctx.fillStyle='#753f3d';ctx.beginPath();ctx.moveTo(-r*.1,-r*.1);ctx.lineTo(r*.18,-r*.17);ctx.lineTo(r*.29,r*.34);ctx.lineTo(r*.01,r*.4);ctx.closePath();ctx.fill();
+    ctx.strokeStyle='#353d3a';ctx.lineWidth=r*.05;ctx.beginPath();ctx.moveTo(-r*.18,-r*.39);ctx.lineTo(r*.27,r*.34);ctx.stroke();
+  }
+
+  // Telegraphs drive a distinct, physical arm pose; active attacks complete the swing/thrust.
+  if(id===1||id===2||id===3){
+    const p=Math.max(0,Math.min(1,z.campaignAttackProgress));
+    const active=z.specialState==='active',wind=z.specialState==='windup';
+    let armAngle=-.28,reach=1.02;
+    if(z.campaignAttackKind==='sweep')armAngle=wind?-.95*z.visualWindup:active?-1.22+2.44*p:-.28;
+    else if(z.campaignAttackKind==='thrust')armAngle=wind?-.92*z.visualWindup:active?-1.04+1.04*p:-.12;
+    else if(z.campaignAttackKind==='charge') {armAngle=active?.08:-.62*z.visualWindup;reach=1.3;}
+    else if(z.campaignAttackKind==='fan')armAngle=wind?-1.05*z.visualWindup:active?-.7+.95*p:-.16;
+    else if(z.campaignAttackKind==='slam'||z.campaignAttackKind==='stomp')armAngle=wind?-1.15*z.visualWindup:active?-.8+1.35*p:-.24;
+    const shoulderX=r*.22,shoulderY=-r*.22,upper=r*.42,fore=r*.48*reach;
+    const elbowX=shoulderX+Math.cos(armAngle)*upper,elbowY=shoulderY+Math.sin(armAngle)*upper;
+    const wristX=elbowX+Math.cos(armAngle+.18)*fore,wristY=elbowY+Math.sin(armAngle+.18)*fore;
+    ctx.strokeStyle=id===3?'#555e5a':id===2?'#644944':'#50584e';ctx.lineWidth=Math.max(5,r*.145);ctx.lineCap='round';ctx.beginPath();ctx.moveTo(shoulderX,shoulderY);ctx.lineTo(elbowX,elbowY);ctx.lineTo(wristX,wristY);ctx.stroke();
+    ctx.fillStyle=id===3?'#867b69':'#796856';ctx.beginPath();ctx.arc(wristX,wristY,r*.105,0,Math.PI*2);ctx.fill();
+    if(id===1){
+      const a=armAngle+.05;ctx.save();ctx.translate(wristX,wristY);ctx.rotate(a);ctx.strokeStyle='#353a39';ctx.lineWidth=r*.13;ctx.beginPath();ctx.moveTo(-r*.06,0);ctx.lineTo(r*.65,0);ctx.stroke();ctx.strokeStyle='#b3a27f';ctx.lineWidth=r*.045;ctx.beginPath();ctx.moveTo(r*.28,-r*.07);ctx.lineTo(r*.28,r*.07);ctx.stroke();ctx.restore();
+    }else if(id===3){
+      const a=armAngle+.18;ctx.save();ctx.translate(wristX,wristY);ctx.rotate(a);ctx.fillStyle='#a7aaa0';ctx.beginPath();ctx.moveTo(0,-r*.075);ctx.lineTo(r*.55,0);ctx.lineTo(0,r*.075);ctx.closePath();ctx.fill();ctx.strokeStyle='#e0d5bd';ctx.lineWidth=2;ctx.stroke();ctx.restore();
+    }
+  }
 
   if (id === 10 && z.campaignPhase >= 2) {
     ctx.strokeStyle = z.campaignPhase >= 3 ? '#c36659' : '#8f514c'; ctx.lineWidth = r*.045;

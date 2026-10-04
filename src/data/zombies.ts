@@ -39,7 +39,7 @@ export interface HorrorAttackDef {
   dashSpeed: number;
 }
 
-/** Separate roster: stage mode deliberately keeps ZOMBIE_TYPES only. */
+/** Additional body-horror archetypes shared by Survival and authored Campaign zones. */
 export const HORROR_TYPES: ZombieTypeDef[] = [
   { id: 'spider', name: 'Nhện đột biến', hp: 48, speed: 83, damage: 12, xpValue: 10, size: 19, color: '#93816d', weight: 10, minTime: 25 },
   { id: 'armed', name: 'Kẻ hành hình', hp: 95, speed: 51, damage: 19, xpValue: 18, size: 19, color: '#a69e86', weight: 7, minTime: 55 },

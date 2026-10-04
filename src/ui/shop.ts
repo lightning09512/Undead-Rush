@@ -4,11 +4,13 @@ import { PERM_UPGRADES, CHARACTERS, PermUpgradeDef, CharacterDef } from '../data
 import { SaveSystem } from '../systems/save';
 import { Audio } from '../core/audio';
 import { UI_PALETTE as C } from './palette';
+import { createQuarantineBackdrop } from './horror-texture';
 
 export class ShopUI {
   visible = false;
   private tab: 'upgrades' | 'characters' = 'upgrades';
   private scrollY = 0;
+  private backdrop?: HTMLCanvasElement;
 
   handleClick(x: number, y: number, w: number, h: number, save: SaveSystem, audio: Audio): string | null {
     if (!this.visible) return null;
@@ -126,9 +128,16 @@ export class ShopUI {
   draw(ctx: CanvasRenderingContext2D, w: number, h: number, save: SaveSystem): void {
     if (!this.visible) return;
 
-    // Background
-    ctx.fillStyle = C.background;
+    // Reuse the game's quarantine artwork so every non-combat screen shares
+    // the same cold metal and dried-blood visual language.
+    if (!this.backdrop || this.backdrop.width !== Math.ceil(w) || this.backdrop.height !== Math.ceil(h)) {
+      this.backdrop = createQuarantineBackdrop(w, h);
+    }
+    ctx.drawImage(this.backdrop, 0, 0, w, h);
+    ctx.fillStyle = 'rgba(4, 7, 9, 0.36)';
     ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = C.danger;
+    ctx.fillRect(0, 0, w, 4);
 
     // Title
     ctx.textAlign = 'center';
@@ -240,7 +249,7 @@ export class ShopUI {
         const cost = def.costs[level];
         const canAfford = save.data.gold >= cost;
         this.drawButton(ctx, startX + itemW - 90, iy + 20, 80, 32,
-          `${cost} 💰`, canAfford ? '#647f54' : C.inactive);
+          `${cost} 💰`, canAfford ? C.health : C.inactive);
       } else {
         ctx.fillStyle = C.health;
         ctx.font = `bold 12px 'Segoe UI', Arial, sans-serif`;
@@ -312,11 +321,11 @@ export class ShopUI {
         ctx.textAlign = 'center';
         ctx.fillText('✓ SELECTED', startX + itemW - 55, iy + 42);
       } else if (isUnlocked) {
-        this.drawButton(ctx, startX + itemW - 100, iy + 24, 90, 32, 'CHỌN', '#477e87');
+        this.drawButton(ctx, startX + itemW - 100, iy + 24, 90, 32, 'CHỌN', C.cyan);
       } else {
         const canAfford = save.data.gold >= char.cost;
         this.drawButton(ctx, startX + itemW - 100, iy + 24, 90, 32,
-          `${char.cost} 💰`, canAfford ? '#647f54' : C.inactive);
+          `${char.cost} 💰`, canAfford ? C.health : C.inactive);
       }
     }
   }
@@ -326,7 +335,7 @@ export class ShopUI {
     this.roundRect(ctx, x, y, w, h, 6);
     ctx.fill();
 
-    ctx.fillStyle = color === C.cyan || color === '#477e87' || color === '#647f54' ? '#10181b' : C.text;
+    ctx.fillStyle = color === C.cyan || color === C.health ? C.black : C.text;
     ctx.font = `bold ${Math.min(13, w * 0.12)}px 'Segoe UI', Arial, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';

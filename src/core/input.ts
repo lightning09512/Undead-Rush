@@ -5,6 +5,7 @@ import { getTouchActionButtons, type TouchAction } from '../ui/touch-controls';
 export class Input {
   touchButtonsEnabled = false;
   campaignTouchEnabled = false;
+  campaignMode = false;
   // Movement direction (normalized)
   dirX = 0;
   dirY = 0;
@@ -87,7 +88,7 @@ export class Input {
     return g;
   }
 
-  // Rage / Overdrive (Key F or Key E)
+  // Rage / Overdrive: F in both modes, E remains a Survival shortcut.
   private _ragePressed = false;
   get ragePressed() {
     const r = this._ragePressed;
@@ -102,7 +103,7 @@ export class Input {
     return value;
   }
 
-  // Weapon slot selection (1, 2, 3)
+  // Weapon slot selection (1, 2, 3; 4 is the Campaign sidearm)
   private _weaponSelect: number | null = null;
   get weaponSelect(): number | null {
     const w = this._weaponSelect;
@@ -131,6 +132,11 @@ export class Input {
   }
 
   private fireButtonHeld = false;
+  /** A menu tap must never become a gunshot on the first gameplay frame. */
+  clearUiFire(): void {
+    this.isMouseDown = false;
+    this.fireButtonHeld = false;
+  }
   private actionTouchId: number | null = null;
 
   private findActionButton(x: number, y: number): TouchAction | null {
@@ -164,8 +170,8 @@ export class Input {
       if (e.code === 'KeyG') {
         this._grenadePressed = true;
       }
-      if (e.code === 'KeyQ') this._interactPressed = true;
-      if (e.code === 'KeyF' || e.code === 'KeyE') {
+      if (e.code === 'KeyE' && this.campaignMode) this._interactPressed = true;
+      if (e.code === 'KeyF' || e.code === 'KeyE' && !this.campaignMode) {
         this._ragePressed = true;
       }
       if (e.code === 'Digit1' || e.code === 'Numpad1') {
@@ -177,6 +183,15 @@ export class Input {
       if (e.code === 'Digit3' || e.code === 'Numpad3') {
         this._weaponSelect = 2;
       }
+      if (e.code === 'Digit4' || e.code === 'Numpad4') {
+        this._weaponSelect = 3;
+      }
+      if (e.code === 'Digit5' || e.code === 'Numpad5') this._weaponSelect = 4;
+      if (e.code === 'Digit6' || e.code === 'Numpad6') this._weaponSelect = 5;
+      if (e.code === 'Digit7' || e.code === 'Numpad7') this._weaponSelect = 6;
+      if (e.code === 'Digit8' || e.code === 'Numpad8') this._weaponSelect = 7;
+      if (e.code === 'Digit9' || e.code === 'Numpad9') this._weaponSelect = 8;
+      if (e.code === 'Digit0' || e.code === 'Numpad0') this._weaponSelect = 9;
     });
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.code);

@@ -34,6 +34,8 @@ export class Audio {
   private lastZombieAttackTime = 0;
   private lastZombieHurtTime = 0;
   private lastDroneShotTime = 0;
+  private lastCreditPickupTime = 0;
+  private lastSupplyPickupTime = 0;
   private resumeFailureLogged = false;
   private recordedBuffers = new Map<string, AudioBuffer>();
   private recordedBuffersPromise: Promise<void> | null = null;
@@ -1258,6 +1260,47 @@ export class Audio {
 
   xpPickup(): void {
     this.playTone(1200, 0.06, 'sine', 0.12);
+  }
+
+  creditPickup(): void {
+    const now = performance.now();
+    if (now - this.lastCreditPickupTime < 85) return;
+    this.lastCreditPickupTime = now;
+    if (!this.ensureContext() || !this.ctx || !this.sfxGain || !this.noiseBuffer) return;
+    const t = this.ctx.currentTime;
+    const source = this.ctx.createBufferSource();
+    source.buffer = this.noiseBuffer;
+    source.playbackRate.value = 1.4 + Math.random() * .25;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass'; filter.frequency.value = 1400 + Math.random() * 250;
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(.0001, t);
+    gain.gain.linearRampToValueAtTime(.16, t + .006);
+    gain.gain.exponentialRampToValueAtTime(.0001, t + .075);
+    source.connect(filter); filter.connect(gain); gain.connect(this.sfxGain);
+    source.start(t, Math.random() * .2, .08);
+    source.stop(t + .085);
+    this.playTone(740 + Math.random() * 70, .045, 'triangle', .07);
+  }
+
+  supplyPickup(kind: 'ammo' | 'med' | 'crate'): void {
+    const now = performance.now();
+    if (now - this.lastSupplyPickupTime < 120) return;
+    this.lastSupplyPickupTime = now;
+    if (!this.ensureContext() || !this.ctx || !this.sfxGain || !this.noiseBuffer) return;
+    const t = this.ctx.currentTime;
+    const source = this.ctx.createBufferSource();
+    source.buffer = this.noiseBuffer;
+    source.playbackRate.value = kind === 'ammo' ? .82 : kind === 'med' ? 1.15 : .68;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = kind === 'med' ? 1250 : kind === 'ammo' ? 780 : 560;
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(.0001, t);
+    gain.gain.linearRampToValueAtTime(.095, t + .008);
+    gain.gain.exponentialRampToValueAtTime(.0001, t + .10);
+    source.connect(filter); filter.connect(gain); gain.connect(this.sfxGain);
+    source.start(t, 0, .11); source.stop(t + .12);
   }
 
   levelUp(): void {

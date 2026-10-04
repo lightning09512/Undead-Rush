@@ -4,7 +4,7 @@ import { Pool } from '../core/pool';
 import { Camera } from '../core/camera';
 import { ZombieTypeDef } from '../data/zombies';
 import { ZombieRenderer } from '../graphics/zombie-renderer';
-import { resolveBuildingCollision } from './map-geometry';
+import { campaignDetourTarget, campaignSteeringTarget, resolveBuildingCollision, resolveCampaignMovement } from './map-geometry';
 import { updateHorrorAI, drawHorrorWarning } from '../systems/horror-ai';
 import { drawCampaignBoss } from '../graphics/campaign-boss-renderer';
 
@@ -35,6 +35,9 @@ export interface Zombie {
   // Flags
   isBoss: boolean;
   campaignBossId: number | null;
+  /** Campaign encounter zone used to hold/release its exit gate until cleared. */
+  campaignZoneIndex: number;
+  campaignStuckTime: number;
   campaignPhase: number;
   isGlowing: boolean;
   isElite: boolean;
@@ -63,6 +66,8 @@ export interface Zombie {
   specialAngle: number;
   specialHit: boolean;
   specialStarted: boolean;
+  campaignAttackKind: string;
+  campaignAttackProgress: number;
   deathHandled: boolean;
 }
 
@@ -75,7 +80,7 @@ function createZombie(): Zombie {
     slowTimer: 0, slowMult: 1,
     knockbackX: 0, knockbackY: 0,
     facingLeft: false,
-    isBoss: false, campaignBossId: null, campaignPhase: 1, isGlowing: false, isElite: false,
+    isBoss: false, campaignBossId: null, campaignZoneIndex: -1, campaignStuckTime: 0, campaignPhase: 1, isGlowing: false, isElite: false,
     explodes: false, explosionRadius: 0, explosionDamage: 0,
     ranged: false, attackRange: 0, projectileSpeed: 0, attackCooldown: 0,
     wobble: 0,
@@ -87,7 +92,7 @@ function createZombie(): Zombie {
     attackTimer: 0,
     visualWindup: 0, visualStrike: 0,
     specialState: 'chase', specialTimer: 0, specialDuration: 1, specialAngle: 0,
-    specialHit: false, specialStarted: false, deathHandled: false,
+    specialHit: false, specialStarted: false, campaignAttackKind: '', campaignAttackProgress: 0, deathHandled: false,
   };
 }
 
@@ -102,6 +107,8 @@ function resetZombie(z: Zombie): void {
   z.facingLeft = false;
   z.attackCooldown = 0;
   z.campaignBossId = null;
+  z.campaignZoneIndex = -1;
+  z.campaignStuckTime = 0;
   z.campaignPhase = 1;
   z.wobble = 0;
   z.animTimer = Math.random() * 100;
@@ -116,6 +123,8 @@ function resetZombie(z: Zombie): void {
   z.specialDuration = 1;
   z.specialAngle = 0;
   z.specialHit = z.specialStarted = false;
+  z.campaignAttackKind = '';
+  z.campaignAttackProgress = 0;
 }
 
 export class ZombieSystem {
@@ -146,6 +155,8 @@ export class ZombieSystem {
     z.typeId = typeDef.id;
     z.isBoss = !!typeDef.isBoss;
     z.campaignBossId = null;
+    z.campaignZoneIndex = -1;
+    z.campaignStuckTime = 0;
     z.campaignPhase = 1;
     z.isGlowing = !!typeDef.isGlowing || isElite;
     z.isElite = isElite && !typeDef.isBoss;
@@ -207,8 +218,14 @@ export class ZombieSystem {
           z.vx *= (1 - k);
           z.vy *= (1 - k);
         } else {
-          const targetVx = (dx / dist) * speed;
-          const targetVy = (dy / dist) * speed;
+          let [wayX, wayY] = campaignSteeringTarget(z.x, z.y, playerX, playerY);
+          if (z.campaignZoneIndex >= 0 && z.campaignStuckTime > .55) {
+            const detour = campaignDetourTarget(z.x, z.y, wayX, wayY, z.size * .72);
+            if (detour) [wayX, wayY] = detour;
+          }
+          const wayDist = Math.max(1, Math.hypot(wayX - z.x, wayY - z.y));
+          const targetVx = ((wayX - z.x) / wayDist) * speed;
+          const targetVy = ((wayY - z.y) / wayDist) * speed;
           const k = 1 - Math.exp(-8 * dt);
           z.vx += (targetVx - z.vx) * k;
           z.vy += (targetVy - z.vy) * k;
@@ -226,13 +243,19 @@ export class ZombieSystem {
       // Charges use small steps so even a slow frame cannot skip a wall.
       const steps = special && collideBuildings ? Math.max(1, Math.ceil(Math.hypot(moveX, moveY) / (z.size * 0.45))) : 1;
       for (let step = 0; step < steps; step++) {
+        const beforeX = z.x, beforeY = z.y;
         z.x += moveX / steps;
         z.y += moveY / steps;
+        [z.x, z.y] = resolveCampaignMovement(beforeX, beforeY, z.x, z.y, z.size * 0.72);
         if (collideBuildings) [z.x, z.y] = resolveBuildingCollision(z.x, z.y, special ? z.size : z.size * 0.72);
       }
       if (collideBuildings) {
         if (Math.abs(z.x - previousX) < 0.01) z.vx = 0;
         if (Math.abs(z.y - previousY) < 0.01) z.vy = 0;
+      }
+      if (z.campaignZoneIndex >= 0 && !z.isBoss && dist > z.size + 110) {
+        z.campaignStuckTime = Math.hypot(z.x - previousX, z.y - previousY) < Math.max(1.2, z.speed * dt * .12)
+          ? Math.min(4, z.campaignStuckTime + dt) : Math.max(0, z.campaignStuckTime - dt * 2);
       }
 
       // Exponential decay of knockback

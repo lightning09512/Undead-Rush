@@ -39,7 +39,7 @@ function giantArm(ctx: CanvasRenderingContext2D, flash: boolean, preparation: nu
   ctx.restore();
 }
 
-/** Survival-only anatomy. Stage continues through the original renderer. */
+/** Shared body-horror anatomy for Survival and Campaign regular zombies. */
 export function drawSurvivalZombie(ctx: CanvasRenderingContext2D, z: Zombie, sx: number, sy: number, flash: boolean): void {
   const type = z.typeId;
   const heavy = type === 'tank' || z.isBoss;

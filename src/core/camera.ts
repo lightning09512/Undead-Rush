@@ -1,6 +1,7 @@
 // ─── Camera: follows player on a large map ───
 
 import { MAP_CONFIG } from '../data/items';
+import { getCampaignBounds } from '../entities/map-geometry';
 
 export class Camera {
   x = 0;
@@ -49,8 +50,9 @@ export class Camera {
     this.y += (goalY - this.y) * t;
 
     // Clamp to map bounds
-    this.x = Math.max(0, Math.min(MAP_CONFIG.width - this.width, this.x));
-    this.y = Math.max(0, Math.min(MAP_CONFIG.height - this.height, this.y));
+    const bounds = getCampaignBounds();
+    this.x = Math.max(bounds?.x ?? 0, Math.min((bounds ? bounds.x + bounds.w : MAP_CONFIG.width) - this.width, this.x));
+    this.y = Math.max(bounds?.y ?? 0, Math.min((bounds ? bounds.y + bounds.h : MAP_CONFIG.height) - this.height, this.y));
 
     // Screen shake
     if (this.shakeTimer > 0) {

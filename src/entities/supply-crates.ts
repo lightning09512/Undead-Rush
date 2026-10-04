@@ -3,6 +3,7 @@
 import { Pool } from '../core/pool';
 import { Camera } from '../core/camera';
 import { MAP_CONFIG } from '../data/items';
+import { campaignSpawnPosition, getCampaignBounds } from './map-geometry';
 import { LightingRenderer } from '../graphics/lighting';
 
 export interface SupplyCrate {
@@ -62,8 +63,11 @@ export class SupplyCrateSystem {
     let y = playerY + Math.sin(angle) * dist;
 
     // Clamp to map
-    x = Math.max(50, Math.min(MAP_CONFIG.width - 50, x));
-    y = Math.max(50, Math.min(MAP_CONFIG.height - 50, y));
+    if (!getCampaignBounds()) {
+      x = Math.max(50, Math.min(MAP_CONFIG.width - 50, x));
+      y = Math.max(50, Math.min(MAP_CONFIG.height - 50, y));
+    }
+    [x, y] = campaignSpawnPosition(playerX, playerY, x, y, 28);
 
     const c = this.pool.acquire();
     c.x = x;

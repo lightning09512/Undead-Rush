@@ -22,19 +22,27 @@ export class HUD {
     zombies: ZombieSystem,
     mapPickups: MapPickupSystem,
     camera: Camera,
-    campaign?: { stage: StageDef; activeNode: number; bossSpawned: boolean; exitActive: boolean; exitActivated: boolean }
+    campaign?: { stage: StageDef; activeNode: number; bossSpawned: boolean; exitActive: boolean; exitActivated: boolean; credits: number; creditGain: number }
   ): void {
     const pad = w < 700 ? 9 : 12;
     const compact = w < 700;
     const slotSize = compact ? 24 : 32;
     const hpRatio = Math.min(1, Math.max(0, player.hp / player.maxHp));
-    this.drawDamageFeedback(ctx, w, h, hpRatio, player.flashTimer);
 
     // ─── 1. Vampire Survivors Full-Width Top XP Bar ───
     const xpBarH = 22;
     // Dark metallic obsidian base
     ctx.fillStyle = C.background;
     ctx.fillRect(0, 0, w, xpBarH);
+
+    if (campaign) {
+      ctx.fillStyle = '#c7a875'; ctx.fillRect(0, xpBarH - 2, w, 2);
+      ctx.fillStyle = '#f1e9d5'; ctx.font = 'bold 12px Segoe UI, Arial'; ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left'; ctx.fillText(`CHIẾN DỊCH ${campaign.stage.id}/10`, 12, 10);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#e5c684';
+      ctx.fillText(`${campaign.credits} TÍN DỤNG${campaign.creditGain ? `   +${campaign.creditGain}` : ''}`, w - 14, 10);
+    } else {
 
     const xpRatio = Math.min(1, Math.max(0, player.xp / player.xpToNext));
     if (xpRatio > 0) {
@@ -73,6 +81,7 @@ export class HUD {
       w / 2,
       xpBarH / 2 - 1
     );
+    }
 
     // ─── 2. Top-Center: Game Clock & Kill Count Pill ───
     const minutes = Math.floor(gameTime / 60);
@@ -146,7 +155,7 @@ export class HUD {
     ctx.restore();
 
     // ─── 5. Top-Right: Minimap ───
-    this.drawMinimap(ctx, w, h, pad, xpBarH + 8, player, zombies, mapPickups, camera, campaign);
+    if (!campaign) this.drawMinimap(ctx, w, h, pad, xpBarH + 8, player, zombies, mapPickups, camera);
 
     // ─── 6. Mobile Touch Joystick ───
     if (input.isJoystickVisible) {
@@ -374,20 +383,20 @@ export class HUD {
     ctx.fillText('BẢN ĐỒ', mx + 8, my - 2);
   }
 
-  private drawDamageFeedback(ctx: CanvasRenderingContext2D, w: number, h: number, hpRatio: number, flashTimer: number): void {
-    if (hpRatio > 0.25 && flashTimer <= 0) return;
+  drawDamageFeedback(ctx: CanvasRenderingContext2D, w: number, h: number, hpRatio: number, flashTimer: number): void {
+    if (flashTimer <= 0) return;
+    const strength = Math.min(1, flashTimer / 0.2);
+    const radius = Math.min(240, Math.max(115, Math.min(w, h) * .26));
+    const alpha = (hpRatio < .25 ? .19 : .14) * strength;
     ctx.save();
-    const hit = Math.min(1, flashTimer / 0.12);
-    ctx.globalAlpha = hit > 0 ? 0.2 + hit * 0.44 : 0.3;
-    ctx.strokeStyle = '#9e4c42'; ctx.lineWidth = hit > 0 ? 7 : 3;
-    const inset = 3;
-    const reach = Math.min(52, h * 0.12);
-    // Edge brackets convey injury without covering enemies, aim or pickups.
-    for (const side of [-1, 1]) {
-      const x = side < 0 ? inset : w - inset;
-      const innerX = x - side * reach;
-      ctx.beginPath(); ctx.moveTo(innerX, 25); ctx.lineTo(x, 25); ctx.lineTo(x, 25 + reach); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(innerX, h - inset); ctx.lineTo(x, h - inset); ctx.lineTo(x, h - inset - reach); ctx.stroke();
+    // Four short corner blooms show a hit without tinting the aiming area.
+    for (const [x, y] of [[0, 0], [w, 0], [0, h], [w, h]]) {
+      const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+      gradient.addColorStop(0, `rgba(145, 25, 30, ${alpha})`);
+      gradient.addColorStop(.42, `rgba(126, 18, 24, ${alpha * .42})`);
+      gradient.addColorStop(1, 'rgba(126, 18, 24, 0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(Math.max(0, x - radius), Math.max(0, y - radius), radius, radius);
     }
     ctx.restore();
   }

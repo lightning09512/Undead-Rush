@@ -24,7 +24,7 @@ export function getTouchActionButtons(width: number, height: number, includeInte
     { id: 'grenade', x: fireX - small - 10, y: fireY - small - 10, size: small, label: 'LỰU', hint: 'G' },
     { id: 'dash', x: fireX - small - 10, y: fireY + size - small, size: small, label: 'LƯỚT', hint: 'SHIFT' },
   ];
-  if (includeInteract) buttons.push({ id: 'interact', x: fireX - small * 2 - 18, y: fireY - small - 10, size: small, label: 'DÙNG', hint: 'Q' });
+  if (includeInteract) buttons.push({ id: 'interact', x: fireX - small * 2 - 18, y: fireY - small - 10, size: small, label: 'DÙNG', hint: 'E' });
   return buttons;
 }
 

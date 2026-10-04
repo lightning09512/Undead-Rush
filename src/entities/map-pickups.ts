@@ -3,7 +3,9 @@
 import { Pool } from '../core/pool';
 import { Camera } from '../core/camera';
 import { MAP_ITEMS, ItemDef, MAP_CONFIG } from '../data/items';
+import { campaignSpawnPosition, getCampaignBounds } from './map-geometry';
 import { LightingRenderer } from '../graphics/lighting';
+import { drawGunArt } from '../graphics/campaign-menu-art';
 
 export interface MapPickup {
   x: number;
@@ -150,19 +152,20 @@ export class MapPickupSystem {
     this.pool = new Pool(createPickup, resetPickup, 20);
   }
 
-  update(dt: number, gameTime: number, playerX: number, playerY: number): MapPickup[] {
+  update(dt: number, gameTime: number, playerX: number, playerY: number, allowAmbient = true,
+    canCollect?: (pickup: MapPickup) => boolean): MapPickup[] {
     const collected: MapPickup[] = [];
 
     // Spawn random items periodically
     this.spawnTimer -= dt;
-    if (this.spawnTimer <= 0) {
+    if (allowAmbient && this.spawnTimer <= 0) {
       this.spawnTimer = 12 + Math.random() * 8; // every 12-20 seconds
       this.spawnRandomItem(gameTime, playerX, playerY);
     }
 
     // Airdrop
     this.airdropTimer -= dt;
-    if (this.airdropTimer <= 0 && gameTime > 60) {
+    if (allowAmbient && this.airdropTimer <= 0 && gameTime > 60) {
       this.airdropTimer = 45 + Math.random() * 30; // every 45-75 seconds
       this.spawnAirdrop(playerX, playerY);
     }
@@ -190,7 +193,7 @@ export class MapPickupSystem {
       const dx = playerX - p.x;
       const dy = playerY - p.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < p.size + 20) {
+      if (dist < p.size + 20 && (!canCollect || canCollect(p))) {
         collected.push(p);
         return true; // release
       }
@@ -222,8 +225,11 @@ export class MapPickupSystem {
     let y = playerY + Math.sin(angle) * dist;
 
     // Clamp to map
-    x = Math.max(50, Math.min(MAP_CONFIG.width - 50, x));
-    y = Math.max(50, Math.min(MAP_CONFIG.height - 50, y));
+    if (!getCampaignBounds()) {
+      x = Math.max(50, Math.min(MAP_CONFIG.width - 50, x));
+      y = Math.max(50, Math.min(MAP_CONFIG.height - 50, y));
+    }
+    [x, y] = campaignSpawnPosition(playerX, playerY, x, y, chosen.size);
 
     const p = this.pool.acquire();
     p.x = x;
@@ -245,8 +251,11 @@ export class MapPickupSystem {
     let x = playerX + Math.cos(angle) * dist;
     let y = playerY + Math.sin(angle) * dist;
 
-    x = Math.max(100, Math.min(MAP_CONFIG.width - 100, x));
-    y = Math.max(100, Math.min(MAP_CONFIG.height - 100, y));
+    if (!getCampaignBounds()) {
+      x = Math.max(100, Math.min(MAP_CONFIG.width - 100, x));
+      y = Math.max(100, Math.min(MAP_CONFIG.height - 100, y));
+    }
+    [x, y] = campaignSpawnPosition(playerX, playerY, x, y, 20);
 
     const p = this.pool.acquire();
     p.x = x;
@@ -264,20 +273,30 @@ export class MapPickupSystem {
     p.warningY = y - 200;
   }
 
-  spawnWeaponPickup(x: number, y: number, gunId: 'sg12' | 'smg9'): void {
+  spawnWeaponPickup(x: number, y: number, gunId: string, campaignReward = false): void {
     const p = this.pool.acquire();
     p.x = x;
     p.y = y;
     p.size = 20;
-    p.color = gunId === 'sg12' ? '#ff9933' : '#00e5ff';
-    p.glowColor = gunId === 'sg12' ? '#ff7700' : '#00b4d8';
+    p.color = campaignReward ? '#d6b375' : gunId === 'sg12' ? '#ff9933' : '#00e5ff';
+    p.glowColor = campaignReward ? '#ae8650' : gunId === 'sg12' ? '#ff7700' : '#00b4d8';
     p.itemId = `gun_${gunId}`;
     p.duration = 0;
     p.value = 0;
-    p.life = 180;
+    p.life = campaignReward ? Infinity : 180;
     p.wobble = Math.random() * Math.PI * 2;
     p.isAirdrop = false;
     p.airdropLanded = true;
+  }
+
+  spawnAmmoPickup(x: number, y: number, gunId: string, rounds: number): void {
+    const p = this.pool.acquire();
+    p.x = x; p.y = y; p.size = 17;
+    p.color = '#d3b16e'; p.glowColor = '#a87d41';
+    p.itemId = `ammo_${gunId}`;
+    p.duration = 0; p.value = rounds; p.life = 45;
+    p.wobble = Math.random() * Math.PI * 2;
+    p.isAirdrop = false; p.airdropLanded = true;
   }
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
@@ -325,25 +344,31 @@ export class MapPickupSystem {
 
       // ── Distinct weapon recovery cases ──
       if (p.itemId.startsWith('gun_')) {
+        const gunId = p.itemId.slice(4);
         const isSG = p.itemId === 'gun_sg12';
-        const labelText = isSG ? 'SG-12  ·  SÚNG SĂN' : 'SMG-9  ·  TIỂU LIÊN';
-        const beaconColor = isSG ? '#e17143' : '#71a7bc';
+        const campaignReward = p.life === Infinity;
+        const labelText = campaignReward ? `NHẶT SÚNG  ·  ${gunId.toUpperCase().replace('_', ' ')}`
+          : isSG ? 'SG-12  ·  SÚNG SĂN' : 'SMG-9  ·  TIỂU LIÊN';
+        const beaconColor = campaignReward ? '#d6b375' : isSG ? '#e17143' : '#71a7bc';
         const wobbleY = Math.sin(p.wobble) * 3;
 
         ctx.save();
         // Restrained beacon keeps the weapon findable without flooding the screen.
         const beamGrad = ctx.createLinearGradient(sx, sy, sx, sy - 105);
-        beamGrad.addColorStop(0, isSG ? 'rgba(225, 113, 67, 0.26)' : 'rgba(113, 167, 188, 0.24)');
+        beamGrad.addColorStop(0, campaignReward ? 'rgba(214, 179, 117, .32)' : isSG ? 'rgba(225, 113, 67, 0.26)' : 'rgba(113, 167, 188, 0.24)');
         beamGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
         ctx.fillStyle = beamGrad;
         ctx.fillRect(sx - 7, sy - 85, 14, 85);
-        ctx.strokeStyle = isSG ? 'rgba(240, 139, 78, 0.6)' : 'rgba(155, 210, 220, 0.6)';
+        ctx.strokeStyle = campaignReward ? 'rgba(241, 205, 142, .8)' : isSG ? 'rgba(240, 139, 78, 0.6)' : 'rgba(155, 210, 220, 0.6)';
         ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.ellipse(sx, sy + wobbleY + 7, 19, 7, 0, 0, Math.PI * 2); ctx.stroke();
         drawLootIcon(ctx, 'weapon_part', sx, sy + wobbleY, 17, beaconColor, p.wobble);
-        ctx.fillStyle = isSG ? '#d7b27b' : '#86afbb';
-        ctx.fillRect(sx - 8, sy + wobbleY - 1, 16, 3);
-        ctx.fillRect(sx - 2, sy + wobbleY - 7, 4, 15);
+        if (campaignReward) drawGunArt(ctx, sx - 17, sy - 9 + wobbleY, 34, 18, gunId);
+        else {
+          ctx.fillStyle = isSG ? '#d7b27b' : '#86afbb';
+          ctx.fillRect(sx - 8, sy + wobbleY - 1, 16, 3);
+          ctx.fillRect(sx - 2, sy + wobbleY - 7, 4, 15);
+        }
 
         ctx.font = `bold 10px 'Segoe UI', Arial, sans-serif`;
         const bw = ctx.measureText(labelText).width + 16;
@@ -354,6 +379,32 @@ export class MapPickupSystem {
         ctx.fillStyle = '#f1e6df';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(labelText, sx, sy - 26 + wobbleY);
+        ctx.restore();
+        continue;
+      }
+
+      if (p.itemId.startsWith('ammo_')) {
+        const gunId = p.itemId.slice(5);
+        const floatY = sy + Math.sin(p.wobble) * 2;
+        ctx.save(); ctx.translate(sx, floatY);
+        ctx.fillStyle = 'rgba(0,0,0,.5)';
+        ctx.beginPath(); ctx.ellipse(2, 13, 23, 7, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#423c2e'; ctx.strokeStyle = '#d1ad70'; ctx.lineWidth = 2;
+        ctx.fillRect(-20, -10, 40, 21); ctx.strokeRect(-20, -10, 40, 21);
+        ctx.fillStyle = '#aa8351'; ctx.fillRect(-20, -10, 40, 5);
+        ctx.fillStyle = '#dfc58c';
+        for (let i = -1; i <= 1; i++) {
+          const bx = i * 9;
+          ctx.fillRect(bx - 2, -5, 4, 11);
+          ctx.beginPath(); ctx.moveTo(bx - 2, -5); ctx.lineTo(bx, -9); ctx.lineTo(bx + 2, -5); ctx.fill();
+        }
+        ctx.fillStyle = '#f0e2be'; ctx.font = 'bold 9px Segoe UI, Arial';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        const label = `ĐẠN ${gunId.toUpperCase().replace('_', ' ')} +${p.value}`;
+        const labelWidth = ctx.measureText(label).width + 14;
+        ctx.fillStyle = 'rgba(12,17,18,.92)'; ctx.fillRect(-labelWidth / 2, -31, labelWidth, 15);
+        ctx.strokeStyle = '#b69660'; ctx.lineWidth = 1; ctx.strokeRect(-labelWidth / 2, -31, labelWidth, 15);
+        ctx.fillStyle = '#f0e2be'; ctx.fillText(label, 0, -23);
         ctx.restore();
         continue;
       }

@@ -6,20 +6,20 @@ export function drawBloodHandprint(ctx: CanvasRenderingContext2D, x: number, y: 
   ctx.translate(x, y);
   ctx.rotate(rotation);
   ctx.scale(scale, scale);
-  ctx.fillStyle = '#502c29';
+  ctx.fillStyle = '#67312f';
   ctx.beginPath();
   ctx.moveTo(-17, 12); ctx.bezierCurveTo(-27, -1, -26, -16, -12, -23);
   ctx.bezierCurveTo(0, -30, 24, -21, 24, -4); ctx.lineTo(14, 24);
   ctx.lineTo(-6, 29); ctx.closePath(); ctx.fill();
   ctx.lineCap = 'round';
-  ctx.strokeStyle = '#502c29';
+  ctx.strokeStyle = '#67312f';
   ctx.lineWidth = 8;
   const fingers = [[-19, -10, -33, -39], [-10, -20, -14, -57], [2, -22, 3, -65], [13, -16, 20, -53], [21, -4, 40, -26]];
   for (const [sx, sy, ex, ey] of fingers) {
     ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
   }
   ctx.lineWidth = 2;
-  ctx.strokeStyle = '#4a2826';
+  ctx.strokeStyle = '#522725';
   for (let i = 0; i < 7; i++) {
     ctx.beginPath(); ctx.moveTo(-12 + i * 5, 18); ctx.lineTo(-11 + i * 5, 42 + (i % 3) * 11); ctx.stroke();
   }
@@ -29,14 +29,14 @@ export function drawBloodHandprint(ctx: CanvasRenderingContext2D, x: number, y: 
 /** Scratches and stains stay at the border, leaving the content area clean. */
 export function drawWornPanel(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, bloody = false): void {
   ctx.save();
-  ctx.fillStyle = '#192125';
+  ctx.fillStyle = C.panel;
   ctx.strokeStyle = C.border;
   ctx.lineWidth = 1;
   ctx.beginPath(); ctx.roundRect(x, y, w, h, 5); ctx.fill(); ctx.stroke();
   ctx.clip();
-  ctx.fillStyle = '#263137';
+  ctx.fillStyle = C.panelRaised;
   ctx.fillRect(x + 1, y + 1, w - 2, 3);
-  ctx.fillStyle = '#101619';
+  ctx.fillStyle = C.black;
   ctx.fillRect(x + 1, y + h - 6, w - 2, 5);
   ctx.lineWidth = 1;
   for (let i = 0; i < 17; i++) {
@@ -46,7 +46,7 @@ export function drawWornPanel(ctx: CanvasRenderingContext2D, x: number, y: numbe
     ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + 5 + i % 13, sy - 2); ctx.stroke();
   }
   if (bloody) {
-    ctx.fillStyle = '#4d2b28';
+    ctx.fillStyle = '#733633';
     ctx.beginPath();
     ctx.moveTo(x + w - 58, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + 37);
     ctx.lineTo(x + w - 12, y + 19); ctx.lineTo(x + w - 24, y + 28);

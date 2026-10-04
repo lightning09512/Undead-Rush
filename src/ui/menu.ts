@@ -6,7 +6,7 @@ import { UI_PALETTE as C } from './palette';
 import { STAGES } from '../data/meta';
 import { createQuarantineBackdrop, drawBloodHandprint, drawWornPanel } from './horror-texture';
 
-export type MenuScreen = 'main' | 'playing' | 'paused' | 'gameover' | 'levelup' | 'stage_complete' | 'hunter_profile' | 'tutorial';
+export type MenuScreen = 'main' | 'campaign' | 'playing' | 'paused' | 'gameover' | 'levelup' | 'stage_complete' | 'hunter_profile' | 'tutorial';
 
 export class MenuUI {
   currentScreen: MenuScreen = 'main';
@@ -27,6 +27,17 @@ export class MenuUI {
   setPointer(x: number, y: number): void {
     this.pointerX = x;
     this.pointerY = y;
+  }
+
+  private drawStaticBackdrop(ctx: CanvasRenderingContext2D, w: number, h: number, shade = 0): void {
+    if (!this.backdrop || this.backdrop.width !== Math.ceil(w) || this.backdrop.height !== Math.ceil(h)) {
+      this.backdrop = createQuarantineBackdrop(w, h);
+    }
+    ctx.drawImage(this.backdrop, 0, 0, w, h);
+    if (shade > 0) {
+      ctx.fillStyle = `rgba(4, 7, 9, ${shade})`;
+      ctx.fillRect(0, 0, w, h);
+    }
   }
 
   /** The same geometry is used for drawing and clicking, including short landscape. */
@@ -208,10 +219,7 @@ export class MenuUI {
   }
 
   private drawMainMenu(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
-    if (!this.backdrop || this.backdrop.width !== Math.ceil(w) || this.backdrop.height !== Math.ceil(h)) {
-      this.backdrop = createQuarantineBackdrop(w, h);
-    }
-    ctx.drawImage(this.backdrop, 0, 0, w, h);
+    this.drawStaticBackdrop(ctx, w, h);
     const l = this.mainLayout(w, h);
     const { x, y, cardW, cardH, titleX } = l;
     ctx.save();
@@ -242,7 +250,7 @@ export class MenuUI {
     }
     const buttons = [
       ['SINH TỒN', 'BẮT ĐẦU', C.cyan],
-      ['CHẾ ĐỘ THEO MÀN', '', C.textMuted],
+      ['CHIẾN DỊCH', '10 MÀN', C.textMuted],
       ['CỬA HÀNG NÂNG CẤP', '', C.amber],
       ['HỒ SƠ THỢ SĂN', '', C.textSoft],
       ['HƯỚNG DẪN', '', C.textSoft],
@@ -273,7 +281,7 @@ export class MenuUI {
   }
 
   private drawPause(ctx: CanvasRenderingContext2D, w: number, h: number): void {
-    ctx.fillStyle = 'rgba(7, 12, 15, 0.88)'; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(5, 8, 10, 0.78)'; ctx.fillRect(0, 0, w, h);
     const pw = Math.min(350, w - 32); const ph = Math.min(304, h - 24);
     const px = (w - pw) / 2; const py = h / 2 - 134;
     drawWornPanel(ctx, px, py, pw, ph, true);
@@ -290,7 +298,7 @@ export class MenuUI {
   }
 
   private drawGameOver(ctx: CanvasRenderingContext2D, w: number, h: number): void {
-    ctx.fillStyle = 'rgba(7, 10, 12, 0.95)'; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(7, 9, 11, 0.82)'; ctx.fillRect(0, 0, w, h);
     const l = this.resultLayout(w, h);
     const { x, y, panelW, panelH } = l;
     // The marks frame the report; they do not obscure values or buttons.
@@ -329,30 +337,29 @@ export class MenuUI {
     this.drawFieldButton(ctx, l.buttonX, l.buttonY + l.gap * 2, l.buttonW, l.buttonH, 'HỒI SINH', C.health, false, 'QUẢNG CÁO');
   }
   private drawStageComplete(ctx: CanvasRenderingContext2D, w: number, h: number): void {
-    ctx.fillStyle = 'rgba(12, 5, 8, 0.9)';
-    ctx.fillRect(0, 0, w, h);
-    this.drawBloodAtmosphere(ctx, w, h, 0.68);
+    this.drawStaticBackdrop(ctx, w, h, 0.35);
+    const panelW = Math.min(520, w - 32);
+    const panelH = Math.min(400, h * 0.58);
+    drawWornPanel(ctx, (w - panelW) / 2, Math.max(12, h * 0.04), panelW, panelH, true);
+    this.drawBloodAtmosphere(ctx, w, h, 0.34);
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    ctx.shadowColor = '#a61b27';
-    ctx.shadowBlur = 25;
-    ctx.fillStyle = '#e5c7c7';
-    ctx.font = `bold ${Math.min(48, w * 0.07)}px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText('STAGE COMPLETE!', w / 2, h * 0.15);
-    ctx.shadowBlur = 0;
+    ctx.fillStyle = C.text;
+    ctx.font = `900 ${Math.min(38, panelW * 0.085)}px 'Arial Black', Impact, sans-serif`;
+    ctx.fillText('MÀN ĐÃ HOÀN THÀNH', w / 2, h * 0.15, panelW - 42);
 
     const minutes = Math.floor(this.finalTime / 60);
     const seconds = Math.floor(this.finalTime % 60);
 
-    ctx.fillStyle = '#aaaacc';
+    ctx.fillStyle = C.textSoft;
     ctx.font = `${Math.min(17, Math.max(13, w * 0.04))}px 'Segoe UI', Arial, sans-serif`;
     ctx.fillText(`⏱ Time: ${minutes}m ${seconds}s`, w / 2, h * 0.30);
     ctx.fillText(`💀 Kills: ${this.finalKills}`, w / 2, h * 0.36);
     ctx.fillText(`⭐ Level: ${this.finalLevel}`, w / 2, h * 0.42);
 
-    ctx.fillStyle = '#ffdd44';
+    ctx.fillStyle = C.amberBright;
     ctx.font = `bold ${Math.min(20, Math.max(14, w * 0.045))}px 'Segoe UI', Arial, sans-serif`;
     ctx.fillText(`💰 +${this.finalGold} Gold`, w / 2, h * 0.52);
 
@@ -360,12 +367,12 @@ export class MenuUI {
     const btnH = 45;
     const bx = (w - btnW) / 2;
 
-    this.drawButton(ctx, bx, h * 0.65, btnW, btnH, '➡ MÀN TIẾP THEO', C.cyan);
-    this.drawButton(ctx, bx, h * 0.73, btnW, btnH, '🏠 MENU CHÍNH', '#222');
+    this.drawFieldButton(ctx, bx, h * 0.65, btnW, btnH, 'MÀN TIẾP THEO', C.cyan, true);
+    this.drawFieldButton(ctx, bx, h * 0.73, btnW, btnH, 'MENU CHÍNH', C.dangerBright);
   }
 
   private drawHunterProfile(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
-    ctx.fillStyle = C.background; ctx.fillRect(0, 0, w, h);
+    this.drawStaticBackdrop(ctx, w, h, 0.3);
     const panelW = Math.min(620, w - 32);
     const panelH = Math.min(520, h - 120);
     const x = (w - panelW) / 2, y = Math.max(58, (h - panelH - 66) / 2);
@@ -398,7 +405,7 @@ export class MenuUI {
   }
 
   private drawTutorial(ctx: CanvasRenderingContext2D, w: number, h: number): void {
-    ctx.fillStyle = C.background; ctx.fillRect(0, 0, w, h);
+    this.drawStaticBackdrop(ctx, w, h, 0.3);
     const landscape = h < 500 && w >= 620;
     const panelW = Math.min(760, w - 32);
     const panelH = Math.min(600, h - 120);
