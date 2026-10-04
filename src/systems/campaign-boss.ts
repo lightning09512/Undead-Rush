@@ -37,7 +37,8 @@ export class CampaignBossDirector {
   forceNextAttack(kind:CampaignAttackKind):void { this.forcedMove=kind; }
 
   update(dt: number, stage: StageDef, boss: Zombie | undefined, playerX: number, playerY: number,
-    onSummon?: () => void, onAction?: (move:CampaignAttackDef,boss:Zombie,angle:number)=>void): number {
+    onSummon?: () => void, onAction?: (move:CampaignAttackDef,boss:Zombie,angle:number)=>void,
+    speedMultiplier = 1): number {
     if (!boss || boss.hp <= 0) { this.phase = 'approach'; this.attack = null; return 0; }
     const moves = campaignMoves(stage.id);
     if (!moves.length) return 0;
@@ -62,7 +63,7 @@ export class CampaignBossDirector {
     }
 
     if (this.phase === 'approach') {
-      boss.speed = this.chaseSpeed(stage.id);
+      boss.speed = this.chaseSpeed(stage.id) * speedMultiplier;
       boss.campaignAttackProgress=0;
       this.cooldown -= dt;
       if (this.cooldown <= 0) {
@@ -100,7 +101,7 @@ export class CampaignBossDirector {
     if (this.phase === 'active') {
       boss.visualWindup = 1;
       boss.specialAngle=this.angle;boss.facingAngle=this.angle;
-      const duration = this.attackDuration(move, stage.id);
+      const duration = this.attackDuration(move, stage.id, speedMultiplier);
       if (move.kind === 'fan' && this.phaseTime >= this.nextFanBurstAt && this.phaseTime < duration - .08) {
         // Each marked fan is a real volley of moving, collidable projectiles.
         // A short interval makes the attack feel sustained without a single
@@ -115,7 +116,7 @@ export class CampaignBossDirector {
       const relativeAngle = Math.atan2(dy, dx) - this.angle;
       const wrapped = Math.atan2(Math.sin(relativeAngle), Math.cos(relativeAngle));
       if (move.kind === 'charge') {
-        const step = this.chaseSpeed(stage.id) * 5 * dt;
+        const step = this.chaseSpeed(stage.id) * speedMultiplier * 5 * dt;
         this.chargeTravel = Math.min(move.reach, this.chargeTravel + step);
         const nextX = this.ox + Math.cos(this.angle) * this.chargeTravel;
         const nextY = this.oy + Math.sin(this.angle) * this.chargeTravel;
@@ -194,8 +195,8 @@ export class CampaignBossDirector {
 
   private chaseSpeed(stageId: number): number { return Math.max(38, 52 - stageId) * 3; }
 
-  private attackDuration(move: CampaignAttackDef, stageId: number): number {
-    if (move.kind === 'charge') return Math.max(.8, move.reach / (this.chaseSpeed(stageId) * 5));
+  private attackDuration(move: CampaignAttackDef, stageId: number, speedMultiplier: number): number {
+    if (move.kind === 'charge') return Math.max(.8, move.reach / (this.chaseSpeed(stageId) * speedMultiplier * 5));
     if (move.kind === 'stomp' || move.kind === 'slam') return .68;
     if (move.kind === 'ring') return .98;
     if (move.kind === 'summon') return .78;

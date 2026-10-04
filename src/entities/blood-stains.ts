@@ -9,12 +9,23 @@ interface BloodStain {
   variant: number;
 }
 
+interface BloodCell {
+  stains: BloodStain[];
+  canvas?: HTMLCanvasElement;
+  drawnCount: number;
+}
+
 /** Permanent cached floor pools left at each defeated mob's death position. */
 export class BloodStains {
   private static readonly CELL_SIZE = 512;
-  private static readonly MAX_STAIN_SIZE = 280;
+  private static readonly STAIN_PADDING = 196;
+  private static readonly TILE_SIZE = BloodStains.CELL_SIZE + BloodStains.STAIN_PADDING * 2;
+  private static readonly CACHE_SCALE = .5;
+  private static readonly MAX_CACHED_CELLS = 24;
   private readonly variants: HTMLCanvasElement[] = [];
-  private readonly cells = new Map<string, BloodStain[]>();
+  private readonly cells = new Map<string, BloodCell>();
+  /** Insertion order is the LRU order; only the current area stays raster-cached. */
+  private readonly cachedCells = new Map<string, BloodCell>();
 
   constructor() {
     // Reuse a small atlas of irregular pool shapes so permanent stains do not
@@ -44,42 +55,73 @@ export class BloodStains {
     const cellY = Math.floor(y / BloodStains.CELL_SIZE);
     const key = `${cellX}:${cellY}`;
     let cell = this.cells.get(key);
-    if (!cell) this.cells.set(key, cell = []);
-    cell.push(stain);
+    if (!cell) this.cells.set(key, cell = { stains: [], drawnCount: 0 });
+    cell.stains.push(stain);
   }
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
     const centerX = camera.x + camera.width / 2;
     const centerY = camera.y + camera.height / 2;
-    const halfW = camera.width / (camera.zoom * 2) + BloodStains.MAX_STAIN_SIZE;
-    const halfH = camera.height / (camera.zoom * 2) + BloodStains.MAX_STAIN_SIZE;
-    const minCellX = Math.floor((centerX - halfW) / BloodStains.CELL_SIZE);
-    const maxCellX = Math.floor((centerX + halfW) / BloodStains.CELL_SIZE);
-    const minCellY = Math.floor((centerY - halfH) / BloodStains.CELL_SIZE);
-    const maxCellY = Math.floor((centerY + halfH) / BloodStains.CELL_SIZE);
+    const halfW = camera.width / (camera.zoom * 2);
+    const halfH = camera.height / (camera.zoom * 2);
+    const maxCellX = Math.floor((centerX + halfW + BloodStains.STAIN_PADDING) / BloodStains.CELL_SIZE);
+    const maxCellY = Math.floor((centerY + halfH + BloodStains.STAIN_PADDING) / BloodStains.CELL_SIZE);
+    const paddedMinCellX = Math.floor((centerX - halfW - BloodStains.STAIN_PADDING) / BloodStains.CELL_SIZE);
+    const paddedMinCellY = Math.floor((centerY - halfH - BloodStains.STAIN_PADDING) / BloodStains.CELL_SIZE);
 
     ctx.save();
-    for (let cellY = minCellY; cellY <= maxCellY; cellY++) {
-      for (let cellX = minCellX; cellX <= maxCellX; cellX++) {
-        const cell = this.cells.get(`${cellX}:${cellY}`);
+    for (let cellY = paddedMinCellY; cellY <= maxCellY; cellY++) {
+      for (let cellX = paddedMinCellX; cellX <= maxCellX; cellX++) {
+        const key = `${cellX}:${cellY}`;
+        const cell = this.cells.get(key);
         if (!cell) continue;
-        for (const stain of cell) {
-          if (!camera.isVisible(stain.x, stain.y, BloodStains.MAX_STAIN_SIZE)) continue;
-          const [sx, sy] = camera.worldToScreen(stain.x, stain.y);
-          ctx.save();
-          ctx.globalAlpha = .92;
-          ctx.translate(sx, sy);
-          ctx.rotate(stain.rotation);
-          ctx.drawImage(this.variants[stain.variant], -stain.width / 2, -stain.height / 2, stain.width, stain.height);
-          ctx.restore();
-        }
+        const canvas = this.getCellCanvas(key, cell, cellX, cellY);
+        const [sx, sy] = camera.worldToScreen(cellX * BloodStains.CELL_SIZE - BloodStains.STAIN_PADDING,
+          cellY * BloodStains.CELL_SIZE - BloodStains.STAIN_PADDING);
+        ctx.drawImage(canvas, sx, sy, BloodStains.TILE_SIZE, BloodStains.TILE_SIZE);
       }
     }
     ctx.restore();
+    while (this.cachedCells.size > BloodStains.MAX_CACHED_CELLS) {
+      const oldest = this.cachedCells.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      const cell = this.cachedCells.get(oldest);
+      if (cell) { cell.canvas = undefined; cell.drawnCount = 0; }
+      this.cachedCells.delete(oldest);
+    }
   }
 
   clear(): void {
     this.cells.clear();
+    this.cachedCells.clear();
+  }
+
+  private getCellCanvas(key: string, cell: BloodCell, cellX: number, cellY: number): HTMLCanvasElement {
+    let canvas = cell.canvas;
+    if (!canvas) {
+      canvas = document.createElement('canvas');
+      canvas.width = canvas.height = Math.ceil(BloodStains.TILE_SIZE * BloodStains.CACHE_SCALE);
+      cell.canvas = canvas;
+      cell.drawnCount = 0;
+    }
+    const cacheCtx = canvas.getContext('2d')!;
+    cacheCtx.save();
+    cacheCtx.scale(BloodStains.CACHE_SCALE, BloodStains.CACHE_SCALE);
+    for (let i = cell.drawnCount; i < cell.stains.length; i++) {
+      const stain = cell.stains[i];
+      cacheCtx.save();
+      cacheCtx.globalAlpha = .92;
+      cacheCtx.translate(BloodStains.STAIN_PADDING + stain.x - cellX * BloodStains.CELL_SIZE,
+        BloodStains.STAIN_PADDING + stain.y - cellY * BloodStains.CELL_SIZE);
+      cacheCtx.rotate(stain.rotation);
+      cacheCtx.drawImage(this.variants[stain.variant], -stain.width / 2, -stain.height / 2, stain.width, stain.height);
+      cacheCtx.restore();
+    }
+    cell.drawnCount = cell.stains.length;
+    cacheCtx.restore();
+    this.cachedCells.delete(key);
+    this.cachedCells.set(key, cell);
+    return canvas;
   }
 
   private paint(canvas: HTMLCanvasElement, seed: number): void {

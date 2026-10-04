@@ -26,6 +26,7 @@ function resetParticle(p: Particle): void {
 }
 
 export class ParticleSystem {
+  private static readonly MAX_ACTIVE_PARTICLES = 600;
   pool: Pool<Particle>;
 
   constructor() {
@@ -34,6 +35,7 @@ export class ParticleSystem {
 
   emit(x: number, y: number, count: number, color: string, speed = 100, life = 0.5, size = 3): void {
     for (let i = 0; i < count; i++) {
+      if (this.pool.activeCount >= ParticleSystem.MAX_ACTIVE_PARTICLES) break;
       const p = this.pool.acquire();
       const angle = Math.random() * Math.PI * 2;
       const spd = speed * (0.5 + Math.random() * 0.5);
@@ -53,6 +55,7 @@ export class ParticleSystem {
   /** Directional burst */
   burst(x: number, y: number, count: number, color: string, angle: number, spread: number, speed = 120, life = 0.4): void {
     for (let i = 0; i < count; i++) {
+      if (this.pool.activeCount >= ParticleSystem.MAX_ACTIVE_PARTICLES) break;
       const p = this.pool.acquire();
       const a = angle + (Math.random() - 0.5) * spread;
       const spd = speed * (0.3 + Math.random() * 0.7);

@@ -1,4 +1,5 @@
 // ─── Save System: localStorage persistence ───
+import { UPGRADES } from '../data/upgrades';
 
 export interface SaveData {
   // Best scores
@@ -43,12 +44,14 @@ export interface CampaignProgress {
   ammoPacks: number;
   medKits: number;
   cardLevels: Record<string, number>;
+  /** Bumped when Campaign's purchasable upgrade set changes. */
+  upgradeSystemVersion: number;
 }
 
 const newCampaign = (): CampaignProgress => ({
   credits: 160, selectedCharacter: 'survivor', unlockedCharacters: ['survivor'],
   unlockedStage: 1, lastStage: 1, hasCheckpoint: false, completedStages: [], ownedGuns: ['p9'], equippedGun: 'p9',
-  gunLevels: {}, ammoPacks: 0, medKits: 0, cardLevels: {},
+  gunLevels: {}, ammoPacks: 0, medKits: 0, cardLevels: {}, upgradeSystemVersion: 1,
 });
 
 const SAVE_KEY = 'undead_rush_save';
@@ -89,16 +92,34 @@ export class SaveSystem {
         const legacyStages = parsed.campaign ? [] : (parsed.completedStages ?? []);
         const completedCampaignStages = parsed.campaign?.completedStages ?? legacyStages;
         const unlockedStage = parsed.campaign?.unlockedStage ?? Math.min(10, Math.max(1, (parsed.stagesCompleted ?? 0) + 1));
+        const savedCampaign = parsed.campaign;
+        const needsUpgradeMigration = (savedCampaign?.upgradeSystemVersion ?? 0) < 1;
+        const campaign = { ...newCampaign(), ...(savedCampaign ?? {}),
+          gunLevels: { ...(savedCampaign?.gunLevels ?? {}) },
+          cardLevels: { ...(savedCampaign?.cardLevels ?? {}) },
+          ownedGuns: [...new Set([...(savedCampaign?.ownedGuns ?? []), 'p9'])],
+          completedStages: [...completedCampaignStages],
+          unlockedStage,
+          lastStage: savedCampaign?.lastStage ?? unlockedStage,
+          hasCheckpoint: savedCampaign?.hasCheckpoint ?? (unlockedStage > 1 || completedCampaignStages.length > 0),
+          unlockedCharacters: [...(savedCampaign?.unlockedCharacters ?? ['survivor'])] };
+        if (needsUpgradeMigration) {
+          let refund = 0;
+          for (const upgrade of UPGRADES) {
+            if (upgrade.id === 'drone') continue;
+            const levels = Math.min(upgrade.maxLevel, Math.max(0, Math.floor(campaign.cardLevels[upgrade.id] ?? 0)));
+            for (let level = 0; level < levels; level++)
+              refund += (upgrade.category === 'weapon' ? 115 : 85) + level * 65;
+          }
+          const drone = UPGRADES.find(upgrade => upgrade.id === 'drone')!;
+          const droneLevel = Math.min(drone.maxLevel, Math.max(0, Math.floor(campaign.cardLevels.drone ?? 0)));
+          campaign.credits += refund;
+          campaign.cardLevels = droneLevel > 0 ? { drone: droneLevel } : {};
+          campaign.upgradeSystemVersion = 1;
+        }
         this.data = { ...DEFAULT_SAVE, ...parsed,
-          campaign: { ...newCampaign(), ...(parsed.campaign ?? {}),
-            gunLevels: { ...(parsed.campaign?.gunLevels ?? {}) },
-            cardLevels: { ...(parsed.campaign?.cardLevels ?? {}) },
-            ownedGuns: [...new Set([...(parsed.campaign?.ownedGuns ?? []), 'p9'])],
-            completedStages: [...completedCampaignStages],
-            unlockedStage,
-            lastStage: parsed.campaign?.lastStage ?? unlockedStage,
-            hasCheckpoint: parsed.campaign?.hasCheckpoint ?? (unlockedStage > 1 || completedCampaignStages.length > 0),
-            unlockedCharacters: [...(parsed.campaign?.unlockedCharacters ?? ['survivor'])] } };
+          campaign };
+        if (needsUpgradeMigration) this.save();
       }
     } catch {
       // localStorage might be blocked

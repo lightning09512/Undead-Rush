@@ -296,10 +296,19 @@ export class MapPickupSystem {
 
   spawnAmmoPickup(x: number, y: number, gunId: string, rounds: number): void {
     const p = this.pool.acquire();
-    p.x = x; p.y = y; p.size = 17;
+    p.x = x; p.y = y; p.size = 10;
     p.color = '#d3b16e'; p.glowColor = '#a87d41';
     p.itemId = `ammo_${gunId}`;
     p.duration = 0; p.value = rounds; p.life = 45;
+    p.wobble = Math.random() * Math.PI * 2;
+    p.isAirdrop = false; p.airdropLanded = true;
+  }
+
+  spawnHealthPickup(x: number, y: number, healing = 30): void {
+    const p = this.pool.acquire();
+    p.x = x; p.y = y; p.size = 10;
+    p.color = '#8fbd7b'; p.glowColor = '#4e8052';
+    p.itemId = 'health_pack'; p.duration = 0; p.value = healing; p.life = 45;
     p.wobble = Math.random() * Math.PI * 2;
     p.isAirdrop = false; p.airdropLanded = true;
   }
@@ -387,23 +396,24 @@ export class MapPickupSystem {
         const floatY = sy + Math.sin(p.wobble) * 2;
         ctx.save(); ctx.translate(sx, floatY);
         ctx.fillStyle = 'rgba(0,0,0,.5)';
-        ctx.beginPath(); ctx.ellipse(2, 13, 23, 7, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(1, 7, 12, 4, 0, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = '#423c2e'; ctx.strokeStyle = '#d1ad70'; ctx.lineWidth = 2;
-        ctx.fillRect(-20, -10, 40, 21); ctx.strokeRect(-20, -10, 40, 21);
-        ctx.fillStyle = '#aa8351'; ctx.fillRect(-20, -10, 40, 5);
+        ctx.fillRect(-9, -6, 18, 12); ctx.strokeRect(-9, -6, 18, 12);
+        ctx.fillStyle = '#aa8351'; ctx.fillRect(-9, -6, 18, 3);
         ctx.fillStyle = '#dfc58c';
         for (let i = -1; i <= 1; i++) {
-          const bx = i * 9;
-          ctx.fillRect(bx - 2, -5, 4, 11);
-          ctx.beginPath(); ctx.moveTo(bx - 2, -5); ctx.lineTo(bx, -9); ctx.lineTo(bx + 2, -5); ctx.fill();
+          const bx = i * 4;
+          ctx.fillRect(bx - 1, -2, 2, 6);
+          ctx.beginPath(); ctx.moveTo(bx - 1, -2); ctx.lineTo(bx, -5); ctx.lineTo(bx + 1, -2); ctx.fill();
         }
-        ctx.fillStyle = '#f0e2be'; ctx.font = 'bold 9px Segoe UI, Arial';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        const label = `ĐẠN ${gunId.toUpperCase().replace('_', ' ')} +${p.value}`;
-        const labelWidth = ctx.measureText(label).width + 14;
-        ctx.fillStyle = 'rgba(12,17,18,.92)'; ctx.fillRect(-labelWidth / 2, -31, labelWidth, 15);
-        ctx.strokeStyle = '#b69660'; ctx.lineWidth = 1; ctx.strokeRect(-labelWidth / 2, -31, labelWidth, 15);
-        ctx.fillStyle = '#f0e2be'; ctx.fillText(label, 0, -23);
+        const ammoName: Record<string, string> = {
+          p9: 'P9', ar7: 'AR7', smg9: 'SMG9', sg12: 'SG12', dmr55: 'DMR55',
+          bulldog: 'BULL', lmg6: 'LMG6', flamer8: 'FLAME', rpg4: 'RPG4', rail_lance: 'RAIL',
+        };
+        const label = `${ammoName[gunId] ?? gunId.toUpperCase()} +${p.value}`;
+        ctx.font = 'bold 7px Segoe UI, Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(12,17,18,.94)'; ctx.strokeText(label, 0, -11);
+        ctx.fillStyle = '#f0e2be'; ctx.fillText(label, 0, -11);
         ctx.restore();
         continue;
       }
@@ -414,7 +424,7 @@ export class MapPickupSystem {
       }
 
       const wobbleY = Math.sin(p.wobble) * 2.5;
-      const radius = Math.max(14, Math.min(19, p.size + 4));
+      const radius = p.itemId === 'health_pack' ? 9 : Math.max(14, Math.min(19, p.size + 4));
       const color = p.itemId === 'health_pack' ? '#d85855'
         : p.itemId === 'magnet' ? '#d38a56'
         : p.itemId === 'xp_chest' ? '#d4ad54'
@@ -424,12 +434,12 @@ export class MapPickupSystem {
         : p.itemId === 'bomb' ? '#d75a43'
         : p.itemId === 'airdrop' ? '#c2a366'
         : '#b77c9e';
-      LightingRenderer.get().drawGlow(ctx, sx, sy + wobbleY, radius * 2.15, p.glowColor, 0.32);
+      LightingRenderer.get().drawGlow(ctx, sx, sy + wobbleY, radius * (p.itemId === 'health_pack' ? 1.45 : 2.15), p.glowColor, 0.32);
       drawLootIcon(ctx, p.itemId, sx, sy + wobbleY, radius, color, p.wobble);
       ctx.globalAlpha = 1;
 
       const labels: Record<string, string> = {
-        health_pack: 'HỒI MÁU +30', magnet: 'NAM CHÂM', xp_chest: 'XP +100',
+        health_pack: `+${p.value}`, magnet: 'NAM CHÂM', xp_chest: 'XP +100',
         double_xp: 'XP ×2', speed_boost: 'TĂNG TỐC', shield: 'LÁ CHẮN',
         bomb: 'PHÁ HỦY', weapon_part: 'LINH KIỆN', airdrop: 'TIẾP TẾ',
       };
@@ -437,12 +447,13 @@ export class MapPickupSystem {
       ctx.save();
       ctx.font = `bold 9px 'Segoe UI', Arial, sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      const labelW = ctx.measureText(label).width + 12;
+      const labelW = ctx.measureText(label).width + (p.itemId === 'health_pack' ? 4 : 12);
       ctx.fillStyle = 'rgba(13, 11, 14, 0.88)';
       ctx.strokeStyle = `${color}aa`; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(sx - labelW / 2, sy + radius + 3 + wobbleY, labelW, 15, 4); ctx.fill(); ctx.stroke();
+      const labelY = p.itemId === 'health_pack' ? sy - radius - 7 + wobbleY : sy + radius + 3 + wobbleY;
+      ctx.beginPath(); ctx.roundRect(sx - labelW / 2, labelY, labelW, p.itemId === 'health_pack' ? 10 : 15, 4); ctx.fill(); ctx.stroke();
       ctx.fillStyle = '#f3e9e4';
-      ctx.fillText(label, sx, sy + radius + 10.5 + wobbleY);
+      ctx.fillText(label, sx, p.itemId === 'health_pack' ? labelY + 5 : labelY + 7.5);
       ctx.restore();
     }
   }

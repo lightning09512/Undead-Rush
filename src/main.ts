@@ -48,6 +48,7 @@ import { campaignSpawnPosition, isCampaignGateClosed, isCampaignWalkable, isInsi
 import { CampaignMapRenderer } from './graphics/campaign-map-renderer';
 import { CampaignTerrainRenderer } from './graphics/campaign-terrain';
 import { CampaignBossDirector } from './systems/campaign-boss';
+import { canDamageCampaignSpawnPortal } from './systems/campaign-portal-rules';
 import { CampaignResources } from './systems/campaign-resources';
 import { CampaignUI } from './ui/campaign-ui';
 import { createCampaignGunDefs } from './systems/gun-loadout';
@@ -128,8 +129,16 @@ let stageObjectiveIndex = 0;
 let stageBossSpawned = false;
 let stageObjectiveHoldTime = 0;
 let stageObjectiveHoldStarted = false;
-let stageObjectiveHp = 0;
 let stageBossSummonsSpawned = 0;
+let campaignBossAddsSpawned = 0;
+let campaignNestCharge: {
+  stageId: number;
+  pickupPoint: Point;
+  targetPoint: Point;
+  status: 'available' | 'carried' | 'planted' | 'destroyed' | 'cancelled';
+  fuseRemaining: number;
+  fuseDuration: number;
+} | null = null;
 let stageExitActive = false;
 let stageExitActivated = false;
 const campaignTriggeredZones = new Set<number>();
@@ -154,18 +163,23 @@ interface CampaignWaveQueueEntry {
   groupSize: number;
   waitingForClear: boolean;
   countsForGate: boolean;
+  supportOnly: boolean;
 }
 const campaignWaveQueue: CampaignWaveQueueEntry[] = [];
 let campaignPortalFlash: { zoneIndex: number; point: Point; timer: number } | null = null;
+let campaignBossPortals: { zoneIndex: number; points: Point[]; hp: number[]; maxHp: number } | null = null;
 let campaignWaveAlertText = '';
 let campaignWaveAlertTimer = 0;
 let campaignEncounterTriggered = false;
-let campaignHoldWaveTimer = 0;
 let campaignBossWaveTimer = 0;
 let campaignGunnerSoundCooldown = 0;
-const CAMPAIGN_HORDE_MULTIPLIER = 10;
-const CAMPAIGN_SPAWN_PRESSURE_MULTIPLIER = 3;
-const CAMPAIGN_ACTIVE_ZOMBIE_LIMIT = 180;
+const CAMPAIGN_SPAWN_PRESSURE_MULTIPLIER = 6;
+const CAMPAIGN_MOB_HP_MULTIPLIER = 1.15;
+const CAMPAIGN_ACTIVE_ZOMBIE_LIMIT = 120;
+const CAMPAIGN_BOSS_ACTIVE_ADD_LIMIT = 6;
+const CAMPAIGN_BOSS_ADD_TOTAL_LIMIT = 9;
+const CAMPAIGN_BOSS_NEST_HP_BASE = 600;
+const CAMPAIGN_BOSS_NEST_HP_PER_STAGE = 95;
 const CAMPAIGN_WAVE_WARNING_SECONDS = 1.65;
 const CAMPAIGN_WAVE_GROUP_BREAK = 1.6;
 const CAMPAIGN_MIN_PORTAL_DISTANCE = 300;
@@ -509,6 +523,7 @@ function updateGame(dt: number): void {
     }
   }
   if (gameMode === 'stage') updateCampaignObjective(dt);
+  if (gameMode === 'stage') updateCampaignNestCharge(dt);
 
   // ─── Camera ───
   camera.follow(player.x, player.y, input.mouseX, input.mouseY, dt);
@@ -682,48 +697,26 @@ function updateGame(dt: number): void {
 
   // ─── Bullet-Zombie Collisions ───
   bullets.pool.forEach((b: Bullet) => {
-    if (gameMode === 'stage' && !stageBossSpawned &&
-        (currentStageIndex === 9 || currentStageIndex === 8 && stageObjectiveIndex < 2)) {
-      const node = STAGES[currentStageIndex].objectiveNodes[stageObjectiveIndex];
-      if (node && Math.hypot(b.x - node.x, b.y - node.y) < 32) {
-        stageObjectiveHp -= b.damage;
-        particles.emit(node.x, node.y, 3, '#b45d4d', 55, .22, 2);
-        if (stageObjectiveHp <= 0) {
-          stageObjectiveIndex++;
-          stageObjectiveHp = 150 + currentStageIndex * 12 + stageObjectiveIndex * 30;
-          audio.objectiveComplete();
-          setCampaignGateState(stageObjectiveIndex, stageBossSpawned, bossKilledThisRun);
-        }
-        return true;
-      }
-    }
-    if (gameMode === 'stage') {
-      for (let waveIndex = 0; waveIndex < campaignWaveQueue.length; waveIndex++) {
-        const wave = campaignWaveQueue[waveIndex];
-        if (!wave.started || wave.remaining <= 0) continue;
-        for (let portalIndex = 0; portalIndex < wave.portalPoints.length; portalIndex++) {
-          if (wave.sealedPortals[portalIndex]) continue;
-          const point = wave.portalPoints[portalIndex];
+    if (gameMode === 'stage' && stageBossSpawned) {
+      const stage = STAGES[currentStageIndex];
+      const bossZoneIndex = (stage.layout?.zones.length ?? 0) - 1;
+      const portals = campaignBossPortals;
+      if (portals && portals.zoneIndex === bossZoneIndex) {
+        for (let portalIndex = 0; portalIndex < portals.points.length; portalIndex++) {
+          const point = portals.points[portalIndex];
+          if (portals.hp[portalIndex] <= 0 || !canDamageCampaignSpawnPortal(stageBossSpawned,
+              portals.zoneIndex, bossZoneIndex, isProtectedChargeTarget(stage, portals.zoneIndex, point))) continue;
           const dx = b.x - point.x, dy = b.y - point.y;
           const hitRadius = b.size + 46;
           if (dx * dx + dy * dy >= hitRadius * hitRadius) continue;
-          wave.portalHp[portalIndex] = Math.max(0, wave.portalHp[portalIndex] - b.damage);
-          particles.emit(point.x, point.y, 3, '#a23e3a', 38, .2, 2.2);
-          if (wave.portalHp[portalIndex] <= 0) {
-            wave.sealedPortals[portalIndex] = true;
-            campaignDestroyedPortals.add(campaignPortalKey(wave.zoneIndex, point));
-            particles.burst(point.x, point.y, 24, '#9b3938', Math.random() * Math.PI * 2, Math.PI * 2, 112, .42);
-            particles.emit(point.x, point.y, 10, '#443330', 54, .45, 4);
-            camera.shake(1.8, .15);
-            audio.explosion();
-            campaignWaveAlertText = wave.sealedPortals.every(Boolean) ? 'CÁC Ổ SPAWN ĐÃ BỊ PHÁ' : 'Ổ SPAWN ĐÃ BỊ PHÁ';
-            campaignWaveAlertTimer = 2.4;
-            if (campaignPortalFlash?.point === point) campaignPortalFlash = null;
-            if (wave.sealedPortals.every(Boolean)) {
-              campaignSealedSpawnZones.add(wave.zoneIndex);
-              campaignWaveQueue.splice(waveIndex, 1);
-            }
+          portals.hp[portalIndex] = Math.max(0, portals.hp[portalIndex] - b.damage);
+          for (const wave of campaignWaveQueue) {
+            if (wave.zoneIndex !== portals.zoneIndex) continue;
+            const waveIndex = wave.portalPoints.findIndex(candidate => candidate.x === point.x && candidate.y === point.y);
+            if (waveIndex >= 0) wave.portalHp[waveIndex] = portals.hp[portalIndex];
           }
+          particles.emit(point.x, point.y, 3, '#a23e3a', 38, .2, 2.2);
+          if (portals.hp[portalIndex] <= 0) destroyCampaignPortalAt(stage, portals.zoneIndex, point);
           return true;
         }
       }
@@ -1249,11 +1242,16 @@ function updateCampaignWaves(stage: typeof STAGES[number], dt: number): void {
     const bossZoneIndex = layout.zones.length - 1;
     const bossWaveQueued = campaignWaveQueue.some(wave => wave.zoneIndex === bossZoneIndex);
     const livingBossAdds = zombies.pool.getActive().filter(z => z.hp > 0 && z.campaignZoneIndex === bossZoneIndex && z.campaignBossId === null).length;
-    if (!bossWaveQueued && livingBossAdds < 6 && zombies.pool.activeCount < CAMPAIGN_ACTIVE_ZOMBIE_LIMIT) campaignBossWaveTimer -= dt;
+    const queuedBossAdds = campaignWaveQueue.filter(wave => wave.zoneIndex === bossZoneIndex && wave.supportOnly)
+      .reduce((sum, wave) => sum + wave.remaining, 0);
+    if (!bossWaveQueued && livingBossAdds < CAMPAIGN_BOSS_ACTIVE_ADD_LIMIT &&
+        !(campaignBossPortals?.zoneIndex === bossZoneIndex && campaignBossPortals.hp.every(hp => hp <= 0)) &&
+        campaignBossAddsSpawned + queuedBossAdds < CAMPAIGN_BOSS_ADD_TOTAL_LIMIT &&
+        zombies.pool.activeCount < CAMPAIGN_ACTIVE_ZOMBIE_LIMIT) campaignBossWaveTimer -= dt;
     if (campaignBossWaveTimer <= 0 && !bossWaveQueued) {
       campaignBossWaveTimer = Math.max(5.5, 8 - stage.id * .22);
-      // Small, capped support groups preserve space to read the boss's attacks.
-      if (livingBossAdds < 6) spawnCampaignZoneWave(stage, bossZoneIndex, 1, true, true);
+      if (livingBossAdds < CAMPAIGN_BOSS_ACTIVE_ADD_LIMIT && campaignBossAddsSpawned + queuedBossAdds < CAMPAIGN_BOSS_ADD_TOTAL_LIMIT)
+        spawnCampaignZoneWave(stage, bossZoneIndex, 1, true, true);
     }
     return;
   }
@@ -1265,13 +1263,6 @@ function updateCampaignWaves(stage: typeof STAGES[number], dt: number): void {
     else if (spawnCampaignZoneWave(stage, zoneIndex, zone.waveSize)) {
       campaignTriggeredZones.add(zoneIndex);
       campaignEncounterTriggered = true;
-    }
-  }
-  if (zone.role === 'hold' && stage.objectiveHoldAt === stageObjectiveIndex && !campaignSealedSpawnZones.has(zoneIndex)) {
-    if (!isCampaignWaveBusy(zoneIndex)) campaignHoldWaveTimer -= dt;
-    if (campaignHoldWaveTimer <= 0 && !isCampaignWaveBusy(zoneIndex)) {
-      campaignHoldWaveTimer = 4.25;
-      spawnCampaignZoneWave(stage, zoneIndex, 2);
     }
   }
 }
@@ -1287,19 +1278,35 @@ function spawnCampaignZoneWave(stage: typeof STAGES[number], zoneIndex: number, 
     roster = roster.filter(type => readableSupport.has(type.id));
   }
   if (!roster.length) return false;
-  const portalPoints = chooseCampaignPortalPoints(stage, zoneIndex, 4);
+  const bossZoneIndex = (stage.layout?.zones.length ?? 0) - 1;
+  const isBossSupport = stageBossSpawned && zoneIndex === bossZoneIndex && campaignBossPortals?.zoneIndex === zoneIndex;
+  const portalPoints = isBossSupport
+    ? campaignBossPortals!.points
+    : chooseCampaignPortalPoints(stage, zoneIndex, 4);
   if (!portalPoints.length) return false;
-  // Keep the opening chapter's authored density, then raise Campaign hordes by 40% from stage 2 onward.
-  const stageHordeMultiplier = stage.id === 1 ? CAMPAIGN_HORDE_MULTIPLIER : Math.round(CAMPAIGN_HORDE_MULTIPLIER * 1.4);
-  const hordeMultiplier = stageHordeMultiplier * CAMPAIGN_SPAWN_PRESSURE_MULTIPLIER;
-  const groupSize = supportOnly ? 3 : Math.max(5, Math.min(10, 5 + Math.floor(stage.id / 2))) * CAMPAIGN_SPAWN_PRESSURE_MULTIPLIER;
-  const total = supportOnly ? 3 : count * hordeMultiplier;
-  const portalMaxHp = 1_200 + stage.id * 220;
-  campaignWaveQueue.push({ zoneIndex, roster, portalPoints, sealedPortals: portalPoints.map(() => false),
-    portalHp: portalPoints.map(() => portalMaxHp), portalMaxHp, remaining: total, total, spawned: 0, portalCursor: 0,
+  const bossPortalState = isBossSupport ? campaignBossPortals : null;
+  if (bossPortalState && bossPortalState.hp.every(hp => hp <= 0)) return false;
+  // Use one authored density multiplier: the old 10x and 3x settings stacked
+  // into 30–42x and made each finite wave look endless. Later stages get a
+  // small additional bump without multiplying the pressure setting again.
+  const hordeMultiplier = stage.id === 1
+    ? CAMPAIGN_SPAWN_PRESSURE_MULTIPLIER
+    : Math.round(CAMPAIGN_SPAWN_PRESSURE_MULTIPLIER * 1.4);
+  const queuedBossAdds = campaignWaveQueue.filter(wave => wave.zoneIndex === zoneIndex && wave.supportOnly)
+    .reduce((sum, wave) => sum + wave.remaining, 0);
+  const total = supportOnly ? Math.min(3, CAMPAIGN_BOSS_ADD_TOTAL_LIMIT - campaignBossAddsSpawned - queuedBossAdds)
+    : count * hordeMultiplier;
+  if (total <= 0) return false;
+  // Keep the original number of clear-and-pause groups while doubling the
+  // enemies inside each group alongside the doubled wave budget.
+  const groupSize = supportOnly ? total : 2 * Math.max(5, Math.min(10, 5 + Math.floor(stage.id / 2)));
+  const portalMaxHp = CAMPAIGN_BOSS_NEST_HP_BASE + stage.id * CAMPAIGN_BOSS_NEST_HP_PER_STAGE;
+  campaignWaveQueue.push({ zoneIndex, roster, portalPoints,
+    portalHp: bossPortalState ? [...bossPortalState.hp] : portalPoints.map(() => portalMaxHp), portalMaxHp, remaining: total, total, spawned: 0, portalCursor: 0,
+    sealedPortals: portalPoints.map((_, index) => bossPortalState ? bossPortalState.hp[index] <= 0 : false),
     started: false, warningTimer: 0, spawnTimer: 0, groupSpawned: 0,
     groupSize, waitingForClear: false,
-    countsForGate: !useStageRoster && zone.waveTrigger });
+    countsForGate: !useStageRoster && zone.waveTrigger, supportOnly });
   if (!useStageRoster && zone.waveTrigger) campaignActiveWaveZones.add(zoneIndex);
   return true;
 }
@@ -1326,6 +1333,46 @@ function campaignPortalKey(zoneIndex: number, point: Point): string {
   return `${zoneIndex}:${Math.round(point.x)}:${Math.round(point.y)}`;
 }
 
+function isProtectedChargeTarget(stage: typeof STAGES[number], zoneIndex: number, point: Point): boolean {
+  return stageBossSpawned && campaignNestCharge?.stageId === stage.id &&
+    campaignNestCharge.status !== 'destroyed' && campaignNestCharge.status !== 'cancelled' &&
+    zoneIndex === (stage.layout?.zones.length ?? 0) - 1 &&
+    point.x === campaignNestCharge.targetPoint.x && point.y === campaignNestCharge.targetPoint.y;
+}
+
+function destroyCampaignPortalAt(stage: typeof STAGES[number], zoneIndex: number, point: Point): void {
+  const bossZoneIndex = (stage.layout?.zones.length ?? 0) - 1;
+  if (zoneIndex !== bossZoneIndex || !campaignBossPortals || campaignBossPortals.zoneIndex !== zoneIndex) return;
+  const key = campaignPortalKey(zoneIndex, point);
+  if (campaignDestroyedPortals.has(key)) return;
+  const portalIndex = campaignBossPortals.points.findIndex(candidate => candidate.x === point.x && candidate.y === point.y);
+  if (portalIndex < 0) return;
+  campaignDestroyedPortals.add(key);
+  campaignBossPortals.hp[portalIndex] = 0;
+  if (campaignNestCharge?.stageId === stage.id && campaignNestCharge.targetPoint.x === point.x && campaignNestCharge.targetPoint.y === point.y)
+    campaignNestCharge.status = 'destroyed';
+
+  const allNestsDestroyed = campaignBossPortals.hp.every(hp => hp <= 0);
+  for (let waveIndex = campaignWaveQueue.length - 1; waveIndex >= 0; waveIndex--) {
+    const wave = campaignWaveQueue[waveIndex];
+    if (wave.zoneIndex !== zoneIndex) continue;
+    const index = wave.portalPoints.findIndex(candidate => candidate.x === point.x && candidate.y === point.y);
+    if (index >= 0) { wave.sealedPortals[index] = true; wave.portalHp[index] = 0; }
+    // Keep each nest's damage persistent across boss support waves. If every
+    // boss-room nest is gone, discard pending spawns but leave existing mobs.
+    if (allNestsDestroyed) campaignWaveQueue.splice(waveIndex, 1);
+  }
+  if (allNestsDestroyed) campaignSealedSpawnZones.add(zoneIndex);
+
+  particles.burst(point.x, point.y, 24, '#9b3938', Math.random() * Math.PI * 2, Math.PI * 2, 112, .42);
+  particles.emit(point.x, point.y, 10, '#443330', 54, .45, 4);
+  camera.shake(1.8, .15);
+  audio.explosion();
+  campaignWaveAlertText = 'Ổ SPAWN ĐÃ BỊ PHÁ';
+  campaignWaveAlertTimer = 2.4;
+  if (campaignPortalFlash?.point.x === point.x && campaignPortalFlash.point.y === point.y) campaignPortalFlash = null;
+}
+
 function campaignPointInsideBuildingFootprint(stage: typeof STAGES[number], x: number, y: number, radius: number): boolean {
   return stage.buildings.some(building => Math.abs(x - building.x) < building.halfWidth + radius &&
     Math.abs(y - building.y) < building.halfHeight + radius);
@@ -1339,15 +1386,22 @@ function isCampaignPortalPointValid(stage: typeof STAGES[number], zone: Campaign
   return true;
 }
 
-function chooseCampaignPortalPoints(stage: typeof STAGES[number], zoneIndex: number, maxPoints: number): Point[] {
+function chooseCampaignPortalPoints(stage: typeof STAGES[number], zoneIndex: number, maxPoints: number, allowNearPlayer = false): Point[] {
   const zone = stage.layout?.zones[zoneIndex];
   if (!zone) return [];
+  const minimumDistance = allowNearPlayer ? 0 : Math.max(CAMPAIGN_MIN_PORTAL_DISTANCE, player.size + 120);
   const candidates = zone.spawnPoints.filter(point => !campaignDestroyedPortals.has(campaignPortalKey(zoneIndex, point)) &&
     isCampaignPortalPointValid(stage, zone, point.x, point.y, 44) &&
-    Math.hypot(point.x - player.x, point.y - player.y) >= Math.max(CAMPAIGN_MIN_PORTAL_DISTANCE, player.size + 120));
+    Math.hypot(point.x - player.x, point.y - player.y) >= minimumDistance);
   // Prefer points on different sides of the room, with the farthest portal first.
   candidates.sort((a, b) => Math.hypot(b.x - player.x, b.y - player.y) - Math.hypot(a.x - player.x, a.y - player.y));
-  const chosen: Point[] = [];
+  const targetPointIndex = stage.bossRoomNestCharge?.targetSpawnPointIndex;
+  const targetPoint = zoneIndex === (stage.layout?.zones.length ?? 0) - 1 && campaignNestCharge?.stageId === stage.id &&
+    campaignNestCharge.status !== 'destroyed' && campaignNestCharge.status !== 'cancelled' && targetPointIndex !== undefined
+    ? zone.spawnPoints[targetPointIndex] : undefined;
+  const reservedTarget = targetPoint && candidates.find(point => point.x === targetPoint.x && point.y === targetPoint.y);
+  const chosen: Point[] = reservedTarget ? [reservedTarget] : [];
+  if (reservedTarget) candidates.splice(candidates.indexOf(reservedTarget), 1);
   while (candidates.length && chosen.length < maxPoints) {
     let bestIndex = 0, bestScore = -Infinity;
     for (let i = 0; i < candidates.length; i++) {
@@ -1364,6 +1418,8 @@ function chooseCampaignPortalPoints(stage: typeof STAGES[number], zoneIndex: num
 
 function spawnCampaignZombie(stage: typeof STAGES[number], wave: CampaignWaveQueueEntry, type: ZombieTypeDef): boolean {
   if (zombies.pool.activeCount >= CAMPAIGN_ACTIVE_ZOMBIE_LIMIT || !wave.portalPoints.length) return false;
+  if (wave.supportOnly && zombies.pool.getActive().filter(z => z.hp > 0 &&
+      z.campaignZoneIndex === wave.zoneIndex && z.campaignBossId === null).length >= CAMPAIGN_BOSS_ACTIVE_ADD_LIMIT) return false;
   const zone = stage.layout?.zones[wave.zoneIndex];
   if (!zone) return false;
   const minDistance = Math.max(CAMPAIGN_MIN_PORTAL_DISTANCE, player.size + 120);
@@ -1382,7 +1438,8 @@ function spawnCampaignZombie(stage: typeof STAGES[number], wave: CampaignWaveQue
       if (overlaps) continue;
       const mob = zombies.spawn(type, x, y, 1, 1, 1);
       mob.campaignZoneIndex = wave.zoneIndex;
-      mob.hp = Math.round(mob.hp * stage.difficultyMult);
+      if (wave.supportOnly) campaignBossAddsSpawned++;
+      mob.hp = Math.round(mob.hp * stage.difficultyMult * CAMPAIGN_MOB_HP_MULTIPLIER);
       mob.maxHp = mob.hp;
       mob.damage = Math.round(mob.damage * stage.difficultyMult);
       mob.speed *= 1.12;
@@ -1424,7 +1481,7 @@ function updateCampaignSpawnQueue(stage: typeof STAGES[number], dt: number): voi
   }
   wave.spawnTimer -= dt;
   if (wave.spawnTimer > 0 || zombies.pool.activeCount >= CAMPAIGN_ACTIVE_ZOMBIE_LIMIT) return;
-  const spawnRate = 2.5 + (stage.id - 1) * .42;
+  const spawnRate = Math.min(4, 2.5 + (stage.id - 1) * .17);
   const type = chooseCampaignWaveMob(wave.roster);
   if (!spawnCampaignZombie(stage, wave, type)) {
     wave.spawnTimer = .25;
@@ -1441,14 +1498,13 @@ function updateCampaignSpawnQueue(stage: typeof STAGES[number], dt: number): voi
   if (wave.remaining <= 0) campaignWaveQueue.shift();
 }
 
-function updateCampaignWaveClears(stage: typeof STAGES[number]): void {
+function updateCampaignWaveClears(_stage: typeof STAGES[number]): void {
   for (const zoneIndex of campaignActiveWaveZones) {
     if (campaignWaveQueue.some(wave => wave.zoneIndex === zoneIndex)) continue;
     if (zombies.pool.getActive().some(z => z.hp > 0 && z.campaignZoneIndex === zoneIndex)) continue;
     campaignActiveWaveZones.delete(zoneIndex);
     campaignWaveAlertText = 'KHU VỰC ĐÃ SẠCH · LỐI ĐI ĐÃ MỞ';
     campaignWaveAlertTimer = 3.2;
-    if (stage.layout?.zones[zoneIndex].role === 'hold') campaignHoldWaveTimer = 4.25;
   }
 }
 
@@ -1456,9 +1512,6 @@ function updateCampaignObjective(dt: number): void {
   const stage = STAGES[currentStageIndex];
   const pressed = input.interactPressed;
   if (!stage) return;
-  const currentNode = stage.objectiveNodes[stageObjectiveIndex];
-  const nodeNeedsInteraction = currentNode && !stageBossSpawned && stage.id !== 10 && !(stage.id === 9 && stageObjectiveIndex < 2);
-  const nearObjective = !!nodeNeedsInteraction && Math.hypot(player.x - currentNode.x, player.y - currentNode.y) <= 88;
   const nearExit = !!stage.exitSpawn && bossKilledThisRun && Math.hypot(player.x - stage.exitSpawn.x, player.y - stage.exitSpawn.y) <= 88;
   if (stage.exitSpawn && bossKilledThisRun && !stageExitActivated) {
     stageExitActive = true;
@@ -1476,7 +1529,6 @@ function updateCampaignObjective(dt: number): void {
     return;
   }
   const node = stage.objectiveNodes[stageObjectiveIndex];
-  if (stage.id === 10 || stage.id === 9 && stageObjectiveIndex < 2) return;
   if (stage.objectiveHoldAt === stageObjectiveIndex) {
     const near = Math.hypot(player.x - node.x, player.y - node.y) <= 110;
     if (stage.id === 9 && !stageObjectiveHoldStarted && pressed && near) {
@@ -1517,9 +1569,61 @@ function spawnCampaignBoss(stage: typeof STAGES[number]): void {
   boss.damage = 20 + stage.id * 2;
   boss.speed = 32;
   boss.xpValue = 80 + stage.id * 15;
+  campaignBossAddsSpawned = 0;
+  campaignNestCharge = null;
+  const chargeConfig = stage.bossRoomNestCharge;
+  const bossZone = stage.layout?.zones.at(-1);
+  const targetPoint = bossZone?.spawnPoints[chargeConfig?.targetSpawnPointIndex ?? -1];
+  if (chargeConfig && bossZone && targetPoint &&
+      isCampaignPortalPointValid(stage, bossZone, targetPoint.x, targetPoint.y, 44)) {
+    const pickupPoint = { x: bossZone.x + bossZone.w / 2 + chargeConfig.pickupOffset.x,
+      y: bossZone.y + bossZone.h / 2 + chargeConfig.pickupOffset.y };
+    if (isCampaignPortalPointValid(stage, bossZone, pickupPoint.x, pickupPoint.y, 24)) {
+      campaignNestCharge = { stageId: stage.id, pickupPoint, targetPoint,
+        status: 'available', fuseRemaining: chargeConfig.fuseSeconds, fuseDuration: chargeConfig.fuseSeconds };
+    }
+  }
+  const bossZoneIndex = (stage.layout?.zones.length ?? 0) - 1;
+  const portalPoints = chooseCampaignPortalPoints(stage, bossZoneIndex, 4, true);
+  const nestHp = CAMPAIGN_BOSS_NEST_HP_BASE + stage.id * CAMPAIGN_BOSS_NEST_HP_PER_STAGE;
+  campaignBossPortals = portalPoints.length
+    ? { zoneIndex: bossZoneIndex, points: portalPoints, hp: portalPoints.map(() => nestHp), maxHp: nestHp }
+    : null;
   campaignBossDirector.reset();
   camera.shake(7, .35);
   particles.emit(boss.x, boss.y, 38, '#a9473d', 145, .9, 6);
+}
+
+function updateCampaignNestCharge(dt: number): void {
+  const charge = campaignNestCharge;
+  const stage = STAGES[currentStageIndex];
+  if (gameMode !== 'stage' || !stage || !stageBossSpawned || !charge || charge.stageId !== stage.id ||
+      charge.status === 'destroyed' || charge.status === 'cancelled') return;
+  if (bossKilledThisRun) { charge.status = 'cancelled'; return; }
+
+  if (charge.status === 'available' && input.interactPressed &&
+      Math.hypot(player.x - charge.pickupPoint.x, player.y - charge.pickupPoint.y) <= 82) {
+    charge.status = 'carried';
+    audio.objectiveActivate();
+    particles.emit(charge.pickupPoint.x, charge.pickupPoint.y, 15, '#e6b45f', 70, .45, 3);
+    return;
+  }
+  if (charge.status === 'carried' && input.interactPressed &&
+      Math.hypot(player.x - charge.targetPoint.x, player.y - charge.targetPoint.y) <= 92) {
+    charge.status = 'planted';
+    charge.fuseRemaining = stage.bossRoomNestCharge?.fuseSeconds ?? 4.5;
+    audio.objectiveActivate();
+    particles.emit(charge.targetPoint.x, charge.targetPoint.y, 10, '#e6a34e', 54, .28, 2.6);
+    return;
+  }
+  if (charge.status === 'planted') {
+    charge.fuseRemaining = Math.max(0, charge.fuseRemaining - dt);
+    if (charge.fuseRemaining <= 0) {
+      const bossZoneIndex = (stage.layout?.zones.length ?? 0) - 1;
+      destroyCampaignPortalAt(stage, bossZoneIndex, charge.targetPoint);
+      charge.status = 'destroyed';
+    }
+  }
 }
 
 function upgradeLevel(id: string): number { return player.upgrades.get(id) || 0; }
@@ -1607,21 +1711,27 @@ function updateBossEncounter(dt: number, stage: StageDef, boss: Zombie | undefin
     const bossCircuit = survival ? Math.floor((Math.ceil(survivalWave / 3) - 1) / STAGES.length) : 0;
     const summonCap = stage.id === 1 ? (survival ? Math.min(6, 4 + bossCircuit) : 4)
       : stage.id === 10 ? (survival ? Math.min(5, 3 + bossCircuit) : 3) : 0;
+    const bossZoneIndex = (stage.layout?.zones.length ?? 0) - 1;
+    const activeCampaignAdds = () => zombies.pool.getActive().filter(z => z.hp > 0 &&
+      z.campaignZoneIndex === bossZoneIndex && z.campaignBossId === null).length;
     let spawned = survival ? survivalBossSummonsSpawned : stageBossSummonsSpawned;
-    if (!summonCap || spawned >= summonCap || !boss || zombies.pool.activeCount >= (survival ? 22 : CAMPAIGN_ACTIVE_ZOMBIE_LIMIT)) return;
+    if (!summonCap || spawned >= summonCap || !boss || zombies.pool.activeCount >= (survival ? 22 : CAMPAIGN_ACTIVE_ZOMBIE_LIMIT) ||
+        !survival && (campaignBossAddsSpawned >= CAMPAIGN_BOSS_ADD_TOTAL_LIMIT || activeCampaignAdds() >= CAMPAIGN_BOSS_ACTIVE_ADD_LIMIT)) return;
     const summonIds = stage.id === 10 ? ['normal', 'runner', 'spitter'] : ['normal', 'normal', 'normal', 'normal'];
-    for (let i = 0; i < 2 && spawned < summonCap && zombies.pool.activeCount < (survival ? 22 : CAMPAIGN_ACTIVE_ZOMBIE_LIMIT); i++) {
+    for (let i = 0; i < 2 && spawned < summonCap && zombies.pool.activeCount < (survival ? 22 : CAMPAIGN_ACTIVE_ZOMBIE_LIMIT) &&
+         (survival || campaignBossAddsSpawned < CAMPAIGN_BOSS_ADD_TOTAL_LIMIT && activeCampaignAdds() < CAMPAIGN_BOSS_ACTIVE_ADD_LIMIT); i++) {
       const type = ZOMBIE_TYPES.find(entry => entry.id === summonIds[spawned % summonIds.length]);
       if (!type) continue;
       const angle = Math.PI * (.35 + i * .3);
       const mob = zombies.spawn(type, boss.x + Math.cos(angle) * 105, boss.y + Math.sin(angle) * 105, 1, 1, 1);
       if (!survival) {
         mob.campaignZoneIndex = stage.layout?.zones.length ? stage.layout.zones.length - 1 : -1;
-        mob.hp = Math.round(mob.hp * stage.difficultyMult); mob.maxHp = mob.hp;
+        mob.hp = Math.round(mob.hp * stage.difficultyMult * CAMPAIGN_MOB_HP_MULTIPLIER); mob.maxHp = mob.hp;
         mob.damage = Math.round(mob.damage * stage.difficultyMult);
       }
       [mob.x, mob.y] = resolveBuildingCollision(mob.x, mob.y, survival ? mob.size * .72 : mob.size);
       spawned++;
+      if (!survival) campaignBossAddsSpawned++;
     }
     if (survival) survivalBossSummonsSpawned = spawned;
     else stageBossSummonsSpawned = spawned;
@@ -1650,7 +1760,7 @@ function updateBossEncounter(dt: number, stage: StageDef, boss: Zombie | undefin
     camera.shake(stage.id === 2 ? 2.4 : 1.7, .12);
     particles.emit(actor.x + Math.cos(angle) * muzzle, actor.y + Math.sin(angle) * muzzle,
       stage.id === 2 ? 8 : 7, type === 'boss_acid' ? '#a7c568' : '#c8c5b7', 65, .24, 3);
-  });
+  }, survival ? 1 : 2);
 }
 
 function checkStageObjective(): void {
@@ -1710,7 +1820,10 @@ function handleZombieDeath(z: Zombie): void {
     bossKilledThisRun = true;
     camera.shake(8, 0.3);
     particles.emit(z.x, z.y, 16, '#ff44ff', 140, 0.6, 4);
-    if (gameMode === 'stage') collapseCampaignBossRoomSpawns();
+    if (gameMode === 'stage') {
+      if (campaignNestCharge && campaignNestCharge.status !== 'destroyed') campaignNestCharge.status = 'cancelled';
+      collapseCampaignBossRoomSpawns();
+    }
     if (gameMode === 'stage' && z.campaignBossId !== null) {
       const reward = campaignGuns.find(gun => gun.unlockStage === z.campaignBossId! + 1);
       if (reward && !save.data.campaign.ownedGuns.includes(reward.id)) {
@@ -1779,8 +1892,8 @@ function handleZombieDeath(z: Zombie): void {
       const valueScale = z.campaignBossId !== null ? .82 : z.isElite ? .78 : .65;
       campaignCredits.drop(z.x, z.y, Math.max(1, Math.floor(threat * valueScale)));
     }
-    if (z.campaignBossId === null && Math.random() < (z.isElite ? .16 : .065)
-      && mapPickups.pool.getActive().filter(item => item.itemId.startsWith('ammo_')).length < 24) {
+    if (z.campaignBossId === null && Math.random() < (z.isElite ? .30 : .14)
+      && mapPickups.pool.getActive().filter(item => item.itemId.startsWith('ammo_')).length < 32) {
       const candidates = weapons.loadout.unlockedSlots.filter(slot =>
         weapons.loadout.canAddCampaignAmmoForGun(slot.def.id));
       const chapterGun = campaignGuns.find(gun => gun.unlockStage === currentStageIndex + 1)?.id;
@@ -1792,6 +1905,10 @@ function handleZombieDeath(z: Zombie): void {
         mapPickups.spawnAmmoPickup(z.x, z.y, slot.def.id, slot.def.magSize * (z.isElite ? 2 : 1));
         break;
       }
+    }
+    if (z.campaignBossId === null && Math.random() < (z.isElite ? .16 : .08)
+      && mapPickups.pool.getActive().filter(item => item.itemId === 'health_pack').length < 10) {
+      mapPickups.spawnHealthPickup(z.x, z.y, z.isElite ? 40 : 30);
     }
   } else xpGems.drop(z.x, z.y, z.xpValue);
   if (horrorPreview) { previewAudit.deaths++; previewAudit.drops += z.xpValue; }
@@ -1842,6 +1959,15 @@ function collapseCampaignBossRoomSpawns(): void {
     // Discard only the pending boss-room spawn queue. Zombies already spawned
     // are independent entities and will continue fighting the player.
     campaignWaveQueue.splice(waveIndex, 1);
+  }
+
+  if (campaignBossPortals?.zoneIndex === bossZone) {
+    campaignBossPortals.points.forEach((point, index) => {
+      if (campaignBossPortals!.hp[index] <= 0) return;
+      campaignBossPortals!.hp[index] = 0;
+      campaignDestroyedPortals.add(campaignPortalKey(bossZone, point));
+      addPoint(point);
+    });
   }
 
   if (campaignPortalFlash?.zoneIndex === bossZone) {
@@ -1945,15 +2071,27 @@ function drawGame(): void {
     weapons.loadout.casings.draw(ctx, camera);
     const queuedWave = campaignWaveQueue[0];
     const visiblePortalFlash = campaignPortalFlash && campaignPortalFlash.timer > 0 ? campaignPortalFlash : undefined;
-    const spawnCue = queuedWave?.started
-      ? { ...queuedWave, gameTime, sealedPortalPoints: queuedWave.sealedPortals, playerX: player.x, playerY: player.y,
+    const bossZoneIndex = (campaignStage.layout?.zones.length ?? 0) - 1;
+    const bossPortals = campaignBossPortals?.zoneIndex === bossZoneIndex && stageBossSpawned ? campaignBossPortals : null;
+    const spawnCue = bossPortals
+      ? { zoneIndex: bossPortals.zoneIndex, portalPoints: bossPortals.points, sealedPortalPoints: bossPortals.hp.map(hp => hp <= 0),
+          portalHp: bossPortals.hp, portalMaxHp: bossPortals.maxHp,
+          portalDestructible: bossPortals.points.map(point => canDamageCampaignSpawnPortal(stageBossSpawned,
+            bossPortals.zoneIndex, bossZoneIndex, isProtectedChargeTarget(campaignStage, bossPortals.zoneIndex, point))),
+          warningTimer: queuedWave?.started && queuedWave.zoneIndex === bossZoneIndex ? queuedWave.warningTimer : 0,
+          gameTime, playerX: player.x, playerY: player.y,
           activePortalPoint: visiblePortalFlash?.point, activePortalTimer: visiblePortalFlash?.timer }
-      : visiblePortalFlash
-        ? { zoneIndex: visiblePortalFlash.zoneIndex, portalPoints: [visiblePortalFlash.point], warningTimer: 0,
-            gameTime, playerX: player.x, playerY: player.y, activePortalPoint: visiblePortalFlash.point, activePortalTimer: visiblePortalFlash.timer }
-        : undefined;
+      : queuedWave?.started
+        ? { ...queuedWave, gameTime, sealedPortalPoints: queuedWave.sealedPortals, playerX: player.x, playerY: player.y,
+            portalDestructible: queuedWave.portalPoints.map(() => false),
+            activePortalPoint: visiblePortalFlash?.point, activePortalTimer: visiblePortalFlash?.timer }
+        : visiblePortalFlash
+          ? { zoneIndex: visiblePortalFlash.zoneIndex, portalPoints: [visiblePortalFlash.point], warningTimer: 0,
+              gameTime, playerX: player.x, playerY: player.y, activePortalPoint: visiblePortalFlash.point, activePortalTimer: visiblePortalFlash.timer }
+          : undefined;
     campaignMapRenderer.draw(ctx, camera, campaignStage, stageObjectiveIndex, stageBossSpawned, stageExitActive, stageExitActivated,
-      stageObjectiveHp, spawnCue, { playerX: player.x, playerY: player.y, gameTime, holdStarted: stageObjectiveHoldStarted, exitInteractable: !bossWeaponDrop });
+      spawnCue, { playerX: player.x, playerY: player.y, gameTime, holdStarted: stageObjectiveHoldStarted, exitInteractable: !bossWeaponDrop,
+        nestCharge: campaignNestCharge?.stageId === campaignStage.id ? campaignNestCharge : undefined });
     campaignResources.draw(ctx, camera);
   } else {
     groundRenderer.draw(ctx, camera);
@@ -2128,18 +2266,21 @@ function drawStageObjective(): void {
   const panelW = Math.min(330, Math.max(210, viewportWidth * .52));
   const x = viewportWidth - panelW / 2 - 12;
   const y = !stageBossSpawned && viewportWidth >= 700 && viewportWidth < 1050 ? 117 : 70;
+  const chargeTask = stageBossSpawned && campaignNestCharge?.stageId === stage.id && campaignNestCharge.status !== 'cancelled'
+    ? campaignNestCharge : undefined;
+  const panelHeight = chargeTask ? 82 : 64;
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = 'rgba(13,17,19,.9)'; ctx.strokeStyle = stageBossSpawned ? '#a9473d' : '#a9966d'; ctx.lineWidth = 1.2;
-  ctx.beginPath(); ctx.roundRect(x - panelW / 2, y - 29, panelW, 64, 4); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.roundRect(x - panelW / 2, y - panelHeight / 2 + 3, panelW, panelHeight, 4); ctx.fill(); ctx.stroke();
   ctx.fillStyle = '#d4c7a2'; ctx.font = `bold 10px 'Segoe UI', Arial, sans-serif`;
   const currentZoneIndex = nearestCampaignZone(player.x, player.y);
   const zoneName = stage.layout?.zones[currentZoneIndex]?.name;
   const heading = campaignWaveAlertTimer > 0 && campaignWaveAlertText
     ? campaignWaveAlertText
     : !campaignEncounterTriggered ? `TIẾP CẬN AN TOÀN  •  ${zoneName ?? stage.name}` : `CAMPAIGN ${stage.id}/10  •  ${zoneName ?? stage.name}`;
-  ctx.fillText(heading, x, y - 16, panelW - 20);
+  ctx.fillText(heading, x, y + (chargeTask ? -27 : -16), panelW - 20);
   let objectiveText: string;
   if (stageBossSpawned) objectiveText = `HẠ BOSS: ${stage.bossName}`;
   else if (stageObjectiveIndex >= stage.objectiveNodes.length) objectiveText = stage.id === 1 ? 'ĐẾN KHU BOSS  •  SHIFT / LƯỚT ĐỂ NÉ ĐÒN' : 'ĐANG TIẾN VÀO KHU BOSS';
@@ -2149,11 +2290,9 @@ function drawStageObjective(): void {
     const holding = stage.objectiveHoldAt === stageObjectiveIndex;
     const holdNear = holding && Math.hypot(player.x - node.x, player.y - node.y) <= 110;
     const holdSeconds = stage.objectiveHoldSeconds ?? 5;
-    objectiveText = stage.id === 10 || stage.id === 9 && stageObjectiveIndex < 2
-      ? `BẮN PHÁ Ổ DỊCH / LÕI  ${stageObjectiveIndex + 1}/${stage.objectiveNodes.length}  •  ${Math.max(0, Math.ceil(stageObjectiveHp))} HP`
-      : holding
+    objectiveText = holding
       ? stage.id === 9 && !stageObjectiveHoldStarted
-        ? `PHÁ Ổ DỊCH CUỐI${near ? '  •  NHẤN E ĐỂ BẮT ĐẦU' : '  •  ĐẾN GẦN Ổ DỊCH'}`
+        ? `KÍCH HOẠT VÙNG CUỐI${near ? '  •  NHẤN E ĐỂ BẮT ĐẦU' : '  •  ĐẾN GẦN ĐIỂM'}`
         : holdNear
           ? `GIỮ VỊ TRÍ  •  ${stageObjectiveHoldTime.toFixed(1)}/${holdSeconds}s`
           : `ĐI VÀO VÙNG SÁNG  •  GIỮ ${holdSeconds} GIÂY`
@@ -2173,13 +2312,12 @@ function drawStageObjective(): void {
     const holdNode = holdingObjective ? stage.objectiveNodes[stageObjectiveIndex] : undefined;
     const atHoldPoint = !!holdNode && Math.hypot(player.x - holdNode.x, player.y - holdNode.y) <= 110;
     const holdSeconds = stage.objectiveHoldSeconds ?? 5;
-    const canShootPortal = campaignWaveQueue.some(wave => wave.zoneIndex === currentZoneIndex && wave.remaining > 0 && wave.sealedPortals.some(sealed => !sealed));
     if (holdingObjective) {
       const holdStatus = stage.id === 9 && !stageObjectiveHoldStarted
         ? atHoldPoint ? 'NHẤN E ĐỂ BẮT ĐẦU' : 'ĐI VÀO VÙNG SÁNG'
         : atHoldPoint ? `GIỮ VỊ TRÍ ${stageObjectiveHoldTime.toFixed(1)}/${holdSeconds}s` : `ĐI VÀO VÙNG SÁNG • GIỮ ${holdSeconds}s`;
-      objectiveText = `${holdStatus}${canShootPortal ? ' • BẮN PHÁ Ổ SPAWN' : ''}`;
-    } else objectiveText = `GIAO TRANH • HẠ QUÁI${canShootPortal ? ' / BẮN PHÁ Ổ SPAWN' : ''}`;
+      objectiveText = holdStatus;
+    } else objectiveText = 'GIAO TRANH • HẠ QUÁI';
   }
   if (campaignSupplyNoticeTimer > 0) objectiveText = campaignSupplyNotice;
   ctx.fillStyle = stageExitActive ? '#9fc4af' : stageBossSpawned ? '#e47a68' : '#f0eadc';
@@ -2194,7 +2332,22 @@ function drawStageObjective(): void {
     } else line = next;
   }
   lines.push(line);
-  lines.slice(0, 2).forEach((text, index) => ctx.fillText(text, x, y + (lines.length > 1 ? -1 : 6) + index * 15, panelW - 22));
+  if (chargeTask) {
+    ctx.fillText(objectiveText, x, y - 7, panelW - 22);
+    const nearPickup = Math.hypot(player.x - chargeTask.pickupPoint.x, player.y - chargeTask.pickupPoint.y) <= 82;
+    const nearTarget = Math.hypot(player.x - chargeTask.targetPoint.x, player.y - chargeTask.targetPoint.y) <= 92;
+    const chargeText = chargeTask.status === 'available'
+      ? nearPickup ? 'NHIỆM VỤ PHỤ · NHẤN E ĐỂ NHẶT THUỐC NỔ' : 'NHIỆM VỤ PHỤ · TÌM THUỐC NỔ TRONG PHÒNG BOSS'
+      : chargeTask.status === 'carried'
+        ? nearTarget ? 'MANG THUỐC NỔ ĐẾN Ổ ĐÁNH DẤU · NHẤN E ĐỂ ĐẶT' : 'MANG THUỐC NỔ ĐẾN Ổ SPAWN ĐÁNH DẤU'
+        : chargeTask.status === 'planted' ? `THUỐC NỔ ĐÃ ĐẶT · LÙI RA ${chargeTask.fuseRemaining.toFixed(1)}s`
+          : 'Ổ SPAWN MỤC TIÊU ĐÃ BỊ PHÁ';
+    ctx.fillStyle = chargeTask.status === 'destroyed' ? '#c4d3bd' : '#f0c775';
+    ctx.font = `bold ${viewportWidth < 700 ? 9 : 10}px 'Segoe UI', Arial, sans-serif`;
+    ctx.fillText(chargeText, x, y + 14, panelW - 22);
+  } else {
+    lines.slice(0, 2).forEach((text, index) => ctx.fillText(text, x, y + (lines.length > 1 ? -1 : 6) + index * 15, panelW - 22));
+  }
   drawCampaignDirection(stage);
 }
 
@@ -2425,9 +2578,8 @@ function startGame(): void {
   player.loadout = weapons.loadout;
   audio.init();
   if (stage) {
-    for (const [id, level] of Object.entries(save.data.campaign.cardLevels)) {
-      for (let n = 0; n < level; n++) player.applyUpgrade(id);
-    }
+    const droneLevel = Math.min(4, Math.max(0, save.data.campaign.cardLevels.drone ?? 0));
+    for (let n = 0; n < droneLevel; n++) player.applyUpgrade('drone');
   }
   applyPermUpgrades();
   if (stage) player.hp = player.maxHp;
@@ -2449,14 +2601,16 @@ function resetGame(): void {
   stageBossSpawned = false;
   stageObjectiveHoldTime = 0;
   stageObjectiveHoldStarted = false;
-  stageObjectiveHp = 150 + currentStageIndex * 12;
   stageBossSummonsSpawned = 0;
+  campaignBossAddsSpawned = 0;
+  campaignNestCharge = null;
   stageExitActive = false;
   stageExitActivated = false;
   campaignTriggeredZones.clear();
   campaignActiveWaveZones.clear();
   campaignDestroyedPortals.clear();
   campaignSealedSpawnZones.clear();
+  campaignBossPortals = null;
   campaignWaveQueue.length = 0;
   explosionEffects.clear();
   campaignPortalFlash = null;
@@ -2466,7 +2620,6 @@ function resetGame(): void {
   campaignWaveAlertTimer = 0;
   campaignEncounterTriggered = false;
   campaignWavePreview = false;
-  campaignHoldWaveTimer = 5.5;
   campaignBossWaveTimer = 0;
   campaignBossDirector.reset();
   survivalWave = 0;
@@ -2554,7 +2707,6 @@ if (import.meta.env.DEV && horrorPreview) {
         const zone = stage.layout.zones[zoneIndex];
         if (zone) {
           stageObjectiveIndex = stage.objectiveNodes.filter(node => nearestCampaignZone(node.x, node.y) < zoneIndex).length;
-          stageObjectiveHp = 150 + currentStageIndex * 12 + stageObjectiveIndex * 30;
           for (let i = 0; i < zoneIndex; i++) campaignTriggeredZones.add(i);
           setCampaignGateState(stageObjectiveIndex, false, false);
           player.x = zone.x + zone.w * .30; player.y = zone.y + zone.h / 2;
@@ -2585,7 +2737,6 @@ if (import.meta.env.DEV && horrorPreview) {
       gameMode = 'stage'; currentStageIndex = stageIndex;
       startGame();
       stageObjectiveIndex = stage.objectiveNodes.filter(node => nearestCampaignZone(node.x, node.y) < zoneIndex).length;
-      stageObjectiveHp = 150 + currentStageIndex * 12 + stageObjectiveIndex * 30;
       for (let i = 0; i <= zoneIndex; i++) campaignTriggeredZones.add(i);
       setCampaignGateState(stageObjectiveIndex, false, false, campaignActiveWaveZones);
       player.x = zone.x + zone.w * .3;

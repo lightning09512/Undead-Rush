@@ -178,6 +178,12 @@ export interface StageDef {
   objectiveLabel: string;
   objectiveHoldAt?: number;
   objectiveHoldSeconds?: number;
+  /** Optional tactical task: pick up a charge and plant it on this boss-room spawn nest. */
+  bossRoomNestCharge?: {
+    pickupOffset: Point;
+    targetSpawnPointIndex: number;
+    fuseSeconds: number;
+  };
   playerStart: Point;
   objectiveNodes: Point[];
   bossSpawn: Point;
@@ -256,8 +262,10 @@ export const STAGES: StageDef[] = [
   { id: 8, name: 'Phòng thí nghiệm', description: 'Lấy thẻ truy cập và khóa buồng lây nhiễm', duration: 650, objective: 'kill_boss', objectiveValue: 1, difficultyMult: 1.52, bossAtEnd: true, reward: 900,
     theme: 'Phòng thí nghiệm', floorColor: '#30383a', accentColor: '#68aaa3', objectiveLabel: 'Khóa buồng lây nhiễm', playerStart: { x: 500, y: 2020 }, objectiveNodes: [{ x: 1170, y: 1280 }, { x: 2060, y: 2900 }, { x: 2900, y: 1320 }], bossSpawn: { x: 3560, y: 2070 }, bossTypeId: 'mutant', bossName: 'Mẫu Thử Số Không', bossHp: 8000, mobIds: ['normal', 'runner', 'tank', 'spitter', 'glowing', 'spider', 'mutant', 'multihead', 'exploder', 'orange_mutant', 'red_mutant', 'gunner', 'gunner_orange', 'gunner_red'], buildings: [b(850,900,245,158,'warehouse',true),b(1410,2620,226,145,'warehouse',true),b(1880,930,112,80),b(2260,3000,238,152,'warehouse',true),b(2900,920,245,158,'warehouse',true),b(3100,2800,120,84)] },
   { id: 9, name: 'Khu cách ly nội đô', description: 'Phá các ổ lây nhiễm và sống sót qua đợt cuối', duration: 700, objective: 'kill_boss', objectiveValue: 1, difficultyMult: 1.65, bossAtEnd: true, reward: 1150, objectiveHoldAt: 2, objectiveHoldSeconds: 24,
+    bossRoomNestCharge: { pickupOffset: { x: -450, y: 390 }, targetSpawnPointIndex: 0, fuseSeconds: 4.5 },
     theme: 'Khu cách ly nội đô', floorColor: '#383233', accentColor: '#c4776e', objectiveLabel: 'Phá ổ lây nhiễm', playerStart: { x: 500, y: 2020 }, objectiveNodes: [{ x: 1200, y: 1410 }, { x: 2130, y: 2810 }, { x: 2940, y: 1420 }], bossSpawn: { x: 3560, y: 2080 }, bossTypeId: 'spider', bossName: 'Nhện Mẫu Chúa', bossHp: 9900, mobIds: ['normal', 'runner', 'tank', 'spitter', 'glowing', 'spider', 'armed', 'mutant', 'multihead', 'exploder', 'orange_mutant', 'red_mutant', 'gunner', 'gunner_orange', 'gunner_red'], buildings: [b(820,930,240,152,'warehouse',true),b(1470,2800,238,152,'warehouse',true),b(1850,1000,110,80),b(2350,2930,232,148,'warehouse',true),b(2980,980,246,158,'warehouse',true),b(3080,2780,118,82)] },
   { id: 10, name: 'Ổ dịch trung tâm', description: 'Phá lõi phụ, hạ Trái Tim Chôn Sống và thoát ra', duration: 760, objective: 'kill_boss', objectiveValue: 1, difficultyMult: 1.8, bossAtEnd: true, reward: 1600,
+    bossRoomNestCharge: { pickupOffset: { x: -450, y: 390 }, targetSpawnPointIndex: 0, fuseSeconds: 4.5 },
     theme: 'Ổ dịch trung tâm', floorColor: '#332e30', accentColor: '#d26e60', objectiveLabel: 'Phá các lõi phụ', playerStart: { x: 500, y: 2020 }, objectiveNodes: [{ x: 1190, y: 1260 }, { x: 2090, y: 2860 }, { x: 2970, y: 1260 }], bossSpawn: { x: 3540, y: 2070 }, exitSpawn: { x: 3400, y: 2040 }, bossTypeId: 'boss_2', bossName: 'Trái Tim Chôn Sống', bossHp: 13000, mobIds: ['normal', 'runner', 'tank', 'spitter', 'armed', 'mutant', 'multihead', 'exploder', 'orange_mutant', 'red_mutant', 'gunner', 'gunner_orange', 'gunner_red'], buildings: [b(850,900,250,160,'warehouse',true),b(1500,2800,240,150,'warehouse',true),b(1870,920,110,80),b(2300,3000,245,155,'warehouse',true),b(2950,900,250,160,'warehouse',true),b(3070,2810,118,84)] },
 ];
 

@@ -1,6 +1,7 @@
 import { CAMPAIGN_ATTACKS, STAGES, type CampaignRect, type Point, type StageDef } from '../data/meta';
 import { CAMPAIGN_VARIANT_TYPES, HORROR_TYPES, ZOMBIE_TYPES, getCampaignVariantAttack } from '../data/zombies';
 import { createAllGunDefs, createCampaignGunDefs } from '../systems/gun-loadout';
+import { canDamageCampaignSpawnPortal } from '../systems/campaign-portal-rules';
 
 function inside(x: number, y: number, rect: CampaignRect): boolean {
   return x >= rect.x && y >= rect.y && x <= rect.x + rect.w && y <= rect.y + rect.h;
@@ -62,6 +63,28 @@ function reachable(stage: StageDef, start: Point, goal: Point, blockedGate = -1)
 /** Deterministic geometry audit in the development panel; never touches save. */
 export function runCampaignChecks(): string[] {
   const results: string[] = [];
+  if (canDamageCampaignSpawnPortal(false, 4, 4, false) ||
+      canDamageCampaignSpawnPortal(true, 3, 4, false) ||
+      !canDamageCampaignSpawnPortal(true, 4, 4, false) ||
+      canDamageCampaignSpawnPortal(true, 4, 4, true))
+    throw new Error('Campaign spawn damage must be boss-room only, with the planted-charge target locked to its objective');
+  results.push('PASS spawn damage: ordinary zones are invulnerable; boss-room portals take gunfire; the selected charge nest requires its objective');
+
+  const chargeStages = STAGES.filter(stage => stage.bossRoomNestCharge).map(stage => stage.id);
+  if (chargeStages.join(',') !== '9,10') throw new Error(`Boss-room explosive task stages changed unexpectedly: ${chargeStages.join(',')}`);
+  for (const stage of STAGES) {
+    const config = stage.bossRoomNestCharge;
+    if (!config) continue;
+    const bossZoneIndex = stage.layout!.zones.length - 1;
+    const bossZone = stage.layout!.zones[bossZoneIndex];
+    const target = bossZone.spawnPoints[config.targetSpawnPointIndex];
+    const pickup = { x: bossZone.x + bossZone.w / 2 + config.pickupOffset.x,
+      y: bossZone.y + bossZone.h / 2 + config.pickupOffset.y };
+    if (!target || !clearSpawnPoint(stage, bossZoneIndex, target) || !clearSpawnPoint(stage, bossZoneIndex, pickup) ||
+        !reachable(stage, pickup, target) || config.fuseSeconds < 3 || config.fuseSeconds > 8)
+      throw new Error(`Màn ${stage.id}: thuốc nổ hoặc ổ spawn nhiệm vụ không hợp lệ/không tới được`);
+  }
+  results.push('PASS thuốc nổ boss room: chỉ màn 9–10; vật phẩm, mục tiêu và đường tiếp cận hợp lệ');
   const introductions: Record<string, number> = {
     orange_mutant: 2, gunner: 4, gunner_orange: 6, red_mutant: 7, gunner_red: 8,
   };
@@ -98,6 +121,9 @@ export function runCampaignChecks(): string[] {
     if (!layout) throw new Error(`Màn ${stage.id}: thiếu layout`);
     if (layout.zones.length < 4 || layout.zones.length > 6) throw new Error(`Màn ${stage.id}: số khu sai`);
     if (layout.gates.length !== layout.zones.length - 1) throw new Error(`Màn ${stage.id}: số cổng sai`);
+    if (layout.zones.some(zone => !Number.isInteger(zone.waveSize) || zone.waveSize < 0 || !Number.isFinite(zone.waveSize)) ||
+        layout.zones.at(-1)!.waveTrigger || layout.zones.at(-1)!.waveSize !== 0)
+      throw new Error(`Màn ${stage.id}: ngân sách wave phải hữu hạn theo khu và boss room không phải wave thường`);
     if (layout.bounds.w / layout.bounds.h < 2) throw new Error(`Màn ${stage.id}: tuyến chưa đủ dài`);
     const firstTrigger = layout.zones.findIndex(zone => zone.waveTrigger);
     if (firstTrigger < 2 || layout.zones.slice(0, firstTrigger).some(zone => zone.waveTrigger || zone.waveSize !== 0))
@@ -134,7 +160,8 @@ export function runCampaignChecks(): string[] {
     const originalBudget = layout.zones.reduce((sum, zone, i) => sum + (zone.role === 'boss' ? 0 : Math.min(9, 2 + (stage.id - 1) / 2 + i * .7) | 0), 0);
     if (plannedHorde !== originalBudget) throw new Error(`Màn ${stage.id}: tổng lượng quái thay đổi (${plannedHorde}/${originalBudget})`);
     const activeZones = layout.zones.filter(zone => zone.waveTrigger).length;
-    results.push(`PASS ${stage.id}: ${layout.zones.length} khu • mở đầu an toàn ${Math.round(firstTriggerDistance / routeLength * 100)}% • ${activeZones} trigger • ${plannedHorde * 10} mob theo kế hoạch • tuyến/cổng thông`);
+    const tunedWaveMultiplier = stage.id === 1 ? 6 : 8;
+    results.push(`PASS ${stage.id}: ${layout.zones.length} khu • mở đầu an toàn ${Math.round(firstTriggerDistance / routeLength * 100)}% • ${activeZones} trigger • tối đa ${plannedHorde * tunedWaveMultiplier} mob theo kế hoạch • tuyến/cổng thông`);
   }
   let distinctPairs = 0;
   for (let i = 0; i < STAGES.length; i++) for (let j = i + 1; j < STAGES.length; j++) {

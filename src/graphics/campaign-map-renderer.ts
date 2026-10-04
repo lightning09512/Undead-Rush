@@ -7,6 +7,7 @@ export interface CampaignSpawnCue {
   sealedPortalPoints?: readonly boolean[];
   portalHp?: readonly number[];
   portalMaxHp?: number;
+  portalDestructible?: readonly boolean[];
   warningTimer: number;
   activePortalPoint?: Point;
   activePortalTimer?: number;
@@ -21,11 +22,18 @@ export interface CampaignObjectiveCue {
   gameTime: number;
   holdStarted: boolean;
   exitInteractable: boolean;
+  nestCharge?: {
+    pickupPoint: Point;
+    targetPoint: Point;
+    status: 'available' | 'carried' | 'planted' | 'destroyed' | 'cancelled';
+    fuseRemaining: number;
+    fuseDuration: number;
+  };
 }
 
 /** Small, code-drawn Campaign landmarks and readable objective routes. */
 export class CampaignMapRenderer {
-  draw(ctx: CanvasRenderingContext2D, camera: Camera, stage: StageDef, activeNode: number, bossSpawned: boolean, exitActive = false, exitActivated = false, objectiveHp = 0, spawnCue?: CampaignSpawnCue, objectiveCue?: CampaignObjectiveCue): void {
+  draw(ctx: CanvasRenderingContext2D, camera: Camera, stage: StageDef, activeNode: number, bossSpawned: boolean, exitActive = false, exitActivated = false, spawnCue?: CampaignSpawnCue, objectiveCue?: CampaignObjectiveCue): void {
     const route: Point[] = [stage.playerStart, ...stage.objectiveNodes, stage.bossSpawn];
     ctx.save();
     ctx.lineCap = 'round';
@@ -53,8 +61,7 @@ export class CampaignMapRenderer {
       const done = i < activeNode;
       const active = i === activeNode && !done && !bossSpawned;
       const isHold = stage.objectiveHoldAt === i;
-      const shoot = stage.id === 10 || stage.id === 9 && i < 2;
-      const canInteract = active && !shoot && (!isHold || stage.id === 9 && !objectiveCue?.holdStarted);
+      const canInteract = active && (!isHold || stage.id === 9 && !objectiveCue?.holdStarted);
       const distance = objectiveCue ? Math.hypot(objectiveCue.playerX - p.x, objectiveCue.playerY - p.y) : Infinity;
       const pulse = objectiveCue ? .5 + .5 * Math.sin(objectiveCue.gameTime * 4.2) : 0;
       if (active) this.drawObjectiveBeacon(ctx, x, y, pulse, stage.accentColor);
@@ -65,15 +72,12 @@ export class CampaignMapRenderer {
       } else if (active) {
         ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.font = 'bold 10px Segoe UI, Arial';
         ctx.fillStyle = '#fff1d3';
-        ctx.fillText(shoot ? 'BẮN PHÁ' : isHold ? `GIỮ VỊ TRÍ ${stage.objectiveHoldSeconds ?? 5} GIÂY` : 'MỤC TIÊU', x, y - 37);
+        ctx.fillText(isHold ? `GIỮ VỊ TRÍ ${stage.objectiveHoldSeconds ?? 5} GIÂY` : 'MỤC TIÊU', x, y - 37);
         if (canInteract && distance <= 82) this.drawInteractKey(ctx, x + 32, y - 30, pulse, distance <= 74);
-      }
-      if (shoot && i === activeNode) {
-        ctx.fillStyle = '#181e1e'; ctx.fillRect(x - 28, y + 35, 56, 5);
-        ctx.fillStyle = '#bd6e5b'; ctx.fillRect(x - 28, y + 35, 56 * Math.max(0, Math.min(1, objectiveHp / (150 + (stage.id - 1) * 12 + i * 30))), 5);
       }
     }
     if (spawnCue) this.drawSpawnCue(ctx, camera, spawnCue);
+    if (objectiveCue?.nestCharge) this.drawNestChargeCue(ctx, camera, objectiveCue.nestCharge, objectiveCue);
     if (bossSpawned) {
       const [x, y] = camera.worldToScreen(stage.bossSpawn.x, stage.bossSpawn.y);
       if (camera.isVisible(stage.bossSpawn.x, stage.bossSpawn.y, 140)) {
@@ -138,7 +142,7 @@ export class CampaignMapRenderer {
       const [x, y] = camera.worldToScreen(point.x, point.y);
       ctx.save(); ctx.translate(x, y);
       const sealed = cue.sealedPortalPoints?.[i] ?? false;
-      const destructible = cue.portalHp?.[i] !== undefined && cue.portalMaxHp !== undefined;
+      const destructible = cue.portalDestructible?.[i] ?? false;
       const flashing = !warning && !!cue.activePortalPoint && cue.activePortalPoint.x === point.x && cue.activePortalPoint.y === point.y && (cue.activePortalTimer ?? 0) > 0;
       const hpMax = cue.portalMaxHp ?? 1;
       const hp = Math.max(0, cue.portalHp?.[i] ?? hpMax);
@@ -188,6 +192,71 @@ export class CampaignMapRenderer {
       }
       ctx.restore();
     }
+  }
+
+  private drawNestChargeCue(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    charge: NonNullable<CampaignObjectiveCue['nestCharge']>,
+    objective: CampaignObjectiveCue,
+  ): void {
+    if (charge.status === 'cancelled') return;
+    const pulse = .5 + .5 * Math.sin(objective.gameTime * 6);
+    const targetNear = Math.hypot(objective.playerX - charge.targetPoint.x, objective.playerY - charge.targetPoint.y) <= 92;
+
+    if (charge.status === 'destroyed') {
+      if (!camera.isVisible(charge.targetPoint.x, charge.targetPoint.y, 72)) return;
+      const [x, y] = camera.worldToScreen(charge.targetPoint.x, charge.targetPoint.y);
+      ctx.save(); ctx.translate(x, y);
+      ctx.fillStyle = 'rgba(24,18,18,.78)'; ctx.strokeStyle = '#76534a'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(0, 4, 34, 23, -.16, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = '#a66557'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(-13,-9); ctx.lineTo(13,9); ctx.moveTo(13,-9); ctx.lineTo(-13,9); ctx.stroke();
+      ctx.restore();
+      return;
+    }
+
+    if (camera.isVisible(charge.targetPoint.x, charge.targetPoint.y, 88)) {
+      const [x, y] = camera.worldToScreen(charge.targetPoint.x, charge.targetPoint.y);
+      ctx.save(); ctx.translate(x, y);
+      ctx.strokeStyle = charge.status === 'planted' ? '#ff865f'
+        : `rgba(245,194,100,${charge.status === 'carried' ? .8 + pulse * .2 : .42 + pulse * .25})`;
+      ctx.lineWidth = charge.status === 'carried' ? 3 : 2;
+      ctx.setLineDash(charge.status === 'carried' ? [] : [7, 5]);
+      ctx.beginPath(); ctx.arc(0, 0, 34 + pulse * 4, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+      for (let corner = 0; corner < 4; corner++) {
+        const sx = corner % 2 ? 1 : -1, sy = corner > 1 ? 1 : -1;
+        ctx.beginPath(); ctx.moveTo(sx * 42, sy * 15); ctx.lineTo(sx * 42, sy * 24); ctx.lineTo(sx * 32, sy * 24); ctx.stroke();
+      }
+      ctx.fillStyle = 'rgba(13,16,16,.92)'; ctx.strokeStyle = '#d6b376'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.roundRect(-62, -66, 124, 20, 4); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#fff0d0'; ctx.font = '900 9px Segoe UI, Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const label = charge.status === 'planted' ? `KÍCH NỔ · ${charge.fuseRemaining.toFixed(1)}s`
+        : charge.status === 'carried' ? targetNear ? 'NHẤN E · ĐẶT THUỐC NỔ' : 'Ổ SPAWN MỤC TIÊU'
+          : 'Ổ SPAWN MỤC TIÊU';
+      ctx.fillText(label, 0, -56, 118);
+      if (charge.status === 'planted') {
+        ctx.fillStyle = '#201a19'; ctx.fillRect(-48, -42, 96, 5);
+        ctx.fillStyle = '#ed694f'; ctx.fillRect(-48, -42, 96 * Math.max(0, Math.min(1, charge.fuseRemaining / charge.fuseDuration)), 5);
+      }
+      ctx.restore();
+    }
+
+    if (charge.status !== 'available' || !camera.isVisible(charge.pickupPoint.x, charge.pickupPoint.y, 64)) return;
+    const [x, y] = camera.worldToScreen(charge.pickupPoint.x, charge.pickupPoint.y);
+    const nearPickup = Math.hypot(objective.playerX - charge.pickupPoint.x, objective.playerY - charge.pickupPoint.y) <= 82;
+    ctx.save(); ctx.translate(x, y);
+    ctx.fillStyle = `rgba(250,163,75,${.08 + pulse * .12})`; ctx.beginPath(); ctx.arc(0, 0, 34 + pulse * 5, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = `rgba(255,193,104,${.66 + pulse * .3})`; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(0, 0, 22 + pulse * 2, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#45402d'; ctx.strokeStyle = '#e5b867'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(-14, -12, 28, 24, 4); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#b74737'; ctx.fillRect(-10, -3, 20, 6);
+    ctx.fillStyle = '#f0d797'; ctx.beginPath(); ctx.arc(9, -10, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(13,16,16,.94)'; ctx.strokeStyle = '#d6b376'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(-48, -43, 96, 18, 4); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#fff0d0'; ctx.font = '900 9px Segoe UI, Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(nearPickup ? 'NHẤN E · NHẶT THUỐC NỔ' : 'THUỐC NỔ', 0, -34, 92);
+    ctx.restore();
   }
 
   private drawObjectiveBeacon(ctx: CanvasRenderingContext2D, x: number, y: number, pulse: number, accent: string): void {

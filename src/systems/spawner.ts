@@ -4,6 +4,7 @@ import { ZOMBIE_TYPES, HORROR_TYPES, DIFFICULTY_CURVE, BOSS_SPAWN_TIMES, ZombieT
 import { Camera } from '../core/camera';
 
 export const SURVIVAL_HORDE_MULTIPLIER = 3;
+export const SURVIVAL_ACTIVE_ZOMBIE_CAP = 120;
 
 export class Spawner {
   private spawnTimer = 0;
@@ -25,7 +26,7 @@ export class Spawner {
     camera: Camera, playerX: number, playerY: number, remaining: number
   ): { type: ZombieTypeDef; x: number; y: number; tier: DifficultyTier; isElite?: boolean }[] {
     const tier = this.getCurrentTier(gameTime);
-    const activeLimit = tier.maxZombies * SURVIVAL_HORDE_MULTIPLIER;
+    const activeLimit = Math.min(SURVIVAL_ACTIVE_ZOMBIE_CAP, tier.maxZombies * SURVIVAL_HORDE_MULTIPLIER);
     if (remaining <= 0 || currentZombieCount >= activeLimit) return [];
     this.spawnTimer += dt * tier.spawnRate;
     if (this.spawnTimer < 1) return [];
