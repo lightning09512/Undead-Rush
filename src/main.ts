@@ -13,6 +13,7 @@ import { ZombieSystem, Zombie } from './entities/zombies';
 import { XpGemSystem } from './entities/xp-gems';
 import { CampaignCredits } from './entities/campaign-credits';
 import { ParticleSystem } from './entities/particles';
+import { ExplosionEffects } from './entities/explosion-effects';
 import { DamageNumbers } from './entities/damage-numbers';
 import { EnemyProjectileSystem } from './entities/enemy-projectiles';
 import { MapPickupSystem } from './entities/map-pickups';
@@ -23,7 +24,7 @@ import { LightingRenderer } from './graphics/lighting';
 import { spriteLoader } from './graphics/assets-config';
 import { EntityRenderer } from './graphics/entity-renderer';
 
-import { Spawner } from './systems/spawner';
+import { Spawner, SURVIVAL_HORDE_MULTIPLIER } from './systems/spawner';
 import { WeaponSystem } from './systems/weapons';
 import { SaveSystem } from './systems/save';
 import { adWrapper } from './systems/ads';
@@ -89,6 +90,7 @@ const zombies = new ZombieSystem();
 const xpGems = new XpGemSystem();
 const campaignCredits = new CampaignCredits();
 const particles = new ParticleSystem();
+const explosionEffects = new ExplosionEffects();
 const damageNumbers = new DamageNumbers();
 const enemyProjectiles = new EnemyProjectileSystem();
 const mapPickups = new MapPickupSystem();
@@ -132,6 +134,8 @@ let stageExitActive = false;
 let stageExitActivated = false;
 const campaignTriggeredZones = new Set<number>();
 const campaignActiveWaveZones = new Set<number>();
+const campaignDestroyedPortals = new Set<string>();
+const campaignSealedSpawnZones = new Set<number>();
 interface CampaignWaveQueueEntry {
   zoneIndex: number;
   roster: ZombieTypeDef[];
@@ -159,6 +163,7 @@ let campaignEncounterTriggered = false;
 let campaignHoldWaveTimer = 0;
 let campaignBossWaveTimer = 0;
 const CAMPAIGN_HORDE_MULTIPLIER = 10;
+const CAMPAIGN_SPAWN_PRESSURE_MULTIPLIER = 3;
 const CAMPAIGN_ACTIVE_ZOMBIE_LIMIT = 180;
 const CAMPAIGN_WAVE_WARNING_SECONDS = 1.65;
 const CAMPAIGN_WAVE_GROUP_BREAK = 1.6;
@@ -188,7 +193,7 @@ let survivalBossStageId = 0;
 let survivalBossSummonsSpawned = 0;
 
 function syncMusicForThreat(): void {
-  const menuScene = menuUI.currentScreen === 'main' || menuUI.currentScreen === 'campaign' || menuUI.currentScreen === 'hunter_profile' || menuUI.currentScreen === 'tutorial';
+  const menuScene = menuUI.currentScreen === 'main' || menuUI.currentScreen === 'savegame' || menuUI.currentScreen === 'campaign' || menuUI.currentScreen === 'hunter_profile' || menuUI.currentScreen === 'tutorial';
   if (menuScene) {
     activeMusicThreat = 'calm';
     hasSeenZombiesThisRun = false;
@@ -201,21 +206,24 @@ function syncMusicForThreat(): void {
     return;
   }
 
+  // Campaign boss rooms keep Music 2 throughout the encounter and its clear;
+  // the same track continues until the player leaves gameplay for the result/menu flow.
+  const campaignBossRoomMusic = gameMode === 'stage' && stageBossSpawned;
   let bossAlive = false;
   for (const z of zombies.pool.getActive()) {
     if (z.hp <= 0) continue;
     // Once a run has had enemies, combat music stays latched through empty waves.
     hasSeenZombiesThisRun = true;
     // Boss music has priority for the entire boss encounter, including off-screen.
-    if (z.isBoss) {
+    if (z.isBoss && !campaignBossRoomMusic) {
       bossAlive = true;
       break;
     }
   }
 
-  if (bossAlive) hasSeenZombiesThisRun = true;
-  // Music 1 is strictly pre-combat. Music 2 remains through quiet gaps and
-  // completed waves; Music 3 temporarily overrides it while a boss is alive.
+  if (bossAlive || campaignBossRoomMusic) hasSeenZombiesThisRun = true;
+  // Music 1 is strictly pre-combat. Music 2 stays through empty waves and the
+  // full Campaign boss room; Music 3 remains reserved for Survival bosses.
   activeMusicThreat = bossAlive ? 'boss' : hasSeenZombiesThisRun ? 'combat' : 'calm';
 
   audio.setMusicScene(activeMusicThreat);
@@ -312,7 +320,7 @@ function gameLoop(timestamp: number): void {
           paused = false;
         }
       } else {
-        const action = menuUI.handleClick(click.x, click.y, viewportWidth, viewportHeight, audio);
+        const action = menuUI.handleClick(click.x, click.y, viewportWidth, viewportHeight, audio, save);
         handleMenuAction(action);
       }
     }
@@ -320,7 +328,7 @@ function gameLoop(timestamp: number): void {
     // Draw appropriate screen
     canvas.style.cursor = 'default';
     if (menuUI.currentScreen === 'campaign') { campaignUI.draw(ctx, viewportWidth, viewportHeight, save); return; }
-    if (menuUI.currentScreen === 'main' || menuUI.currentScreen === 'hunter_profile' || menuUI.currentScreen === 'tutorial') {
+    if (menuUI.currentScreen === 'main' || menuUI.currentScreen === 'savegame' || menuUI.currentScreen === 'hunter_profile' || menuUI.currentScreen === 'tutorial') {
       menuUI.draw(ctx, viewportWidth, viewportHeight, save);
       return;
     }
@@ -377,6 +385,47 @@ function handleMenuAction(action: string | null): void {
       gameMode = 'stage';
       campaignUI.page = 'character';
       menuUI.currentScreen = 'campaign';
+      break;
+    case 'open_save_menu':
+      menuUI.confirmNewGame = false;
+      menuUI.currentScreen = 'savegame';
+      break;
+    case 'open_new_game_confirm':
+      menuUI.confirmNewGame = true;
+      break;
+    case 'cancel_new_game':
+      menuUI.confirmNewGame = false;
+      break;
+    case 'new_game':
+      menuUI.confirmNewGame = false;
+      save.resetCampaign();
+      gameMode = 'stage';
+      currentStageIndex = 0;
+      previewEncounter = false;
+      campaignUI.selectedStage = 0;
+      campaignUI.page = 'character';
+      campaignUI.focusedCharacter = 'survivor';
+      menuUI.currentScreen = 'campaign';
+      break;
+    case 'load_game': {
+      const campaign = save.data.campaign;
+      const checkpoint = Math.max(1, Math.min(STAGES.length, campaign.lastStage, campaign.unlockedStage));
+      gameMode = 'stage';
+      currentStageIndex = checkpoint - 1;
+      previewEncounter = false;
+      campaignUI.selectedStage = currentStageIndex;
+      campaignUI.page = 'briefing';
+      menuUI.currentScreen = 'campaign';
+      break;
+    }
+    case 'select_campaign_stage':
+      gameMode = 'stage';
+      campaignUI.page = 'stages';
+      menuUI.currentScreen = 'campaign';
+      break;
+    case 'back_to_main':
+      menuUI.confirmNewGame = false;
+      menuUI.currentScreen = 'main';
       break;
     case 'open_shop':
       shopUI.visible = true;
@@ -525,7 +574,6 @@ function updateGame(dt: number): void {
   }
   if (horrorPreview) for (const z of zombies.pool.getActive()) previewAudit.phases.add(z.specialState);
   horrorRemains.update(dt);
-  bloodStains.update(dt);
 
   // ─── Spatial Grid ───
   zombieGrid.clear();
@@ -641,7 +689,7 @@ function updateGame(dt: number): void {
         if (stageObjectiveHp <= 0) {
           stageObjectiveIndex++;
           stageObjectiveHp = 150 + currentStageIndex * 12 + stageObjectiveIndex * 30;
-          audio.levelUp();
+          audio.objectiveComplete();
           setCampaignGateState(stageObjectiveIndex, stageBossSpawned, bossKilledThisRun);
         }
         return true;
@@ -661,6 +709,7 @@ function updateGame(dt: number): void {
           particles.emit(point.x, point.y, 3, '#a23e3a', 38, .2, 2.2);
           if (wave.portalHp[portalIndex] <= 0) {
             wave.sealedPortals[portalIndex] = true;
+            campaignDestroyedPortals.add(campaignPortalKey(wave.zoneIndex, point));
             particles.burst(point.x, point.y, 24, '#9b3938', Math.random() * Math.PI * 2, Math.PI * 2, 112, .42);
             particles.emit(point.x, point.y, 10, '#443330', 54, .45, 4);
             camera.shake(1.8, .15);
@@ -668,7 +717,10 @@ function updateGame(dt: number): void {
             campaignWaveAlertText = wave.sealedPortals.every(Boolean) ? 'CÁC Ổ SPAWN ĐÃ BỊ PHÁ' : 'Ổ SPAWN ĐÃ BỊ PHÁ';
             campaignWaveAlertTimer = 2.4;
             if (campaignPortalFlash?.point === point) campaignPortalFlash = null;
-            if (wave.sealedPortals.every(Boolean)) campaignWaveQueue.splice(waveIndex, 1);
+            if (wave.sealedPortals.every(Boolean)) {
+              campaignSealedSpawnZones.add(wave.zoneIndex);
+              campaignWaveQueue.splice(waveIndex, 1);
+            }
           }
           return true;
         }
@@ -896,6 +948,7 @@ function updateGame(dt: number): void {
 
   // ─── Particles ───
   particles.update(dt);
+  explosionEffects.update(dt);
   damageNumbers.update(dt);
 }
 
@@ -1110,7 +1163,7 @@ function handlePlayerDeath(): void {
     player.hp = Math.round(player.maxHp * 0.3);
     player.invulnTimer = 2.0;
     particles.emit(player.x, player.y, 30, '#ffff00', 200, 0.8, 5);
-    audio.levelUp();
+    audio.revive();
     return;
   }
 
@@ -1186,12 +1239,13 @@ function updateCampaignWaves(stage: typeof STAGES[number], dt: number): void {
   if (zoneIndex < 0) return;
   const zone = layout.zones[zoneIndex];
   if (zone.waveTrigger && !campaignTriggeredZones.has(zoneIndex)) {
-    if (spawnCampaignZoneWave(stage, zoneIndex, zone.waveSize)) {
+    if (campaignSealedSpawnZones.has(zoneIndex)) campaignTriggeredZones.add(zoneIndex);
+    else if (spawnCampaignZoneWave(stage, zoneIndex, zone.waveSize)) {
       campaignTriggeredZones.add(zoneIndex);
       campaignEncounterTriggered = true;
     }
   }
-  if (zone.role === 'hold' && stage.objectiveHoldAt === stageObjectiveIndex) {
+  if (zone.role === 'hold' && stage.objectiveHoldAt === stageObjectiveIndex && !campaignSealedSpawnZones.has(zoneIndex)) {
     if (!isCampaignWaveBusy(zoneIndex)) campaignHoldWaveTimer -= dt;
     if (campaignHoldWaveTimer <= 0 && !isCampaignWaveBusy(zoneIndex)) {
       campaignHoldWaveTimer = 4.25;
@@ -1202,18 +1256,22 @@ function updateCampaignWaves(stage: typeof STAGES[number], dt: number): void {
 
 function spawnCampaignZoneWave(stage: typeof STAGES[number], zoneIndex: number, count: number, useStageRoster = false): boolean {
   const zone = stage.layout?.zones[zoneIndex];
-  if (!zone || count <= 0) return false;
+  if (!zone || count <= 0 || campaignSealedSpawnZones.has(zoneIndex)) return false;
   const allowedIds = useStageRoster || zone.mobs.length === 0 ? stage.mobIds : zone.mobs;
   const roster = [...ZOMBIE_TYPES, ...HORROR_TYPES].filter(type => allowedIds.includes(type.id) && stage.mobIds.includes(type.id) && !type.isBoss);
   if (!roster.length) return false;
-  const portalPoints = chooseCampaignPortalPoints(stage, zone, 4);
+  const portalPoints = chooseCampaignPortalPoints(stage, zoneIndex, 4);
   if (!portalPoints.length) return false;
-  const total = count * CAMPAIGN_HORDE_MULTIPLIER;
+  // Keep the opening chapter's authored density, then raise Campaign hordes by 40% from stage 2 onward.
+  const stageHordeMultiplier = stage.id === 1 ? CAMPAIGN_HORDE_MULTIPLIER : Math.round(CAMPAIGN_HORDE_MULTIPLIER * 1.4);
+  const hordeMultiplier = stageHordeMultiplier * CAMPAIGN_SPAWN_PRESSURE_MULTIPLIER;
+  const groupSize = Math.max(5, Math.min(10, 5 + Math.floor(stage.id / 2))) * CAMPAIGN_SPAWN_PRESSURE_MULTIPLIER;
+  const total = count * hordeMultiplier;
   const portalMaxHp = 1_200 + stage.id * 220;
   campaignWaveQueue.push({ zoneIndex, roster, portalPoints, sealedPortals: portalPoints.map(() => false),
     portalHp: portalPoints.map(() => portalMaxHp), portalMaxHp, remaining: total, total, spawned: 0, portalCursor: 0,
     started: false, warningTimer: 0, spawnTimer: 0, groupSpawned: 0,
-    groupSize: Math.max(5, Math.min(10, 5 + Math.floor(stage.id / 2))), waitingForClear: false,
+    groupSize, waitingForClear: false,
     countsForGate: !useStageRoster && zone.waveTrigger });
   if (!useStageRoster && zone.waveTrigger) campaignActiveWaveZones.add(zoneIndex);
   return true;
@@ -1237,6 +1295,10 @@ function isCampaignWaveBusy(zoneIndex: number): boolean {
     zombies.pool.getActive().some(z => z.hp > 0 && z.campaignZoneIndex === zoneIndex);
 }
 
+function campaignPortalKey(zoneIndex: number, point: Point): string {
+  return `${zoneIndex}:${Math.round(point.x)}:${Math.round(point.y)}`;
+}
+
 function campaignPointInsideBuildingFootprint(stage: typeof STAGES[number], x: number, y: number, radius: number): boolean {
   return stage.buildings.some(building => Math.abs(x - building.x) < building.halfWidth + radius &&
     Math.abs(y - building.y) < building.halfHeight + radius);
@@ -1250,8 +1312,11 @@ function isCampaignPortalPointValid(stage: typeof STAGES[number], zone: Campaign
   return true;
 }
 
-function chooseCampaignPortalPoints(stage: typeof STAGES[number], zone: CampaignZone, maxPoints: number): Point[] {
-  const candidates = zone.spawnPoints.filter(point => isCampaignPortalPointValid(stage, zone, point.x, point.y, 44) &&
+function chooseCampaignPortalPoints(stage: typeof STAGES[number], zoneIndex: number, maxPoints: number): Point[] {
+  const zone = stage.layout?.zones[zoneIndex];
+  if (!zone) return [];
+  const candidates = zone.spawnPoints.filter(point => !campaignDestroyedPortals.has(campaignPortalKey(zoneIndex, point)) &&
+    isCampaignPortalPointValid(stage, zone, point.x, point.y, 44) &&
     Math.hypot(point.x - player.x, point.y - player.y) >= Math.max(CAMPAIGN_MIN_PORTAL_DISTANCE, player.size + 120));
   // Prefer points on different sides of the room, with the farthest portal first.
   candidates.sort((a, b) => Math.hypot(b.x - player.x, b.y - player.y) - Math.hypot(a.x - player.x, a.y - player.y));
@@ -1372,7 +1437,7 @@ function updateCampaignObjective(dt: number): void {
     stageExitActive = true;
     if (bossWeaponDrop) return;
     if (pressed && Math.hypot(player.x - stage.exitSpawn.x, player.y - stage.exitSpawn.y) <= 88) {
-      stageExitActivated = true; audio.levelUp();
+      stageExitActivated = true;
       particles.emit(stage.exitSpawn.x, stage.exitSpawn.y, 22, '#8eafa0', 100, .7, 3);
     }
     return;
@@ -1390,19 +1455,19 @@ function updateCampaignObjective(dt: number): void {
     if (stage.id === 9 && !stageObjectiveHoldStarted && pressed && near) {
       stageObjectiveHoldStarted = true;
       particles.emit(node.x, node.y, 18, '#a4554a', 95, .65, 4);
-      audio.levelUp();
+      audio.objectiveActivate();
     }
     if (near && (stage.id !== 9 || stageObjectiveHoldStarted)) stageObjectiveHoldTime += dt;
     else stageObjectiveHoldTime = 0;
-    if (stageObjectiveHoldTime >= (stage.objectiveHoldSeconds ?? 15)) {
-      stageObjectiveIndex++; stageObjectiveHoldTime = 0; audio.levelUp();
+    if (stageObjectiveHoldTime >= (stage.objectiveHoldSeconds ?? 5)) {
+      stageObjectiveIndex++; stageObjectiveHoldTime = 0; audio.objectiveComplete();
       setCampaignGateState(stageObjectiveIndex, stageBossSpawned, bossKilledThisRun);
     }
     return;
   }
   if (pressed && Math.hypot(player.x - node.x, player.y - node.y) <= 82) {
     stageObjectiveIndex++;
-    audio.levelUp();
+    audio.objectiveComplete();
     particles.emit(node.x, node.y, 14, '#d8ad65', 90, .55, 3);
     setCampaignGateState(stageObjectiveIndex, stageBossSpawned, bossKilledThisRun);
   }
@@ -1452,7 +1517,8 @@ function updateSurvivalWaves(dt: number): ReturnType<Spawner['updateWave']> {
       return [];
     }
     survivalPhase = 'regular';
-    survivalSpawnRemaining = Math.min(42, 8 + survivalWave * 3);
+    survivalSpawnRemaining = Math.min(42 * SURVIVAL_HORDE_MULTIPLIER,
+      (8 + survivalWave * 3) * SURVIVAL_HORDE_MULTIPLIER);
     spawner.beginWave();
   }
 
@@ -1533,16 +1599,30 @@ function updateBossEncounter(dt: number, stage: StageDef, boss: Zombie | undefin
     if (survival) survivalBossSummonsSpawned = spawned;
     else stageBossSummonsSpawned = spawned;
   }, (move, actor, angle) => {
-    if (move.kind !== 'fan') return;
-    const type = stage.id === 2 ? 'boss_acid' : 'boss_shard';
-    const count = stage.id === 2 ? 7 : stage.id >= 7 ? 7 : stage.id >= 5 ? 6 : 5;
-    const spread = stage.id === 2 ? .78 : .56;
     const muzzle = actor.size * .72;
+    if (move.kind === 'ring') {
+      const projectileType: 'boss_acid' | 'boss_shard' | 'boss_wave' = stage.id === 10
+        ? 'boss_wave' : [2, 4, 8, 9].includes(stage.id) ? 'boss_acid' : 'boss_shard';
+      const count = stage.id === 1 ? 8 : stage.id >= 8 ? 18 : stage.id >= 5 ? 15 : 12;
+      const speed = stage.id === 1 ? 118 : stage.id >= 8 ? 188 : stage.id >= 5 ? 164 : 142;
+      const damage = Math.max(5, Math.round(move.damage * (stage.id === 1 ? .38 : .48)));
+      enemyProjectiles.fireRing(actor.x, actor.y, count, speed, damage, projectileType, Math.random() * Math.PI * 2);
+      camera.shake(stage.id === 1 ? 2 : 3.1, .16);
+      particles.emit(actor.x, actor.y, 12, projectileType === 'boss_acid' ? '#a7c568' : '#c8c5b7', 82, .3, 3.6);
+      return;
+    }
+    if (move.kind !== 'fan') return;
+    const type = stage.id === 2 || [4, 8, 9].includes(stage.id) ? 'boss_acid' : 'boss_shard';
+    const count = stage.id === 1 ? 7 : stage.id >= 7 ? 10 : stage.id >= 5 ? 9 : stage.id === 2 ? 9 : 8;
+    const spread = stage.id === 2 ? .68 : stage.id >= 7 ? .44 : .48;
+    // The lock stays inside the telegraphed lane, while each volley shifts a
+    // little so the boss does not trace the same exact line every time.
+    const volleyAngle = angle + (Math.random() - .5) * .2;
     enemyProjectiles.fireFan(actor.x + Math.cos(angle) * muzzle, actor.y + Math.sin(angle) * muzzle,
-      angle, count, spread, stage.id === 2 ? 310 : 390, move.damage, type);
+      volleyAngle, count, spread, stage.id === 1 ? 320 : stage.id === 2 ? 310 : 390, move.damage, type);
     camera.shake(stage.id === 2 ? 2.4 : 1.7, .12);
     particles.emit(actor.x + Math.cos(angle) * muzzle, actor.y + Math.sin(angle) * muzzle,
-      stage.id === 2 ? 8 : 5, stage.id === 2 ? '#a7c568' : '#c8c5b7', 65, .24, 3);
+      stage.id === 2 ? 8 : 7, type === 'boss_acid' ? '#a7c568' : '#c8c5b7', 65, .24, 3);
   });
 }
 
@@ -1566,6 +1646,7 @@ function checkStageObjective(): void {
 
   if (complete && !stageComplete) {
     stageComplete = true;
+    audio.objectiveComplete();
     const gold = save.completeCampaignStage(stage.id, stage.reward, player.kills, campaignResources.used);
 
     menuUI.finalTime = gameTime;
@@ -1584,7 +1665,7 @@ function checkStageObjective(): void {
 function handleZombieDeath(z: Zombie): void {
   if (z.hp > 0 || z.deathHandled) return;
   z.deathHandled = true;
-  bloodStains.add(z.x, z.y, z.size, z.isBoss);
+  bloodStains.add(z.x, z.y, z.size, z.isBoss, z.facingAngle);
   if (gameMode === 'endless') horrorRemains.add(z);
 
   player.kills++;
@@ -1594,6 +1675,7 @@ function handleZombieDeath(z: Zombie): void {
     bossKilledThisRun = true;
     camera.shake(8, 0.3);
     particles.emit(z.x, z.y, 16, '#ff44ff', 140, 0.6, 4);
+    if (gameMode === 'stage') collapseCampaignBossRoomSpawns();
     if (gameMode === 'stage' && z.campaignBossId !== null) {
       const reward = campaignGuns.find(gun => gun.unlockStage === z.campaignBossId! + 1);
       if (reward && !save.data.campaign.ownedGuns.includes(reward.id)) {
@@ -1687,7 +1769,9 @@ function handleZombieDeath(z: Zombie): void {
   // Exploder death explosion
   if (z.explodes) {
     z.explodes = false; // Prevent any duplicate explosions
-    handleExplosion(z.x, z.y, z.explosionRadius, z.explosionDamage);
+    particles.burst(z.x, z.y, 26, '#a92731', Math.random() * Math.PI * 2, Math.PI * 2, 185, .48);
+    particles.emit(z.x, z.y, 14, '#702126', 95, .62, 5);
+    handleExplosion(z.x, z.y, z.explosionRadius, z.explosionDamage, 1.85);
   } else {
     // Normal / Elite zombie death
     const bloodCount = z.isBoss ? 24 : z.isElite ? 12 : 8;
@@ -1700,11 +1784,54 @@ function handleZombieDeath(z: Zombie): void {
   zombies.pool.release(z);
 }
 
-function handleExplosion(x: number, y: number, radius: number, damage: number): void {
+/** Collapse only the boss-arena portals. Already spawned support mobs remain alive. */
+function collapseCampaignBossRoomSpawns(): void {
+  const bossZoneIndex = STAGES[currentStageIndex]?.layout?.zones.length;
+  if (bossZoneIndex === undefined || bossZoneIndex <= 0) return;
+  const bossZone = bossZoneIndex - 1;
+  const collapsedPoints: Point[] = [];
+  const addPoint = (point: Point): void => {
+    if (!collapsedPoints.some(existing => existing.x === point.x && existing.y === point.y)) collapsedPoints.push(point);
+  };
+
+  for (let waveIndex = campaignWaveQueue.length - 1; waveIndex >= 0; waveIndex--) {
+    const wave = campaignWaveQueue[waveIndex];
+    if (wave.zoneIndex !== bossZone) continue;
+    for (let portalIndex = 0; portalIndex < wave.portalPoints.length; portalIndex++) {
+      if (wave.sealedPortals[portalIndex]) continue;
+      wave.sealedPortals[portalIndex] = true;
+      wave.portalHp[portalIndex] = 0;
+      campaignDestroyedPortals.add(campaignPortalKey(bossZone, wave.portalPoints[portalIndex]));
+      addPoint(wave.portalPoints[portalIndex]);
+    }
+    // Discard only the pending boss-room spawn queue. Zombies already spawned
+    // are independent entities and will continue fighting the player.
+    campaignWaveQueue.splice(waveIndex, 1);
+  }
+
+  if (campaignPortalFlash?.zoneIndex === bossZone) {
+    addPoint(campaignPortalFlash.point);
+    campaignDestroyedPortals.add(campaignPortalKey(bossZone, campaignPortalFlash.point));
+    campaignPortalFlash = null;
+  }
+  campaignSealedSpawnZones.add(bossZone);
+  if (!collapsedPoints.length) return;
+
+  for (const point of collapsedPoints) {
+    particles.burst(point.x, point.y, 24, '#9b3938', Math.random() * Math.PI * 2, Math.PI * 2, 112, .42);
+    particles.emit(point.x, point.y, 10, '#443330', 54, .45, 4);
+  }
+  camera.shake(2.8, .22);
   audio.explosion();
-  camera.shake(1.8, 0.09);
-  particles.emit(x, y, 5, '#ff6600', 65, 0.22, 2.8);
-  particles.emit(x, y, 3, '#ffcc00', 45, 0.18, 2.2);
+}
+
+function handleExplosion(x: number, y: number, radius: number, damage: number, visualScale = 1.35): void {
+  audio.explosion();
+  camera.shake(4.2, 0.18);
+  explosionEffects.spawn(x, y, Math.max(82, radius * visualScale));
+  particles.emit(x, y, 22, '#ff672b', 180, 0.38, 5.5);
+  particles.emit(x, y, 12, '#ffd45f', 140, 0.24, 4);
+  particles.burst(x, y, 16, '#9f2a2c', Math.random() * Math.PI * 2, Math.PI * 2, 165, 0.42);
 
   const nearby = zombieGrid.query(x, y, radius);
   const dyingZombies: Zombie[] = [];
@@ -1832,10 +1959,12 @@ function drawGame(): void {
   if (!campaignStage) propRenderer.draw(ctx, camera, 'above', true);
 
   particles.draw(ctx, camera);
+  explosionEffects.draw(ctx, camera);
   damageNumbers.draw(ctx, camera);
 
   // Floating reload indicator in world coordinates
   weapons.loadout.drawInWorld(ctx, camera, player);
+  if (campaignStage) drawCampaignHoldProgress(campaignStage);
 
   ctx.restore();
   
@@ -1983,16 +2112,20 @@ function drawStageObjective(): void {
     const node = stage.objectiveNodes[stageObjectiveIndex];
     const near = Math.hypot(player.x - node.x, player.y - node.y) < 82;
     const holding = stage.objectiveHoldAt === stageObjectiveIndex;
+    const holdNear = holding && Math.hypot(player.x - node.x, player.y - node.y) <= 110;
+    const holdSeconds = stage.objectiveHoldSeconds ?? 5;
     objectiveText = stage.id === 10 || stage.id === 9 && stageObjectiveIndex < 2
       ? `BẮN PHÁ Ổ DỊCH / LÕI  ${stageObjectiveIndex + 1}/${stage.objectiveNodes.length}  •  ${Math.max(0, Math.ceil(stageObjectiveHp))} HP`
       : holding
       ? stage.id === 9 && !stageObjectiveHoldStarted
-        ? `PHÁ Ổ DỊCH CUỐI${near ? '  •  NHẤN E' : '  •  ĐẾN GẦN Ổ DỊCH'}`
-        : `${stage.objectiveLabel}  •  ${Math.floor(stageObjectiveHoldTime)}/${stage.objectiveHoldSeconds ?? 15} GIÂY${near ? '  •  GIỮ VỊ TRÍ' : '  •  QUAY LẠI MỤC TIÊU'}`
+        ? `PHÁ Ổ DỊCH CUỐI${near ? '  •  NHẤN E ĐỂ BẮT ĐẦU' : '  •  ĐẾN GẦN Ổ DỊCH'}`
+        : holdNear
+          ? `GIỮ VỊ TRÍ  •  ${stageObjectiveHoldTime.toFixed(1)}/${holdSeconds}s`
+          : `ĐI VÀO VÙNG SÁNG  •  GIỮ ${holdSeconds} GIÂY`
       : `${stage.objectiveLabel}  ${stageObjectiveIndex}/${stage.objectiveNodes.length}${near ? '  •  NHẤN E ĐỂ TƯƠNG TÁC' : '  •  THEO DẤU CHỈ HƯỚNG'}`;
     if (holding) {
       ctx.fillStyle = 'rgba(38,43,41,.95)'; ctx.fillRect(x - panelW*.38, y + 27, panelW*.76, 3);
-      ctx.fillStyle = '#a8c08b'; ctx.fillRect(x - panelW*.38, y + 27, panelW*.76 * Math.min(1, stageObjectiveHoldTime / (stage.objectiveHoldSeconds ?? 15)), 3);
+      ctx.fillStyle = '#a8c08b'; ctx.fillRect(x - panelW*.38, y + 27, panelW*.76 * Math.min(1, stageObjectiveHoldTime / (stage.objectiveHoldSeconds ?? 5)), 3);
     }
   }
   if (stageExitActive && stage.exitSpawn && !stageExitActivated) {
@@ -2001,9 +2134,17 @@ function drawStageObjective(): void {
   }
   if (bossWeaponDrop) objectiveText = `NHẶT ${campaignGuns.find(gun => gun.id === bossWeaponDrop!.gunId)?.shortName ?? 'VŨ KHÍ'} BOSS ĐỂ MỞ ĐIỂM THOÁT`;
   if (campaignActiveWaveZones.has(currentZoneIndex)) {
-    const holdText = stage.layout?.zones[currentZoneIndex]?.role === 'hold' ? `  •  GIỮ ${Math.floor(stageObjectiveHoldTime)}/${stage.objectiveHoldSeconds ?? 15}s` : '';
+    const holdingObjective = stage.objectiveHoldAt === stageObjectiveIndex && stage.layout?.zones[currentZoneIndex]?.role === 'hold';
+    const holdNode = holdingObjective ? stage.objectiveNodes[stageObjectiveIndex] : undefined;
+    const atHoldPoint = !!holdNode && Math.hypot(player.x - holdNode.x, player.y - holdNode.y) <= 110;
+    const holdSeconds = stage.objectiveHoldSeconds ?? 5;
     const canShootPortal = campaignWaveQueue.some(wave => wave.zoneIndex === currentZoneIndex && wave.remaining > 0 && wave.sealedPortals.some(sealed => !sealed));
-    objectiveText = `GIAO TRANH • HẠ QUÁI${canShootPortal ? ' / BẮN PHÁ Ổ SPAWN' : ''}${holdText}`;
+    if (holdingObjective) {
+      const holdStatus = stage.id === 9 && !stageObjectiveHoldStarted
+        ? atHoldPoint ? 'NHẤN E ĐỂ BẮT ĐẦU' : 'ĐI VÀO VÙNG SÁNG'
+        : atHoldPoint ? `GIỮ VỊ TRÍ ${stageObjectiveHoldTime.toFixed(1)}/${holdSeconds}s` : `ĐI VÀO VÙNG SÁNG • GIỮ ${holdSeconds}s`;
+      objectiveText = `${holdStatus}${canShootPortal ? ' • BẮN PHÁ Ổ SPAWN' : ''}`;
+    } else objectiveText = `GIAO TRANH • HẠ QUÁI${canShootPortal ? ' / BẮN PHÁ Ổ SPAWN' : ''}`;
   }
   if (campaignSupplyNoticeTimer > 0) objectiveText = campaignSupplyNotice;
   ctx.fillStyle = stageExitActive ? '#9fc4af' : stageBossSpawned ? '#e47a68' : '#f0eadc';
@@ -2020,6 +2161,40 @@ function drawStageObjective(): void {
   lines.push(line);
   lines.slice(0, 2).forEach((text, index) => ctx.fillText(text, x, y + (lines.length > 1 ? -1 : 6) + index * 15, panelW - 22));
   drawCampaignDirection(stage);
+}
+
+function drawCampaignHoldProgress(stage: typeof STAGES[number]): void {
+  if (stage.id === 9 && !stageObjectiveHoldStarted) return;
+  if (stage.objectiveHoldAt !== stageObjectiveIndex || stageBossSpawned) return;
+  const node = stage.objectiveNodes[stageObjectiveIndex];
+  if (!node || Math.hypot(player.x - node.x, player.y - node.y) > 110) return;
+
+  const duration = stage.objectiveHoldSeconds ?? 5;
+  const progress = Math.max(0, Math.min(1, stageObjectiveHoldTime / duration));
+  const remaining = Math.max(0, duration - stageObjectiveHoldTime);
+  const [x, y] = camera.worldToScreen(player.x, player.y - player.size - 58);
+  const panelW = 126;
+  const panelH = 31;
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = '#ffd47d';
+  ctx.shadowBlur = 8;
+  ctx.fillStyle = 'rgba(10, 14, 15, .94)';
+  ctx.strokeStyle = `rgba(255, 211, 126, ${.72 + .2 * Math.sin(gameTime * 7)})`;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(x - panelW / 2, y - panelH / 2, panelW, panelH, 6);
+  ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#fff0ca';
+  ctx.font = `bold 9px 'Segoe UI', Arial, sans-serif`;
+  ctx.fillText(`GIỮ VỊ TRÍ  •  ${remaining.toFixed(1)}s`, x, y - 7);
+  ctx.fillStyle = 'rgba(57, 62, 57, .96)';
+  ctx.fillRect(x - 52, y + 3, 104, 5);
+  ctx.fillStyle = progress >= 1 ? '#b9f28c' : '#ffd47d';
+  ctx.fillRect(x - 52, y + 3, 104 * progress, 5);
+  ctx.restore();
 }
 
 function drawCampaignDirection(stage: typeof STAGES[number]): void {
@@ -2199,7 +2374,13 @@ function startGame(): void {
     const stock = save.data.campaign;
     const ammoPacks = stock.ammoPacks;
     const medKits = stock.medKits;
-    if (!previewEncounter) { stock.ammoPacks = 0; stock.medKits = 0; save.save(); }
+    if (!previewEncounter) {
+      stock.ammoPacks = 0;
+      stock.medKits = 0;
+      stock.lastStage = currentStageIndex + 1;
+      stock.hasCheckpoint = true;
+      save.save();
+    }
     weapons.loadout.configureCampaign(stock.ownedGuns, stock.equippedGun, stock.gunLevels, ammoPacks, currentStageIndex + 1);
     campaignResources.reset(stage, medKits);
   } else {
@@ -2239,7 +2420,10 @@ function resetGame(): void {
   stageExitActivated = false;
   campaignTriggeredZones.clear();
   campaignActiveWaveZones.clear();
+  campaignDestroyedPortals.clear();
+  campaignSealedSpawnZones.clear();
   campaignWaveQueue.length = 0;
+  explosionEffects.clear();
   campaignPortalFlash = null;
   campaignSupplyNotice = '';
   campaignSupplyNoticeTimer = 0;

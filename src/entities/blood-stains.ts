@@ -6,71 +6,98 @@ interface BloodStain {
   width: number;
   height: number;
   rotation: number;
-  life: number;
-  canvas: HTMLCanvasElement | null;
+  variant: number;
 }
 
-/** Short-lived, cached floor splashes left by defeated mobs. */
+/** Permanent cached floor pools left at each defeated mob's death position. */
 export class BloodStains {
-  private readonly records: BloodStain[] = Array.from({ length: 84 }, () => ({
-    x: 0, y: 0, width: 0, height: 0, rotation: 0, life: 0, canvas: null,
-  }));
-  private cursor = 0;
+  private static readonly CELL_SIZE = 512;
+  private static readonly MAX_STAIN_SIZE = 280;
+  private readonly variants: HTMLCanvasElement[] = [];
+  private readonly cells = new Map<string, BloodStain[]>();
 
-  add(x: number, y: number, creatureSize: number, boss = false): void {
-    const stain = this.records[this.cursor];
-    this.cursor = (this.cursor + 1) % this.records.length;
-    stain.x = x;
-    stain.y = y;
-    stain.width = boss ? 360 : Math.max(150, Math.min(250, 100 + creatureSize * 2.9));
-    stain.height = stain.width * (.68 + Math.random() * .28);
-    stain.rotation = Math.random() * Math.PI;
-    stain.life = boss ? 42 : 30;
-
-    if (!stain.canvas) {
-      stain.canvas = document.createElement('canvas');
-      stain.canvas.width = stain.canvas.height = 256;
+  constructor() {
+    // Reuse a small atlas of irregular pool shapes so permanent stains do not
+    // allocate one large canvas each time a mob dies.
+    for (let i = 0; i < 24; i++) {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 256;
+      this.paint(canvas, (i + 1) * 0x45d9f3b);
+      this.variants.push(canvas);
     }
-    this.paint(stain.canvas);
   }
 
-  update(dt: number): void {
-    for (const stain of this.records) stain.life = Math.max(0, stain.life - dt);
+  add(x: number, y: number, creatureSize: number, boss = false, bodyAngle = 0): void {
+    const width = boss
+      ? 230 + Math.random() * 40
+      : Math.max(78, Math.min(160, 64 + creatureSize * 2.2));
+    const stain: BloodStain = {
+      x,
+      y,
+      width,
+      height: width * (.72 + Math.random() * .18),
+      // Keep the pool's main axis close to the fallen creature's body angle.
+      rotation: bodyAngle + (Math.random() - .5) * .7,
+      variant: Math.floor(Math.random() * this.variants.length),
+    };
+    const cellX = Math.floor(x / BloodStains.CELL_SIZE);
+    const cellY = Math.floor(y / BloodStains.CELL_SIZE);
+    const key = `${cellX}:${cellY}`;
+    let cell = this.cells.get(key);
+    if (!cell) this.cells.set(key, cell = []);
+    cell.push(stain);
   }
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    const centerX = camera.x + camera.width / 2;
+    const centerY = camera.y + camera.height / 2;
+    const halfW = camera.width / (camera.zoom * 2) + BloodStains.MAX_STAIN_SIZE;
+    const halfH = camera.height / (camera.zoom * 2) + BloodStains.MAX_STAIN_SIZE;
+    const minCellX = Math.floor((centerX - halfW) / BloodStains.CELL_SIZE);
+    const maxCellX = Math.floor((centerX + halfW) / BloodStains.CELL_SIZE);
+    const minCellY = Math.floor((centerY - halfH) / BloodStains.CELL_SIZE);
+    const maxCellY = Math.floor((centerY + halfH) / BloodStains.CELL_SIZE);
+
     ctx.save();
-    for (const stain of this.records) {
-      if (stain.life <= 0 || !stain.canvas || !camera.isVisible(stain.x, stain.y, stain.width)) continue;
-      const [sx, sy] = camera.worldToScreen(stain.x, stain.y);
-      const fade = stain.life < 8 ? stain.life / 8 : 1;
-      ctx.save();
-      ctx.globalAlpha = .92 * fade;
-      ctx.translate(sx, sy);
-      ctx.rotate(stain.rotation);
-      ctx.drawImage(stain.canvas, -stain.width / 2, -stain.height / 2, stain.width, stain.height);
-      ctx.restore();
+    for (let cellY = minCellY; cellY <= maxCellY; cellY++) {
+      for (let cellX = minCellX; cellX <= maxCellX; cellX++) {
+        const cell = this.cells.get(`${cellX}:${cellY}`);
+        if (!cell) continue;
+        for (const stain of cell) {
+          if (!camera.isVisible(stain.x, stain.y, BloodStains.MAX_STAIN_SIZE)) continue;
+          const [sx, sy] = camera.worldToScreen(stain.x, stain.y);
+          ctx.save();
+          ctx.globalAlpha = .92;
+          ctx.translate(sx, sy);
+          ctx.rotate(stain.rotation);
+          ctx.drawImage(this.variants[stain.variant], -stain.width / 2, -stain.height / 2, stain.width, stain.height);
+          ctx.restore();
+        }
+      }
     }
     ctx.restore();
   }
 
   clear(): void {
-    for (const stain of this.records) stain.life = 0;
-    this.cursor = 0;
+    this.cells.clear();
   }
 
-  private paint(canvas: HTMLCanvasElement): void {
+  private paint(canvas: HTMLCanvasElement, seed: number): void {
     const ctx = canvas.getContext('2d')!;
-    ctx.clearRect(0, 0, 256, 256);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.save();
-    ctx.translate(128, 128);
-    ctx.rotate(Math.random() * Math.PI * 2);
+    ctx.translate(canvas.width / 2, canvas.height / 2);
 
-    const irregularPool = (cx: number, cy: number, rx: number, ry: number, color: string, points = 22): void => {
+    let state = seed >>> 0;
+    const random = (): number => {
+      state = (state * 1664525 + 1013904223) >>> 0;
+      return state / 0x100000000;
+    };
+    const irregularPool = (cx: number, cy: number, rx: number, ry: number, color: string, points = 30): void => {
       const outline: Array<[number, number]> = [];
       for (let i = 0; i < points; i++) {
         const angle = i / points * Math.PI * 2;
-        const wobble = .72 + Math.random() * .5;
+        const wobble = .76 + random() * .48;
         outline.push([cx + Math.cos(angle) * rx * wobble, cy + Math.sin(angle) * ry * wobble]);
       }
       ctx.fillStyle = color;
@@ -80,47 +107,45 @@ export class BloodStains {
         const current = outline[i], next = outline[(i + 1) % points];
         ctx.quadraticCurveTo(current[0], current[1], (current[0] + next[0]) / 2, (current[1] + next[1]) / 2);
       }
-      ctx.closePath(); ctx.fill();
+      ctx.closePath();
+      ctx.fill();
     };
 
-    // A broad dark pooling mass, broken into connected lobes instead of a neat oval.
-    irregularPool(0, 4, 104, 66, 'rgba(25,5,9,.96)', 26);
-    irregularPool(-8, 1, 88, 51, 'rgba(74,9,17,.94)', 24);
-    irregularPool(16, -5, 58, 36, 'rgba(111,18,27,.78)', 20);
-    irregularPool(-54, 14, 35, 23, 'rgba(58,7,14,.9)', 16);
-    irregularPool(48, 20, 38, 24, 'rgba(47,6,12,.88)', 17);
+    // A compact uneven pool with a few connected lobes, not a long smear.
+    irregularPool(0, 2, 103, 78, 'rgba(31, 5, 10, .88)');
+    irregularPool(-5, 0, 91, 67, 'rgba(75, 8, 17, .94)');
+    irregularPool(-31, -12, 46, 35, 'rgba(112, 15, 27, .84)', 26);
+    irregularPool(25, 14, 56, 39, 'rgba(92, 10, 21, .91)', 28);
+    irregularPool(41, -19, 32, 27, 'rgba(126, 19, 29, .76)', 24);
+    irregularPool(-2, 4, 47, 35, 'rgba(148, 25, 34, .55)', 27);
 
-    // Uneven drag marks and arterial sprays break up the pool edge.
-    for (let i = 0; i < 5; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const start = 30 + Math.random() * 38;
-      const length = 28 + Math.random() * 62;
-      const sx = Math.cos(angle) * start, sy = Math.sin(angle) * start * .7;
-      const ex = Math.cos(angle) * (start + length), ey = Math.sin(angle) * (start + length) * .7;
-      ctx.strokeStyle = i % 2 ? 'rgba(35,5,10,.86)' : 'rgba(120,20,27,.73)';
-      ctx.lineWidth = 3 + Math.random() * 8; ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(sx, sy);
-      ctx.quadraticCurveTo((sx + ex) * .52 + (Math.random() - .5) * 20,
-        (sy + ey) * .52 + (Math.random() - .5) * 18, ex, ey); ctx.stroke();
-      ctx.fillStyle = 'rgba(35,5,10,.88)'; ctx.beginPath();
-      ctx.ellipse(ex, ey, 2.5 + Math.random() * 4.5, 1.7 + Math.random() * 3.5, angle, 0, Math.PI * 2); ctx.fill();
+    // A handful of nearby droplets radiate mostly in one direction, with no
+    // evenly spaced ring or long drag marks.
+    const splashDirection = random() * Math.PI * 2;
+    for (let i = 0; i < 17; i++) {
+      const angle = splashDirection + (random() - .5) * 2.45;
+      const distance = 72 + random() * 48;
+      const px = Math.cos(angle) * distance;
+      const py = Math.sin(angle) * distance * (.6 + random() * .7);
+      const radius = 2 + random() * 5;
+      ctx.fillStyle = i % 4 === 0 ? 'rgba(116, 17, 27, .75)' : 'rgba(38, 5, 10, .82)';
+      ctx.beginPath();
+      ctx.ellipse(px, py, radius * (1.2 + random() * .8), radius * (.45 + random() * .55), angle, 0, Math.PI * 2);
+      ctx.fill();
     }
 
-    // Wet highlights sit off-center so the blood reads as thick and pooled, not a flat icon.
-    irregularPool(-16, -11, 43, 17, 'rgba(151,28,35,.5)', 18);
-    ctx.strokeStyle = 'rgba(187,48,49,.46)'; ctx.lineWidth = 4; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(-62, 3); ctx.quadraticCurveTo(-33, -14, -8, -7); ctx.stroke();
-
-    // A wide, irregular field of droplets gives each impact a different silhouette.
-    for (let i = 0; i < 25; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const distance = 54 + Math.random() * 68;
-      const radius = 1.5 + Math.random() * 4.8;
-      const px = Math.cos(angle) * distance, py = Math.sin(angle) * distance * .72;
-      ctx.fillStyle = i % 4 === 0 ? 'rgba(126,22,29,.88)' : 'rgba(39,5,10,.9)';
+    // Subtle wet highlights sit inside the pool rather than outlining it.
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 7; i++) {
+      const x = (random() - .5) * 105;
+      const y = (random() - .5) * 65;
+      const length = 8 + random() * 18;
+      ctx.strokeStyle = i % 2 === 0 ? 'rgba(192, 57, 58, .31)' : 'rgba(228, 93, 77, .2)';
+      ctx.lineWidth = 1 + random() * 2.2;
       ctx.beginPath();
-      ctx.ellipse(px, py, radius * (1.1 + Math.random() * .9), radius * (.55 + Math.random() * .65), angle, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.moveTo(x, y);
+      ctx.quadraticCurveTo(x + length * .45, y - 3 - random() * 4, x + length, y + 1);
+      ctx.stroke();
     }
     ctx.restore();
   }

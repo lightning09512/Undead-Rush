@@ -3,6 +3,8 @@
 import { ZOMBIE_TYPES, HORROR_TYPES, DIFFICULTY_CURVE, BOSS_SPAWN_TIMES, ZombieTypeDef, DifficultyTier } from '../data/zombies';
 import { Camera } from '../core/camera';
 
+export const SURVIVAL_HORDE_MULTIPLIER = 3;
+
 export class Spawner {
   private spawnTimer = 0;
   private bossesSpawned = new Set<number>();
@@ -23,12 +25,14 @@ export class Spawner {
     camera: Camera, playerX: number, playerY: number, remaining: number
   ): { type: ZombieTypeDef; x: number; y: number; tier: DifficultyTier; isElite?: boolean }[] {
     const tier = this.getCurrentTier(gameTime);
-    if (remaining <= 0 || currentZombieCount >= tier.maxZombies) return [];
+    const activeLimit = tier.maxZombies * SURVIVAL_HORDE_MULTIPLIER;
+    if (remaining <= 0 || currentZombieCount >= activeLimit) return [];
     this.spawnTimer += dt * tier.spawnRate;
     if (this.spawnTimer < 1) return [];
     this.spawnTimer -= 1;
 
-    const count = Math.min(tier.batchSize, remaining, tier.maxZombies - currentZombieCount);
+    const batchSize = tier.batchSize * SURVIVAL_HORDE_MULTIPLIER;
+    const count = Math.min(batchSize, remaining, activeLimit - currentZombieCount);
     const result: { type: ZombieTypeDef; x: number; y: number; tier: DifficultyTier; isElite?: boolean }[] = [];
     for (let i = 0; i < count; i++) {
       const type = this.pickZombieType(gameTime, true);

@@ -84,43 +84,42 @@ export class HUD {
     );
     }
 
-    // ─── 2. Top-Center: Game Clock & Kill Count Pill ───
-    const minutes = Math.floor(gameTime / 60);
-    const seconds = Math.floor(gameTime % 60);
-    const timeStr = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-
-    const clockW = compact ? 144 : 160;
+    // Campaign run time and kill count are reported on the results screen.
+    // Survival keeps its live wave clock and kill tally.
     const clockH = compact ? 29 : 34;
-    const clockX = compact ? pad : (w - clockW) / 2;
     const clockY = compact ? 126 : xpBarH + 6;
+    if (!campaign) {
+      // ─── 2. Top-Center: Game Clock & Kill Count Pill ───
+      const minutes = Math.floor(gameTime / 60);
+      const seconds = Math.floor(gameTime % 60);
+      const timeStr = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+      const clockW = compact ? 144 : 160;
+      const clockX = compact ? pad : (w - clockW) / 2;
 
-    ctx.save();
-    ctx.fillStyle = 'rgba(27, 36, 41, 0.96)';
-    ctx.strokeStyle = C.border;
-    ctx.lineWidth = 1.5;
-    this.roundRect(ctx, clockX, clockY, clockW, clockH, 3);
-    ctx.fill();
-    ctx.stroke();
+      ctx.save();
+      ctx.fillStyle = 'rgba(27, 36, 41, 0.96)';
+      ctx.strokeStyle = C.border;
+      ctx.lineWidth = 1.5;
+      this.roundRect(ctx, clockX, clockY, clockW, clockH, 3);
+      ctx.fill();
+      ctx.stroke();
 
-    // Clock
-    ctx.fillStyle = '#f8fafc';
-    ctx.font = `bold 18px 'Segoe UI', Arial, sans-serif`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(timeStr, clockX + 14, clockY + clockH / 2);
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = `bold 18px 'Segoe UI', Arial, sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(timeStr, clockX + 14, clockY + clockH / 2);
 
-    // Kill Counter
-    ctx.fillStyle = C.dangerBright;
-    ctx.font = `14px sans-serif`;
-    // A simple etched tally avoids brightly colored platform emoji in the combat HUD.
-    ctx.strokeStyle = C.dangerBright; ctx.lineWidth = 1.5;
-    for (let k = 0; k < 3; k++) {
-      ctx.beginPath(); ctx.moveTo(clockX + 82 + k * 4, clockY + 11); ctx.lineTo(clockX + 82 + k * 4, clockY + clockH - 10); ctx.stroke();
+      ctx.fillStyle = C.dangerBright;
+      ctx.strokeStyle = C.dangerBright; ctx.lineWidth = 1.5;
+      for (let k = 0; k < 3; k++) {
+        ctx.beginPath(); ctx.moveTo(clockX + 82 + k * 4, clockY + 11); ctx.lineTo(clockX + 82 + k * 4, clockY + clockH - 10); ctx.stroke();
+      }
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = `bold 14px 'Segoe UI', Arial, sans-serif`;
+      ctx.fillText(`${player.kills}`, clockX + 104, clockY + clockH / 2);
+      ctx.restore();
     }
-    ctx.fillStyle = '#f8fafc';
-    ctx.font = `bold 14px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText(`${player.kills}`, clockX + 104, clockY + clockH / 2);
-    ctx.restore();
 
     const campaignBossActive = !!campaign?.bossSpawned && !!campaign.bossName;
     const survivalBossActive = survival?.phase === 'boss' && !!survival.bossName;
@@ -153,16 +152,17 @@ export class HUD {
     if (bossBarActive) {
       const bossName = campaignBossActive ? campaign!.bossName! : survival!.bossName!;
       const bossHp = campaignBossActive ? campaign!.bossHpRatio : survival!.bossHpRatio;
-      const bossBarY = compact ? clockY + clockH + 8 : w < 1240 ? 141 : clockY + clockH + 7;
+      const bossBarY = campaignBossActive ? xpBarH + 5 : compact ? clockY + clockH + 8 : w < 1240 ? 141 : clockY + clockH + 7;
       this.drawBossHealthBar(ctx, w, pad, bossBarY, compact, bossName, bossHp ?? 1);
     }
 
     // ─── 3. Top-Left: Equipment Slots (6 Weapons + 6 Passives) ───
-    this.drawEquipmentSlots(ctx, pad, xpBarH + 8, player, slotSize);
+    const equipmentY = xpBarH + 8 + (campaignBossActive ? 64 : 0);
+    this.drawEquipmentSlots(ctx, pad, equipmentY, player, slotSize);
 
     // ─── 4. Player HP Bar (Below Equipment Slots) ───
     const hpX = pad;
-    const hpY = xpBarH + 8 + (slotSize + 4) * 2 + 6;
+    const hpY = equipmentY + (slotSize + 4) * 2 + 6;
     const hpBarW = (slotSize + 4) * 6 - 4;
     const hpBarH = 26;
 

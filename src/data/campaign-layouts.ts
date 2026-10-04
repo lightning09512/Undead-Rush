@@ -138,7 +138,7 @@ export function applyCampaignLayouts(stages: StageDef[]): void {
       if (stage.id <= 3) {
         const authoredProps: Record<number, string[][]> = {
           1: [
-            ['car','bloodstain','streetlight','trafficcone','roadcrack','mailbox','tree','shrub','roadSign','trash','bloodstain','brokenFence'],
+            ['car','bloodstain','streetlight','trafficcone','roadcrack','mailbox','tree','shrub','roadSign','trash','yarddebris','brokenFence'],
             ['fence','mailbox','yarddebris','tree','car','gardenlamp','shrub','porchsteps','gardenpatch','trash','mailbox','brokenFence'],
             ['car','barricade','fence','debris','streetlight','roadSign','tire','shrub','roadcrack','trash','bloodstain','yarddebris'],
             ['radio','rescuevan','streetlight','barrier','debris','wire','fence','streetlight','shrub','bloodstain','roadSign','trafficcone'],

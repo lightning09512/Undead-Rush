@@ -17,5 +17,7 @@ export const UI_PALETTE = {
   cyan: '#83c5ce',
   cyanBright: '#b5edf0',
   inactive: '#384247',
+  selected: '#638477',
+  selectedBorder: '#c4dfb8',
   black: '#070a0c',
 } as const;

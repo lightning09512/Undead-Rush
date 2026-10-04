@@ -754,10 +754,23 @@ export class GunLoadout {
         ctx.font = '800 11px Segoe UI, Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
         const weaponIndex = first + visible;
         ctx.fillText(weaponIndex === 9 ? '0' : String(weaponIndex + 1), x + 12, rowY + rowHeight / 2);
-        drawGunArt(ctx, x + 29, rowY + 3, width < 200 ? 55 : 67, rowHeight - 6, slot.def.id);
+        const compactRow = width < 200;
+        const ammoWidth = compactRow ? 41 : 46;
+        const nameX = x + (compactRow ? 78 : 91);
+        const nameWidth = x + width - 9 - ammoWidth - nameX;
+        drawGunArt(ctx, x + 29, rowY + 3, compactRow ? 42 : 54, rowHeight - 6, slot.def.id);
         ctx.fillStyle = selected ? '#f4eee0' : '#c3d0ce';
-        ctx.font = '700 10px Segoe UI, Arial';
-        ctx.fillText(slot.def.shortName, x + (width < 200 ? 91 : 104), rowY + rowHeight / 2, width - (width < 200 ? 99 : 112));
+        ctx.font = `700 ${compactRow ? 9 : 10}px Segoe UI, Arial`;
+        ctx.fillText(slot.def.shortName, nameX, rowY + rowHeight / 2, nameWidth);
+
+        const lowAmmo = slot.currentAmmo <= Math.ceil(slot.def.magSize * .2);
+        ctx.fillStyle = slot.isReloading ? '#d9ae68'
+          : lowAmmo ? '#da7469' : selected ? '#f0dfbd' : '#aebcba';
+        ctx.font = `800 ${compactRow ? 8 : 9}px Segoe UI, Arial`;
+        ctx.textAlign = 'right';
+        const reserve = slot.reserveAmmo < 0 ? '∞' : String(slot.reserveAmmo);
+        ctx.fillText(`${slot.currentAmmo}/${reserve}`, x + width - 9, rowY + rowHeight / 2, ammoWidth);
+        ctx.textAlign = 'left';
       }
       if (first > 0) { ctx.fillStyle = '#dfbb7e'; ctx.fillRect(x + width - 3, listTop + 23, 2, 8); }
       if (first + visibleCount < unlocked.length) { ctx.fillStyle = '#dfbb7e'; ctx.fillRect(x + width - 3, listTop + listHeight - 10, 2, 8); }

@@ -10,7 +10,6 @@ export class CampaignBossDirector {
   private phase: Phase = 'approach';
   private phaseTime = 0;
   private cooldown = 1.6;
-  private attackIndex = 0;
   private attack: CampaignAttackDef | null = null;
   private ox = 0; private oy = 0; private angle = 0;
   private hitThisMove = false;
@@ -26,7 +25,7 @@ export class CampaignBossDirector {
 
   reset(): void {
     this.phase = 'approach'; this.phaseTime = 0; this.cooldown = 1.6;
-    this.attackIndex = 0; this.attack = null; this.hitThisMove = false; this.chargeTravel = 0;
+    this.attack = null; this.hitThisMove = false; this.chargeTravel = 0;
     this.bossPhase = 1;
     this.recentKinds = [];
     this.chainDepth = 0;
@@ -193,7 +192,7 @@ export class CampaignBossDirector {
     return 0;
   }
 
-  private chaseSpeed(stageId: number): number { return Math.max(38, 52 - stageId); }
+  private chaseSpeed(stageId: number): number { return Math.max(38, 52 - stageId) * 3; }
 
   private attackDuration(move: CampaignAttackDef, stageId: number): number {
     if (move.kind === 'charge') return Math.max(.8, move.reach / (this.chaseSpeed(stageId) * 5));
@@ -214,39 +213,36 @@ export class CampaignBossDirector {
   }
 
   private chooseMove(moves: CampaignAttackDef[], distance: number, stageId: number): CampaignAttackDef {
-    let best = moves[this.attackIndex++ % moves.length];
-    if (this.attackIndex <= moves.length) {
-      this.recentKinds.push(best.kind);
-      return best;
-    }
-    // After the opening showcase, bosses from stage 2 onward lunge at least
-    // once every few attacks when the player is far enough to make it legible.
-    const charge = moves.find(move => move.kind === 'charge');
-    if (stageId >= 2 && charge && distance > 140 && !this.recentKinds.slice(-2).includes('charge')) {
-      this.recentKinds.push('charge');
-      if (this.recentKinds.length > 3) this.recentKinds.shift();
-      return charge;
-    }
-    let bestScore = -Infinity;
-    for (const move of moves) {
-      const recent = this.recentKinds.slice(-2).includes(move.kind);
+    // Vary the opener too, then suppress the last two move types whenever the
+    // profile has alternatives. Range and spell weights keep the pressure up
+    // without making the exact next attack deterministic.
+    const recent = this.recentKinds.slice(-2);
+    const alternatives = moves.filter(move => !recent.includes(move.kind));
+    const candidates = alternatives.length ? alternatives : moves;
+    const weighted = candidates.map(move => {
       const rangeFit = distance > move.reach * 1.1
-        ? (move.kind === 'charge' || move.kind === 'web' || move.kind === 'fan' ? 2 : 0)
-        : (move.kind === 'sweep' || move.kind === 'slam' || move.kind === 'ring' || move.kind === 'stomp' ? 2 : 0);
-      const pounceBias = move.kind === 'charge' ? stageId === 1 ? .35 : stageId >= 7 ? 3.5 : stageId >= 4 ? 2.9 : 2.4 : 0;
-      const rangedBias = move.kind === 'fan' && distance > move.reach * .55 ? stageId === 1 ? 1.1 : 1.35 : 0;
-      const recentPenalty = recent ? stageId > 1 && move.kind === 'charge' ? 1.8 : 3 : 0;
-      const score = rangeFit + pounceBias + rangedBias - recentPenalty + Math.random() * 1.2;
-      if (score > bestScore) { bestScore = score; best = move; }
+        ? (move.kind === 'charge' || move.kind === 'web' || move.kind === 'fan' ? 1.3 : 0)
+        : (move.kind === 'sweep' || move.kind === 'slam' || move.kind === 'ring' || move.kind === 'stomp' ? 1.1 : 0);
+      const pounceBias = move.kind === 'charge' ? stageId === 1 ? .45 : stageId >= 7 ? 2.8 : stageId >= 4 ? 2.3 : 1.8 : 0;
+      const rangedBias = move.kind === 'fan' && distance > move.reach * .45 ? stageId === 1 ? 1.4 : 2.5 : 0;
+      const radialBias = move.kind === 'ring' ? stageId === 1 ? 1.1 : 2.3 : 0;
+      const weight = Math.max(.2, 1 + rangeFit + pounceBias + rangedBias + radialBias + Math.random() * 1.25);
+      return { move, weight };
+    });
+    let roll = Math.random() * weighted.reduce((sum, entry) => sum + entry.weight, 0);
+    let selected = candidates[candidates.length - 1];
+    for (const entry of weighted) {
+      roll -= entry.weight;
+      if (roll <= 0) { selected = entry.move; break; }
     }
-    this.recentKinds.push(best.kind);
+    this.recentKinds.push(selected.kind);
     if (this.recentKinds.length > 3) this.recentKinds.shift();
-    return best;
+    return selected;
   }
 
   private fanInterval(stageId: number): number {
-    if (stageId === 1) return .34;
-    return Math.max(.22, .27 - (stageId - 2) * .005);
+    if (stageId === 1) return .3;
+    return Math.max(.19, .24 - (stageId - 2) * .005);
   }
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera, boss: Zombie | undefined): void {
@@ -273,6 +269,16 @@ export class CampaignBossDirector {
       }else if(move.kind==='ring'){
         ctx.fillStyle='rgba(152,184,83,.15)';ctx.beginPath();ctx.ellipse(hx,hy,move.reach,move.reach*.72,-.2,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#b2c76c';ctx.beginPath();ctx.ellipse(hx,hy,move.reach,move.reach*.72,-.2,0,Math.PI*2);ctx.stroke();
         ctx.fillStyle='#e4cc8b';ctx.font='bold 12px Segoe UI, Arial';ctx.textAlign='center';ctx.fillText('DỊCH TÍCH TỤ',hx,hy-move.reach*.74);
+        // Dashed radial spokes warn that the boss will also release a real
+        // outward projectile ring from its body when the windup ends.
+        ctx.strokeStyle=danger;ctx.globalAlpha=.78;ctx.lineWidth=2;ctx.setLineDash([7,8]);
+        const radialReach=Math.max(boss.size*1.8,Math.min(move.reach,360));
+        for(let i=0;i<10;i++){
+          const a=this.angle+i*Math.PI/5;
+          ctx.beginPath();ctx.moveTo(x+Math.cos(a)*boss.size*.9,y+Math.sin(a)*boss.size*.9);
+          ctx.lineTo(x+Math.cos(a)*radialReach,y+Math.sin(a)*radialReach);ctx.stroke();
+        }
+        ctx.setLineDash([]);ctx.globalAlpha=1;
       }else if(move.kind==='sweep'){
         ctx.beginPath();ctx.moveTo(x,y);ctx.arc(x,y,move.reach,this.angle-.92,this.angle+.92);ctx.closePath();ctx.fill();ctx.stroke();
         ctx.strokeStyle=color;ctx.lineWidth=7;ctx.beginPath();ctx.arc(x,y,move.reach*.88,this.angle-.86+progress*.16,this.angle+.86-progress*.16);ctx.stroke();
@@ -281,14 +287,14 @@ export class CampaignBossDirector {
         ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(ex,ey);ctx.strokeStyle=danger;ctx.lineWidth=48;ctx.globalAlpha=.16;ctx.stroke();ctx.globalAlpha=1;ctx.lineWidth=3;ctx.setLineDash([8,8]);ctx.stroke();ctx.setLineDash([]);
         ctx.fillStyle=color;for(let k=1;k<=3;k++){const d=move.reach*k/4,px=x+Math.cos(this.angle)*d,py=y+Math.sin(this.angle)*d;ctx.beginPath();ctx.moveTo(px+Math.cos(this.angle)*12,py+Math.sin(this.angle)*12);ctx.lineTo(px-Math.cos(this.angle)*8-Math.sin(this.angle)*8,py-Math.sin(this.angle)*8+Math.cos(this.angle)*8);ctx.lineTo(px-Math.cos(this.angle)*8+Math.sin(this.angle)*8,py-Math.sin(this.angle)*8-Math.cos(this.angle)*8);ctx.closePath();ctx.fill();}
       }else if(move.kind==='fan'){
-        const halfSpread=boss.campaignBossId===2?.39:.28;
+        const halfSpread = boss.campaignBossId === 2 ? .46 : boss.campaignBossId >= 7 ? .34 : .36;
         const left=this.angle-halfSpread,right=this.angle+halfSpread;
         ctx.fillStyle=boss.campaignBossId===2?'rgba(169,197,104,.2)':'rgba(200,197,183,.17)';
         ctx.beginPath();ctx.moveTo(x,y);ctx.arc(x,y,move.reach,left,right);ctx.closePath();ctx.fill();
         ctx.strokeStyle=color;ctx.lineWidth=3;ctx.setLineDash([9,7]);
         ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+Math.cos(left)*move.reach,y+Math.sin(left)*move.reach);ctx.moveTo(x,y);ctx.lineTo(x+Math.cos(right)*move.reach,y+Math.sin(right)*move.reach);ctx.stroke();ctx.setLineDash([]);
         ctx.strokeStyle=danger;ctx.globalAlpha=.45;ctx.lineWidth=1.5;
-        const volleyCount=boss.campaignBossId===2?7:6;
+        const volleyCount=boss.campaignBossId>=7?10:boss.campaignBossId>=5?9:boss.campaignBossId===2?9:8;
         for(let i=0;i<volleyCount;i++){
           const t=i/(volleyCount-1)-.5,a=this.angle+t*halfSpread*2;
           ctx.beginPath();ctx.moveTo(x+Math.cos(a)*boss.size*.8,y+Math.sin(a)*boss.size*.8);ctx.lineTo(x+Math.cos(a)*move.reach,y+Math.sin(a)*move.reach);ctx.stroke();
@@ -330,12 +336,22 @@ export class CampaignBossDirector {
   }
 }
 
-function campaignMoves(stageId: number): CampaignAttackDef[] {
-  // Imported data lazily at module level would make tests simpler; this local import is static.
-  return ATTACKS[stageId] || [];
-}
-
 import { CAMPAIGN_ATTACKS as ATTACKS } from '../data/meta';
+
+const campaignMoveCache = new Map<number, CampaignAttackDef[]>();
+
+function campaignMoves(stageId: number): CampaignAttackDef[] {
+  const cached = campaignMoveCache.get(stageId);
+  if (cached) return cached;
+  const authored = ATTACKS[stageId] || [];
+  const radialSpell: CampaignAttackDef = {
+    name: 'Chưởng tỏa vòng', kind: 'ring', damage: stageId === 1 ? 15 : 20 + stageId * 2,
+    reach: 150 + stageId * 13, telegraph: stageId === 1 ? 1.1 : .98, recovery: 1.35,
+  };
+  const moves: CampaignAttackDef[] = authored.some(move => move.kind === 'ring') ? authored : [...authored, radialSpell];
+  campaignMoveCache.set(stageId, moves);
+  return moves;
+}
 
 function pointSegmentDistanceSq(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
   const dx = x2 - x1, dy = y2 - y1;

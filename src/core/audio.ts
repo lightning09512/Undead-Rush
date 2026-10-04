@@ -36,6 +36,8 @@ export class Audio {
   private lastDroneShotTime = 0;
   private lastCreditPickupTime = 0;
   private lastSupplyPickupTime = 0;
+  private lastObjectiveSoundTime = 0;
+  private lastGameOverTime = 0;
   private playerFootstepTimer = 0;
   private resumeFailureLogged = false;
   private recordedBuffers = new Map<string, AudioBuffer>();
@@ -1361,6 +1363,77 @@ export class Audio {
     setTimeout(() => this.playTone(784, 0.15, 'sine', 0.28), 200);
   }
 
+  /** A weighty, non-musical confirmation for completing a Campaign objective. */
+  objectiveComplete(): void {
+    const nowMs = performance.now();
+    if (nowMs - this.lastObjectiveSoundTime < 120) return;
+    this.lastObjectiveSoundTime = nowMs;
+    if (!this.ensureContext() || !this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+
+    // Low body impact with a short, gritty mechanical tail instead of a rising arcade chime.
+    const impact = ctx.createOscillator();
+    const impactGain = ctx.createGain();
+    impact.type = 'triangle';
+    impact.frequency.setValueAtTime(96, t);
+    impact.frequency.exponentialRampToValueAtTime(43, t + .38);
+    impactGain.gain.setValueAtTime(.0001, t);
+    impactGain.gain.linearRampToValueAtTime(.34, t + .012);
+    impactGain.gain.exponentialRampToValueAtTime(.001, t + .44);
+    impact.connect(impactGain); impactGain.connect(this.sfxGain);
+    impact.onended = () => { impact.disconnect(); impactGain.disconnect(); };
+    impact.start(t); impact.stop(t + .45);
+
+    const resonance = ctx.createOscillator();
+    const resonanceGain = ctx.createGain();
+    resonance.type = 'sine';
+    resonance.frequency.setValueAtTime(186, t + .018);
+    resonance.frequency.exponentialRampToValueAtTime(112, t + .31);
+    resonanceGain.gain.setValueAtTime(.0001, t);
+    resonanceGain.gain.linearRampToValueAtTime(.105, t + .035);
+    resonanceGain.gain.exponentialRampToValueAtTime(.001, t + .34);
+    resonance.connect(resonanceGain); resonanceGain.connect(this.sfxGain);
+    resonance.onended = () => { resonance.disconnect(); resonanceGain.disconnect(); };
+    resonance.start(t + .018); resonance.stop(t + .35);
+
+    if (this.noiseBuffer) {
+      const source = ctx.createBufferSource();
+      const filter = ctx.createBiquadFilter();
+      const gritGain = ctx.createGain();
+      source.buffer = this.noiseBuffer;
+      source.playbackRate.value = .72 + Math.random() * .12;
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(1150, t);
+      filter.frequency.exponentialRampToValueAtTime(210, t + .29);
+      gritGain.gain.setValueAtTime(.0001, t);
+      gritGain.gain.linearRampToValueAtTime(.21, t + .009);
+      gritGain.gain.exponentialRampToValueAtTime(.001, t + .32);
+      source.connect(filter); filter.connect(gritGain); gritGain.connect(this.sfxGain);
+      source.onended = () => { source.disconnect(); filter.disconnect(); gritGain.disconnect(); };
+      source.start(t, Math.random() * .25, .33); source.stop(t + .34);
+    }
+  }
+
+  /** A quiet relay clunk used when a player starts a hold-style objective. */
+  objectiveActivate(): void {
+    if (!this.ensureContext() || !this.ctx || !this.sfxGain || !this.noiseBuffer) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const source = ctx.createBufferSource();
+    const filter = ctx.createBiquadFilter();
+    const gain = ctx.createGain();
+    source.buffer = this.noiseBuffer;
+    source.playbackRate.value = .66;
+    filter.type = 'bandpass'; filter.frequency.setValueAtTime(760, t); filter.Q.value = .8;
+    gain.gain.setValueAtTime(.0001, t);
+    gain.gain.linearRampToValueAtTime(.16, t + .007);
+    gain.gain.exponentialRampToValueAtTime(.001, t + .12);
+    source.connect(filter); filter.connect(gain); gain.connect(this.sfxGain);
+    source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); };
+    source.start(t, Math.random() * .2, .13); source.stop(t + .14);
+  }
+
   private lastExplosionTime = 0;
 
   explosion(): void {
@@ -1408,9 +1481,89 @@ export class Audio {
   }
 
   gameOver(): void {
-    this.playTone(400, 0.2, 'sawtooth', 0.3);
-    setTimeout(() => this.playTone(300, 0.2, 'sawtooth', 0.3), 200);
-    setTimeout(() => this.playTone(200, 0.4, 'sawtooth', 0.3), 400);
+    const nowMs = performance.now();
+    if (nowMs - this.lastGameOverTime < 500) return;
+    this.lastGameOverTime = nowMs;
+    if (!this.ensureContext() || !this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+
+    // One collapsing low impact and a filtered, descending groan; no discrete death jingle.
+    const body = ctx.createOscillator();
+    const bodyGain = ctx.createGain();
+    body.type = 'triangle';
+    body.frequency.setValueAtTime(78, t);
+    body.frequency.exponentialRampToValueAtTime(27, t + .9);
+    bodyGain.gain.setValueAtTime(.0001, t);
+    bodyGain.gain.linearRampToValueAtTime(.42, t + .025);
+    bodyGain.gain.exponentialRampToValueAtTime(.001, t + 1.02);
+    body.connect(bodyGain); bodyGain.connect(this.sfxGain);
+    body.onended = () => { body.disconnect(); bodyGain.disconnect(); };
+    body.start(t); body.stop(t + 1.04);
+
+    const voice = ctx.createOscillator();
+    const filter = ctx.createBiquadFilter();
+    const voiceGain = ctx.createGain();
+    voice.type = 'sawtooth';
+    voice.frequency.setValueAtTime(172, t + .035);
+    voice.frequency.exponentialRampToValueAtTime(34, t + .82);
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(390, t);
+    filter.frequency.exponentialRampToValueAtTime(95, t + .85);
+    voiceGain.gain.setValueAtTime(.0001, t);
+    voiceGain.gain.linearRampToValueAtTime(.13, t + .06);
+    voiceGain.gain.exponentialRampToValueAtTime(.001, t + .9);
+    voice.connect(filter); filter.connect(voiceGain); voiceGain.connect(this.sfxGain);
+    voice.onended = () => { voice.disconnect(); filter.disconnect(); voiceGain.disconnect(); };
+    voice.start(t + .035); voice.stop(t + .92);
+
+    if (this.noiseBuffer) {
+      const source = ctx.createBufferSource();
+      const lowpass = ctx.createBiquadFilter();
+      const noiseGain = ctx.createGain();
+      source.buffer = this.noiseBuffer;
+      source.playbackRate.value = .58;
+      lowpass.type = 'lowpass';
+      lowpass.frequency.setValueAtTime(520, t);
+      lowpass.frequency.exponentialRampToValueAtTime(115, t + .75);
+      noiseGain.gain.setValueAtTime(.0001, t);
+      noiseGain.gain.linearRampToValueAtTime(.28, t + .018);
+      noiseGain.gain.exponentialRampToValueAtTime(.001, t + .78);
+      source.connect(lowpass); lowpass.connect(noiseGain); noiseGain.connect(this.sfxGain);
+      source.onended = () => { source.disconnect(); lowpass.disconnect(); noiseGain.disconnect(); };
+      source.start(t, Math.random() * .2, .8); source.stop(t + .81);
+    }
+  }
+
+  revive(): void {
+    if (!this.ensureContext() || !this.ctx || !this.sfxGain || !this.noiseBuffer) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const pulse = ctx.createOscillator();
+    const pulseGain = ctx.createGain();
+    pulse.type = 'sine';
+    pulse.frequency.setValueAtTime(46, t);
+    pulse.frequency.exponentialRampToValueAtTime(69, t + .12);
+    pulse.frequency.exponentialRampToValueAtTime(42, t + .48);
+    pulseGain.gain.setValueAtTime(.0001, t);
+    pulseGain.gain.linearRampToValueAtTime(.26, t + .025);
+    pulseGain.gain.exponentialRampToValueAtTime(.001, t + .52);
+    pulse.connect(pulseGain); pulseGain.connect(this.sfxGain);
+    pulse.onended = () => { pulse.disconnect(); pulseGain.disconnect(); };
+    pulse.start(t); pulse.stop(t + .53);
+
+    const breath = ctx.createBufferSource();
+    const highpass = ctx.createBiquadFilter();
+    const breathGain = ctx.createGain();
+    breath.buffer = this.noiseBuffer;
+    breath.playbackRate.value = .82;
+    highpass.type = 'highpass'; highpass.frequency.value = 420;
+    breathGain.gain.setValueAtTime(.0001, t);
+    breathGain.gain.linearRampToValueAtTime(.12, t + .08);
+    breathGain.gain.exponentialRampToValueAtTime(.001, t + .42);
+    breath.connect(highpass); highpass.connect(breathGain); breathGain.connect(this.sfxGain);
+    breath.onended = () => { breath.disconnect(); highpass.disconnect(); breathGain.disconnect(); };
+    breath.start(t, Math.random() * .2, .44); breath.stop(t + .45);
   }
 
   menuSelect(): void {

@@ -1,5 +1,5 @@
 import type { Camera } from '../core/camera';
-import type { StageDef, StageBuildingDef, Point } from '../data/meta';
+import type { StageDef, StageBuildingDef, CampaignZone, Point } from '../data/meta';
 
 export interface CampaignSpawnCue {
   zoneIndex: number;
@@ -41,6 +41,11 @@ export class CampaignMapRenderer {
       ctx.setLineDash([14, 22]); ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]);
     }
     for (const building of stage.buildings) this.drawBuilding(ctx, camera, building, stage.accentColor);
+    const holdZone = stage.layout?.zones.find(zone => zone.role === 'hold');
+    if (holdZone && activeNode === stage.objectiveHoldAt && !bossSpawned) {
+      const pulse = .5 + .5 * Math.sin((objectiveCue?.gameTime ?? 0) * 5.5);
+      this.drawHoldZoneBoundary(ctx, camera, holdZone, objectiveCue?.gameTime ?? 0, pulse);
+    }
     for (let i = 0; i < stage.objectiveNodes.length; i++) {
       const p = stage.objectiveNodes[i];
       const [x, y] = camera.worldToScreen(p.x, p.y);
@@ -60,7 +65,7 @@ export class CampaignMapRenderer {
       } else if (active) {
         ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.font = 'bold 10px Segoe UI, Arial';
         ctx.fillStyle = '#fff1d3';
-        ctx.fillText(shoot ? 'BẮN PHÁ' : isHold ? 'GIỮ VỊ TRÍ' : 'MỤC TIÊU', x, y - 37);
+        ctx.fillText(shoot ? 'BẮN PHÁ' : isHold ? `GIỮ VỊ TRÍ ${stage.objectiveHoldSeconds ?? 5} GIÂY` : 'MỤC TIÊU', x, y - 37);
         if (canInteract && distance <= 82) this.drawInteractKey(ctx, x + 32, y - 30, pulse, distance <= 74);
       }
       if (shoot && i === activeNode) {
@@ -88,6 +93,34 @@ export class CampaignMapRenderer {
         if (!exitActivated && objectiveCue?.exitInteractable && distance <= 88) this.drawInteractKey(ctx, x + 31, y - 24, .8, true);
       }
     }
+    ctx.restore();
+  }
+
+  private drawHoldZoneBoundary(ctx: CanvasRenderingContext2D, camera: Camera, zone: CampaignZone, gameTime: number, pulse: number): void {
+    const centerX = zone.x + zone.w / 2;
+    const centerY = zone.y + zone.h / 2;
+    if (!camera.isVisible(centerX, centerY, Math.hypot(zone.w, zone.h) / 2 + 40)) return;
+    const [x1, y1] = camera.worldToScreen(zone.x, zone.y);
+    const [x2, y2] = camera.worldToScreen(zone.x + zone.w, zone.y + zone.h);
+    const width = x2 - x1;
+    const height = y2 - y1;
+    ctx.save();
+    ctx.shadowColor = '#ffcf73';
+    ctx.shadowBlur = 9 + pulse * 13;
+    ctx.strokeStyle = `rgba(255, 207, 115, ${.55 + pulse * .4})`;
+    ctx.lineWidth = 4 + pulse * 1.5;
+    ctx.setLineDash([30, 18]);
+    ctx.lineDashOffset = -(gameTime * 36) % 48;
+    ctx.beginPath();
+    ctx.roundRect(x1 - 12, y1 - 12, width + 24, height + 24, 20);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = `rgba(255, 241, 198, ${.3 + pulse * .35})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(x1 - 20, y1 - 20, width + 40, height + 40, 25);
+    ctx.stroke();
     ctx.restore();
   }
 

@@ -33,6 +33,9 @@ export interface CampaignProgress {
   selectedCharacter: string;
   unlockedCharacters: string[];
   unlockedStage: number;
+  /** Mission checkpoint used by Load Game; missions restart at their entrance. */
+  lastStage: number;
+  hasCheckpoint: boolean;
   completedStages: number[];
   ownedGuns: string[];
   equippedGun: string;
@@ -44,7 +47,7 @@ export interface CampaignProgress {
 
 const newCampaign = (): CampaignProgress => ({
   credits: 160, selectedCharacter: 'survivor', unlockedCharacters: ['survivor'],
-  unlockedStage: 1, completedStages: [], ownedGuns: ['p9'], equippedGun: 'p9',
+  unlockedStage: 1, lastStage: 1, hasCheckpoint: false, completedStages: [], ownedGuns: ['p9'], equippedGun: 'p9',
   gunLevels: {}, ammoPacks: 0, medKits: 0, cardLevels: {},
 });
 
@@ -84,13 +87,17 @@ export class SaveSystem {
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<SaveData>;
         const legacyStages = parsed.campaign ? [] : (parsed.completedStages ?? []);
+        const completedCampaignStages = parsed.campaign?.completedStages ?? legacyStages;
+        const unlockedStage = parsed.campaign?.unlockedStage ?? Math.min(10, Math.max(1, (parsed.stagesCompleted ?? 0) + 1));
         this.data = { ...DEFAULT_SAVE, ...parsed,
           campaign: { ...newCampaign(), ...(parsed.campaign ?? {}),
             gunLevels: { ...(parsed.campaign?.gunLevels ?? {}) },
             cardLevels: { ...(parsed.campaign?.cardLevels ?? {}) },
             ownedGuns: [...new Set([...(parsed.campaign?.ownedGuns ?? []), 'p9'])],
-            completedStages: [...(parsed.campaign?.completedStages ?? legacyStages)],
-            unlockedStage: parsed.campaign?.unlockedStage ?? Math.min(10, Math.max(1, (parsed.stagesCompleted ?? 0) + 1)),
+            completedStages: [...completedCampaignStages],
+            unlockedStage,
+            lastStage: parsed.campaign?.lastStage ?? unlockedStage,
+            hasCheckpoint: parsed.campaign?.hasCheckpoint ?? (unlockedStage > 1 || completedCampaignStages.length > 0),
             unlockedCharacters: [...(parsed.campaign?.unlockedCharacters ?? ['survivor'])] } };
       }
     } catch {
@@ -179,17 +186,24 @@ export class SaveSystem {
 
   completeCampaignStage(stage: number, baseReward: number, kills: number, optionalDone: number): number {
     const progress = this.data.campaign;
-    if (progress.completedStages.includes(stage)) return 0;
-    const reward = baseReward + Math.min(80, Math.floor(kills / 3)) + optionalDone * 35;
-    progress.completedStages.push(stage);
+    const alreadyCompleted = progress.completedStages.includes(stage);
+    const reward = alreadyCompleted ? 0 : baseReward + Math.min(80, Math.floor(kills / 3)) + optionalDone * 35;
+    if (!alreadyCompleted) progress.completedStages.push(stage);
     progress.unlockedStage = Math.max(progress.unlockedStage, Math.min(10, stage + 1));
+    progress.lastStage = Math.min(10, Math.max(progress.lastStage, stage + 1));
+    progress.hasCheckpoint = true;
     progress.credits += reward;
     this.save();
     return reward;
   }
 
+  resetCampaign(): void {
+    this.data.campaign = newCampaign();
+    this.save();
+  }
+
   resetAll(): void {
-    this.data = { ...DEFAULT_SAVE, campaign: newCampaign() };
+    this.data = { ...DEFAULT_SAVE, permUpgrades: {}, unlockedCharacters: ['survivor'], completedStages: [], campaign: newCampaign() };
     this.save();
   }
 }

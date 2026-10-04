@@ -400,8 +400,8 @@ export class CampaignUI {
   private drawButton(ctx: CanvasRenderingContext2D, b: Button): void {
     if (!b.label) return;
     const selected = b.disabled && (b.action.startsWith('tab:') || b.label === 'ĐANG CHỌN' || b.label === 'ĐANG DÙNG');
-    ctx.fillStyle = selected ? C.danger : b.disabled ? '#30383c' : '#49675c'; ctx.fillRect(b.x, b.y, b.w, b.h);
-    ctx.strokeStyle = selected ? C.dangerBright : b.disabled ? C.borderSoft : C.health; ctx.strokeRect(b.x, b.y, b.w, b.h);
+    ctx.fillStyle = selected ? C.selected : b.disabled ? '#30383c' : '#49675c'; ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.strokeStyle = selected ? C.selectedBorder : b.disabled ? C.borderSoft : C.health; ctx.strokeRect(b.x, b.y, b.w, b.h);
     ctx.fillStyle = b.disabled && !selected ? C.textMuted : C.text; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.font = `bold ${b.w < 140 ? 10 : 12}px Segoe UI, Arial`; ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2, b.w - 8); ctx.textBaseline = 'alphabetic';
   }

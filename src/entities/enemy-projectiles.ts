@@ -77,9 +77,10 @@ export class EnemyProjectileSystem {
   }
 
   /** Fire a ring of projectiles (boss pattern) */
-  fireRing(x: number, y: number, count: number, speed: number, damage: number, type: EnemyProjectile['type'] = 'boss_orb'): void {
+  fireRing(x: number, y: number, count: number, speed: number, damage: number,
+    type: EnemyProjectile['type'] = 'boss_orb', angleOffset = 0): void {
     for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2;
+      const angle = angleOffset + (i / count) * Math.PI * 2;
       this.fire(x, y, angle, speed, damage, type);
     }
   }

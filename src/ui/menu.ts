@@ -6,7 +6,7 @@ import { UI_PALETTE as C } from './palette';
 import { STAGES } from '../data/meta';
 import { createQuarantineBackdrop, drawBloodHandprint, drawWornPanel } from './horror-texture';
 
-export type MenuScreen = 'main' | 'campaign' | 'playing' | 'paused' | 'gameover' | 'levelup' | 'stage_complete' | 'hunter_profile' | 'tutorial';
+export type MenuScreen = 'main' | 'savegame' | 'campaign' | 'playing' | 'paused' | 'gameover' | 'levelup' | 'stage_complete' | 'hunter_profile' | 'tutorial';
 
 export class MenuUI {
   currentScreen: MenuScreen = 'main';
@@ -16,6 +16,7 @@ export class MenuUI {
   finalKills = 0;
   finalLevel = 0;
   finalGold = 0;
+  confirmNewGame = false;
 
   // Animation
   private titlePulse = 0;
@@ -68,6 +69,27 @@ export class MenuUI {
     return { x, y, panelW, panelH, compact, buttonX, buttonY, buttonW, buttonH, gap: buttonH + 10 };
   }
 
+  private saveMenuLayout(w: number, h: number) {
+    const landscape = h < 520 && w > 620;
+    const panelW = Math.min(landscape ? 760 : 500, w - 32);
+    const panelH = Math.min(landscape ? 340 : 430, h - 28);
+    const x = (w - panelW) / 2, y = (h - panelH) / 2;
+    const buttonW = Math.min(landscape ? 450 : 390, panelW - 44);
+    const buttonH = Math.min(44, Math.max(32, (panelH - (landscape ? 116 : 176)) / 4 - 8));
+    const buttonX = x + (panelW - buttonW) / 2;
+    const buttonY = y + (landscape ? 96 : 126);
+    return { x, y, panelW, panelH, buttonX, buttonY, buttonW, buttonH, gap: buttonH + 9 };
+  }
+
+  private newGameConfirmLayout(w: number, h: number) {
+    const panelW = Math.min(440, w - 28);
+    const panelH = Math.min(220, h - 24);
+    const x = (w - panelW) / 2, y = (h - panelH) / 2;
+    const buttonY = y + panelH - 57;
+    const buttonW = (panelW - 54) / 2;
+    return { x, y, panelW, panelH, buttonY, buttonW, confirmX: x + 18, cancelX: x + 36 + buttonW };
+  }
+
   constructor() {
     // Initialize background particles for main menu
     for (let i = 0; i < 50; i++) {
@@ -81,9 +103,10 @@ export class MenuUI {
     }
   }
 
-  handleClick(x: number, y: number, w: number, h: number, audio: Audio): string | null {
+  handleClick(x: number, y: number, w: number, h: number, audio: Audio, save?: SaveSystem): string | null {
     switch (this.currentScreen) {
       case 'main': return this.handleMainMenuClick(x, y, w, h, audio);
+      case 'savegame': return this.handleSaveGameClick(x, y, w, h, audio, save);
       case 'paused': return this.handlePauseClick(x, y, w, h, audio);
       case 'gameover': return this.handleGameOverClick(x, y, w, h, audio);
       case 'stage_complete': return this.handleStageCompleteClick(x, y, w, h, audio);
@@ -104,7 +127,7 @@ export class MenuUI {
     // Stage mode
     if (x >= bx && x <= bx + btnW && y >= startY + gap && y <= startY + gap + btnH) {
       audio.menuSelect();
-      return 'start_stage';
+      return 'open_save_menu';
     }
     // Shop
     if (x >= bx && x <= bx + btnW && y >= startY + gap * 2 && y <= startY + gap * 2 + btnH) {
@@ -123,6 +146,34 @@ export class MenuUI {
     }
 
     return null;
+  }
+
+  private handleSaveGameClick(x: number, y: number, w: number, h: number, audio: Audio, save?: SaveSystem): string | null {
+    if (this.confirmNewGame) {
+      const l = this.newGameConfirmLayout(w, h);
+      const buttonH = 38;
+      if (x >= l.confirmX && x <= l.confirmX + l.buttonW && y >= l.buttonY && y <= l.buttonY + buttonH) {
+        audio.menuSelect();
+        return 'new_game';
+      }
+      if (x >= l.cancelX && x <= l.cancelX + l.buttonW && y >= l.buttonY && y <= l.buttonY + buttonH) {
+        audio.menuSelect();
+        return 'cancel_new_game';
+      }
+      return null;
+    }
+
+    const l = this.saveMenuLayout(w, h);
+    const row = Math.floor((y - l.buttonY) / l.gap);
+    const rowY = l.buttonY + row * l.gap;
+    if (x < l.buttonX || x > l.buttonX + l.buttonW || row < 0 || row > 3 || y < rowY || y > rowY + l.buttonH) return null;
+    if (row === 0) { audio.menuSelect(); return 'open_new_game_confirm'; }
+    if (row === 1) {
+      if (!save?.data.campaign.hasCheckpoint) return null;
+      audio.menuSelect(); return 'load_game';
+    }
+    if (row === 2) { audio.menuSelect(); return 'select_campaign_stage'; }
+    audio.menuSelect(); return 'back_to_main';
   }
 
   private handlePauseClick(x: number, y: number, w: number, h: number, audio: Audio): string | null {
@@ -210,6 +261,7 @@ export class MenuUI {
 
     switch (this.currentScreen) {
       case 'main': this.drawMainMenu(ctx, w, h, save); break;
+      case 'savegame': this.drawSaveGameMenu(ctx, w, h, save); break;
       case 'paused': this.drawPause(ctx, w, h); break;
       case 'gameover': this.drawGameOver(ctx, w, h); break;
       case 'stage_complete': this.drawStageComplete(ctx, w, h); break;
@@ -277,6 +329,49 @@ export class MenuUI {
       ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
       ctx.fillText('CỬA ĐÃ MỞ.  ĐỪNG DỪNG LẠI.', w - 35, h - 29);
     }
+    ctx.restore();
+  }
+
+  private drawSaveGameMenu(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
+    this.drawStaticBackdrop(ctx, w, h, .28);
+    const l = this.saveMenuLayout(w, h);
+    ctx.save();
+    drawWornPanel(ctx, l.x, l.y, l.panelW, l.panelH, true);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = C.textMuted; ctx.font = "bold 10px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText('CHIẾN DỊCH  /  DỮ LIỆU LƯU', w / 2, l.y + 27);
+    ctx.fillStyle = C.text; ctx.font = `900 ${Math.min(30, l.panelW * .075)}px 'Arial Black', Impact, sans-serif`;
+    ctx.fillText('NEW GAME  /  LOAD GAME', w / 2, l.y + 56, l.panelW - 36);
+    ctx.fillStyle = C.textSoft; ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText('Bắt đầu hồ sơ mới hoặc tiếp tục từ checkpoint chiến dịch.', w / 2, l.y + 78, l.panelW - 36);
+
+    const checkpoint = save?.data.campaign.hasCheckpoint ?? false;
+    const lastStage = save?.data.campaign.lastStage ?? 1;
+    const buttons: Array<[string, string, string, boolean]> = [
+      ['NEW GAME', 'XÓA TIẾN ĐỘ CŨ · BẮT ĐẦU CHIẾN DỊCH TỪ MÀN 1', C.amber, false],
+      ['LOAD GAME', checkpoint ? `MÀN ${lastStage} · KHỞI ĐỘNG LẠI TỪ ĐẦU MÀN` : 'CHƯA CÓ CHECKPOINT CHIẾN DỊCH', C.cyan, !checkpoint],
+      ['CHỌN MÀN', 'MỞ BẢN ĐỒ CÁC MÀN ĐÃ MỞ KHÓA', C.textSoft, false],
+      ['VỀ MENU', '', C.textMuted, false],
+    ];
+    buttons.forEach(([label, note, color, disabled], index) => this.drawFieldButton(ctx,
+      l.buttonX, l.buttonY + index * l.gap, l.buttonW, l.buttonH, label, color, index === 1 && !disabled, note, disabled));
+    ctx.restore();
+    if (this.confirmNewGame) this.drawNewGameConfirmation(ctx, w, h);
+  }
+
+  private drawNewGameConfirmation(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    const l = this.newGameConfirmLayout(w, h);
+    ctx.save();
+    ctx.fillStyle = 'rgba(2, 4, 5, .76)'; ctx.fillRect(0, 0, w, h);
+    drawWornPanel(ctx, l.x, l.y, l.panelW, l.panelH, true);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = C.amberBright; ctx.font = "900 19px 'Arial Black', Impact, sans-serif";
+    ctx.fillText('BẮT ĐẦU GAME MỚI?', w / 2, l.y + 34, l.panelW - 32);
+    ctx.fillStyle = C.textSoft; ctx.font = "12px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText('Thao tác này xóa tiến độ, tín dụng, súng và thẻ của Chiến dịch.', w / 2, l.y + 75, l.panelW - 34);
+    ctx.fillText('Dữ liệu Sinh tồn được giữ nguyên. Bạn vẫn có thể hủy.', w / 2, l.y + 98, l.panelW - 34);
+    this.drawFieldButton(ctx, l.confirmX, l.buttonY, l.buttonW, 38, 'BẮT ĐẦU', C.dangerBright, true);
+    this.drawFieldButton(ctx, l.cancelX, l.buttonY, l.buttonW, 38, 'HỦY', C.textSoft);
     ctx.restore();
   }
 
@@ -449,24 +544,24 @@ export class MenuUI {
   }
 
   private drawFieldButton(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number,
-    text: string, accent: string, primary = false, note = ''): void {
-    const hover = this.pointerX >= x && this.pointerX <= x + w && this.pointerY >= y && this.pointerY <= y + h;
+    text: string, accent: string, primary = false, note = '', disabled = false): void {
+    const hover = !disabled && this.pointerX >= x && this.pointerX <= x + w && this.pointerY >= y && this.pointerY <= y + h;
     ctx.save();
-    ctx.fillStyle = primary ? (hover ? '#a0d0d7' : C.cyan) : (hover ? '#303e43' : '#232d32');
-    ctx.strokeStyle = hover ? accent : (primary ? C.cyanBright : C.border);
-    ctx.lineWidth = hover ? 1.5 : 1;
+    ctx.fillStyle = disabled ? '#192024' : primary ? (hover ? '#a0d0d7' : C.cyan) : (hover ? '#303e43' : '#232d32');
+    ctx.strokeStyle = disabled ? '#354044' : hover ? accent : (primary ? C.cyanBright : C.border);
+    ctx.lineWidth = disabled ? 1 : hover ? 1.5 : 1;
     ctx.beginPath(); ctx.roundRect(x, y, w, h, 3); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = primary ? '#41646b' : accent;
+    ctx.fillStyle = disabled ? '#424b4e' : primary ? '#41646b' : accent;
     ctx.fillRect(x + 7, y + 10, 2, h - 20);
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = primary ? '#102024' : C.text;
+    ctx.fillStyle = disabled ? '#6d797d' : primary ? '#102024' : C.text;
     ctx.font = `bold ${w < 230 ? 12 : 13}px 'Segoe UI', Arial, sans-serif`;
     ctx.fillText(text, x + 20, y + h / 2);
     if (note && w >= 270) {
       ctx.textAlign = 'right'; ctx.font = "bold 9px 'Segoe UI', Arial, sans-serif";
-      ctx.fillStyle = primary ? '#29474c' : C.textMuted;
+      ctx.fillStyle = disabled ? '#657074' : primary ? '#29474c' : C.textMuted;
       ctx.fillText(note, x + w - 17, y + h / 2);
-    } else {
+    } else if (!disabled) {
       ctx.strokeStyle = primary ? '#29474c' : accent; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(x + w - 20, y + h / 2 - 4); ctx.lineTo(x + w - 16, y + h / 2); ctx.lineTo(x + w - 20, y + h / 2 + 4); ctx.stroke();
     }
