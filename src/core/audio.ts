@@ -5,7 +5,7 @@ import gameMusicOne from '../assets/02. Music 1.mp3';
 import gameMusicTwo from '../assets/03. Music 2.mp3';
 import gameMusicThree from '../assets/04. Music 3.mp3';
 
-type MusicScene = 'menu' | 'calm' | 'combat' | 'boss' | 'paused';
+type MusicScene = 'menu' | 'calm' | 'combat' | 'campaignBoss' | 'boss' | 'paused';
 interface MusicDeck {
   element: HTMLAudioElement;
   gain: GainNode;
@@ -17,6 +17,7 @@ const MENU_TRACK = { key: 'menu', url: menuMusic };
 const GAME_TRACKS: Record<Exclude<MusicScene, 'menu' | 'paused'>, { key: string; url: string }> = {
   calm: { key: 'game-1', url: gameMusicOne },
   combat: { key: 'game-2', url: gameMusicTwo },
+  campaignBoss: { key: 'game-2', url: gameMusicTwo },
   boss: { key: 'game-3', url: gameMusicThree },
 };
 
@@ -153,7 +154,11 @@ export class Audio {
 
   /** Selects the background score separately from the shared sound-effects bus. */
   setMusicScene(scene: MusicScene): void {
-    if (this.musicScene === scene && (scene === 'paused' || this.activeMusicDeck >= 0 || !this.musicEnabled)) return;
+    if (this.musicScene === scene) {
+      if (scene === 'paused' || !this.musicEnabled) return;
+      const expectedKey = scene === 'menu' ? MENU_TRACK.key : GAME_TRACKS[scene].key;
+      if (this.musicDecks[this.activeMusicDeck]?.key === expectedKey) return;
+    }
     this.musicScene = scene;
     this.syncMusicScene();
   }
@@ -462,13 +467,13 @@ export class Audio {
       return;
     }
 
-    const shotAssets: Record<'pistol' | 'rifle' | 'smg', { key: string; offset: number; volume: number; rate: number }> = {
-      pistol: { key: 'gun-pistol', offset: 2.8, volume: 0.76, rate: 0.98 + Math.random() * 0.04 },
-      rifle: { key: 'gun-rifle', offset: 0.3, volume: 0.79, rate: 0.98 + Math.random() * 0.04 },
-      smg: { key: 'gun-rifle', offset: 6.0, volume: 0.66, rate: 1.08 + Math.random() * 0.06 },
+    const shotAssets: Record<'pistol' | 'rifle' | 'smg', { key: string; offset: number; duration: number; volume: number; rate: number; lowpass: number }> = {
+      pistol: { key: 'gun-pistol', offset: 2.8, duration: 0.22, volume: 0.38, rate: 0.98 + Math.random() * 0.04, lowpass: 5000 },
+      rifle: { key: 'gun-rifle', offset: 0.3, duration: 0.24, volume: 0.40, rate: 0.98 + Math.random() * 0.04, lowpass: 5200 },
+      smg: { key: 'gun-rifle', offset: 6.0, duration: 0.19, volume: 0.31, rate: 1.08 + Math.random() * 0.06, lowpass: 5400 },
     };
     const shot = shotAssets[weaponType];
-    if (this.playRecorded(shot.key, { offset: shot.offset, duration: weaponType === 'pistol' ? 0.36 : 0.34, volume: shot.volume, rate: shot.rate, priority: 3 })) return;
+    if (this.playRecorded(shot.key, { offset: shot.offset, duration: shot.duration, volume: shot.volume, lowpass: shot.lowpass, rate: shot.rate, priority: 3 })) return;
 
     const ctx = this.ctx;
     const t = ctx.currentTime;
@@ -476,10 +481,10 @@ export class Audio {
     // Small variation keeps automatic fire from sounding like a perfectly repeated sample.
     const pitchDetune = (Math.random() - 0.5) * (weaponType === 'smg' ? 0.11 : 0.075);
     const profile = weaponType === 'rifle'
-      ? { pitch: 205, crack: 0.78, snap: 0.10, body: 0.16, roar: 0.56, tail: 0.18 }
+      ? { pitch: 205, crack: 0.40, snap: 0.055, body: 0.09, roar: 0.25, tail: 0.13 }
       : weaponType === 'smg'
-        ? { pitch: 250, crack: 0.63, snap: 0.08, body: 0.13, roar: 0.42, tail: 0.105 }
-        : { pitch: 172, crack: 0.7, snap: 0.09, body: 0.15, roar: 0.48, tail: 0.13 };
+        ? { pitch: 250, crack: 0.34, snap: 0.05, body: 0.075, roar: 0.20, tail: 0.09 }
+        : { pitch: 172, crack: 0.37, snap: 0.05, body: 0.08, roar: 0.22, tail: 0.10 };
     const baseFreq = profile.pitch * (1 + pitchDetune);
 
     // ── Layer 1: Supersonic Ballistic Crack (High-velocity sharp whip) ──
@@ -552,7 +557,7 @@ export class Audio {
       bodyFilter.type = 'lowpass';
       bodyFilter.frequency.setValueAtTime(780 + Math.random() * 260, t);
       bodyFilter.frequency.exponentialRampToValueAtTime(130, t + profile.tail + 0.08);
-      bodyGain.gain.setValueAtTime(weaponType === 'smg' ? 0.62 : 0.78, t);
+      bodyGain.gain.setValueAtTime(weaponType === 'smg' ? 0.30 : 0.34, t);
       bodyGain.gain.exponentialRampToValueAtTime(0.001, t + profile.tail + 0.1);
       bodySrc.connect(bodyFilter);
       bodyFilter.connect(bodyGain);
@@ -590,7 +595,7 @@ export class Audio {
       actionFilter.frequency.setValueAtTime(weaponType === 'smg' ? 2250 : 1700, t + 0.045);
       actionFilter.Q.value = 2.6;
       actionGain.gain.setValueAtTime(0.0001, t);
-      actionGain.gain.setValueAtTime(0.12, t + 0.045);
+      actionGain.gain.setValueAtTime(0.065, t + 0.045);
       actionGain.gain.exponentialRampToValueAtTime(0.001, t + 0.082);
       action.connect(actionFilter);
       actionFilter.connect(actionGain);
@@ -606,13 +611,13 @@ export class Audio {
       reflectionFilter.frequency.setValueAtTime(640 + Math.random() * 260, t + 0.075);
       reflectionFilter.Q.value = 0.72;
       reflectionGain.gain.setValueAtTime(0.0001, t);
-      reflectionGain.gain.setValueAtTime(0.085, t + 0.075);
-      reflectionGain.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+      reflectionGain.gain.setValueAtTime(0.04, t + 0.075);
+      reflectionGain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
       reflection.connect(reflectionFilter);
       reflectionFilter.connect(reflectionGain);
       reflectionGain.connect(this.sfxGain);
       reflection.start(t + 0.075, Math.random());
-      reflection.stop(t + 0.225);
+      reflection.stop(t + 0.165);
     }
   }
 
@@ -622,7 +627,7 @@ export class Audio {
   shotgun(): void {
     if (!this.ensureContext() || !this.ctx || !this.sfxGain) return;
 
-    if (this.playRecorded('gun-shotgun', { volume: 0.82, rate: 0.99 + Math.random() * 0.02, priority: 3 })) return;
+    if (this.playRecorded('gun-shotgun', { duration: 0.26, volume: 0.46, lowpass: 5000, rate: 0.99 + Math.random() * 0.02, priority: 3 })) return;
 
     const ctx = this.ctx;
     const t = ctx.currentTime;
@@ -635,7 +640,7 @@ export class Audio {
     subOsc.frequency.setValueAtTime(190 * (1 + pitchDetune), t);
     subOsc.frequency.exponentialRampToValueAtTime(32, t + 0.18);
 
-    subGain.gain.setValueAtTime(0.32, t);
+    subGain.gain.setValueAtTime(0.17, t);
     subGain.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
 
     if (this.distortionCurve) {
@@ -659,7 +664,7 @@ export class Audio {
       crackFilter.type = 'bandpass';
       crackFilter.frequency.setValueAtTime(2900 + Math.random() * 1000, t);
       crackFilter.Q.value = 0.95;
-      crackGain.gain.setValueAtTime(0.82, t);
+      crackGain.gain.setValueAtTime(0.40, t);
       crackGain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
       crackSrc.connect(crackFilter);
       crackFilter.connect(crackGain);
@@ -676,7 +681,7 @@ export class Audio {
       blastFilter.frequency.exponentialRampToValueAtTime(220, t + 0.22);
 
       const blastGain = ctx.createGain();
-      blastGain.gain.setValueAtTime(0.55, t);
+      blastGain.gain.setValueAtTime(0.30, t);
       blastGain.gain.exponentialRampToValueAtTime(0.001, t + 0.24);
 
       blastSrc.connect(blastFilter);
@@ -696,15 +701,15 @@ export class Audio {
       tailFilter.Q.value = 0.9;
 
       const tailGain = ctx.createGain();
-      tailGain.gain.setValueAtTime(0.3, t + 0.04);
-      tailGain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+      tailGain.gain.setValueAtTime(0.12, t + 0.04);
+      tailGain.gain.exponentialRampToValueAtTime(0.001, t + 0.21);
 
       tailSrc.connect(tailFilter);
       tailFilter.connect(tailGain);
       tailGain.connect(this.sfxGain);
 
       tailSrc.start(t + 0.04, Math.random());
-      tailSrc.stop(t + 0.29);
+      tailSrc.stop(t + 0.22);
     }
   }
 

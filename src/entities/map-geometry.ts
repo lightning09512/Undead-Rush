@@ -26,28 +26,68 @@ const SURVIVAL_BUILDINGS: SolidBuilding[] = [
 ];
 export const SOLID_BUILDINGS: SolidBuilding[] = [...SURVIVAL_BUILDINGS];
 
-interface SolidRect { x: number; y: number; halfWidth: number; halfHeight: number; }
+interface SolidRect { x: number; y: number; halfWidth: number; halfHeight: number; rotation: number; }
 
 function createSolidRects(building: SolidBuilding): SolidRect[] {
   const { x, y, halfWidth: hw, halfHeight: hh } = building;
-  if (!building.large) return [{ x, y, halfWidth: hw, halfHeight: hh }];
+  if (!building.large) return [{ x, y, halfWidth: hw, halfHeight: hh, rotation: building.rotation }];
 
   // Large warehouses have three solid walls and two short lower wall sections,
   // leaving a wide doorway at the bottom so the interior can be entered.
-  const wall = 24;
+  // This matches the broad, clearly visible wall bands drawn by the Campaign renderer.
+  const wall = 28;
   const doorwayHalfWidth = 126;
   const segmentHalfWidth = (hw - doorwayHalfWidth) / 2;
   const segmentOffset = doorwayHalfWidth + segmentHalfWidth;
-  return [
-    { x: x - hw + wall / 2, y, halfWidth: wall / 2, halfHeight: hh },
-    { x: x + hw - wall / 2, y, halfWidth: wall / 2, halfHeight: hh },
-    { x, y: y - hh + wall / 2, halfWidth: hw, halfHeight: wall / 2 },
-    { x: x - segmentOffset, y: y + hh - wall / 2, halfWidth: segmentHalfWidth, halfHeight: wall / 2 },
-    { x: x + segmentOffset, y: y + hh - wall / 2, halfWidth: segmentHalfWidth, halfHeight: wall / 2 },
+  const localRects = [
+    { x: -hw + wall / 2, y: 0, halfWidth: wall / 2, halfHeight: hh },
+    { x: hw - wall / 2, y: 0, halfWidth: wall / 2, halfHeight: hh },
+    { x: 0, y: -hh + wall / 2, halfWidth: hw, halfHeight: wall / 2 },
+    { x: -segmentOffset, y: hh - wall / 2, halfWidth: segmentHalfWidth, halfHeight: wall / 2 },
+    { x: segmentOffset, y: hh - wall / 2, halfWidth: segmentHalfWidth, halfHeight: wall / 2 },
     // Door jambs prevent squeezing through the corners of the opening.
-    { x: x - doorwayHalfWidth, y: y + hh - wall / 2, halfWidth: wall / 2, halfHeight: wall / 2 },
-    { x: x + doorwayHalfWidth, y: y + hh - wall / 2, halfWidth: wall / 2, halfHeight: wall / 2 },
+    { x: -doorwayHalfWidth, y: hh - wall / 2, halfWidth: wall / 2, halfHeight: wall / 2 },
+    { x: doorwayHalfWidth, y: hh - wall / 2, halfWidth: wall / 2, halfHeight: wall / 2 },
   ];
+  const cos = Math.cos(building.rotation), sin = Math.sin(building.rotation);
+  return localRects.map(rect => ({
+    ...rect,
+    x: x + rect.x * cos - rect.y * sin,
+    y: y + rect.x * sin + rect.y * cos,
+    rotation: building.rotation,
+  }));
+}
+
+/** Convert a world point into the local axes of a rotated solid rectangle. */
+function toSolidLocal(x: number, y: number, solid: SolidRect): [number, number] {
+  const dx = x - solid.x, dy = y - solid.y;
+  const cos = Math.cos(solid.rotation), sin = Math.sin(solid.rotation);
+  return [dx * cos + dy * sin, -dx * sin + dy * cos];
+}
+
+function toSolidWorld(x: number, y: number, solid: SolidRect): [number, number] {
+  const cos = Math.cos(solid.rotation), sin = Math.sin(solid.rotation);
+  return [solid.x + x * cos - y * sin, solid.y + x * sin + y * cos];
+}
+
+function segmentIntersectsSolid(x1: number, y1: number, x2: number, y2: number, solid: SolidRect): boolean {
+  const [ax, ay] = toSolidLocal(x1, y1, solid);
+  const [bx, by] = toSolidLocal(x2, y2, solid);
+  const dx = bx - ax, dy = by - ay;
+  let near = 0, far = 1;
+  if (Math.abs(dx) < 0.00001) {
+    if (ax < -solid.halfWidth || ax > solid.halfWidth) return false;
+  } else {
+    const a = (-solid.halfWidth - ax) / dx, b = (solid.halfWidth - ax) / dx;
+    near = Math.max(near, Math.min(a, b)); far = Math.min(far, Math.max(a, b));
+  }
+  if (Math.abs(dy) < 0.00001) {
+    if (ay < -solid.halfHeight || ay > solid.halfHeight) return false;
+  } else {
+    const a = (-solid.halfHeight - ay) / dy, b = (solid.halfHeight - ay) / dy;
+    near = Math.max(near, Math.min(a, b)); far = Math.min(far, Math.max(a, b));
+  }
+  return near <= far;
 }
 
 // Geometry is swapped only when entering/leaving a Campaign stage; collision
@@ -71,7 +111,7 @@ export function setCampaignGeometry(buildings?: readonly SolidBuilding[], layout
   BUILDING_SOLID_RECTS = SOLID_BUILDINGS.map(createSolidRects);
   if (campaignLayout) for (const prop of campaignLayout.decorations) {
     if (prop.solid) BUILDING_SOLID_RECTS.push([{ x: prop.x + prop.w / 2, y: prop.y + prop.h / 2,
-      halfWidth: prop.w / 2, halfHeight: prop.h / 2 }]);
+      halfWidth: prop.w / 2, halfHeight: prop.h / 2, rotation: 0 }]);
   }
 }
 
@@ -186,8 +226,9 @@ export function campaignDetourTarget(x: number, y: number, targetX: number, targ
   let bestScore = Infinity;
   for (const solids of BUILDING_SOLID_RECTS) for (const solid of solids) {
     const margin = radius + 26;
-    for (const cornerX of [solid.x - solid.halfWidth - margin, solid.x + solid.halfWidth + margin])
-      for (const cornerY of [solid.y - solid.halfHeight - margin, solid.y + solid.halfHeight + margin]) {
+    for (const localX of [-solid.halfWidth - margin, solid.halfWidth + margin])
+      for (const localY of [-solid.halfHeight - margin, solid.halfHeight + margin]) {
+        const [cornerX, cornerY] = toSolidWorld(localX, localY, solid);
         if (!isCampaignWalkable(cornerX, cornerY, radius) || isInsideBuilding(cornerX, cornerY) ||
             segmentHitsBuilding(x, y, cornerX, cornerY)) continue;
         const distance = Math.hypot(cornerX - x, cornerY - y);
@@ -202,32 +243,35 @@ export function campaignDetourTarget(x: number, y: number, targetX: number, targ
 export function resolveBuildingCollision(x: number, y: number, radius: number): [number, number] {
   for (const solids of BUILDING_SOLID_RECTS) {
     for (const solid of solids) {
-      const left = solid.x - solid.halfWidth;
-      const right = solid.x + solid.halfWidth;
-      const top = solid.y - solid.halfHeight;
-      const bottom = solid.y + solid.halfHeight;
-      const nearestX = Math.max(left, Math.min(right, x));
-      const nearestY = Math.max(top, Math.min(bottom, y));
-      const dx = x - nearestX;
-      const dy = y - nearestY;
+      const [localX, localY] = toSolidLocal(x, y, solid);
+      const left = -solid.halfWidth, right = solid.halfWidth;
+      const top = -solid.halfHeight, bottom = solid.halfHeight;
+      const nearestX = Math.max(left, Math.min(right, localX));
+      const nearestY = Math.max(top, Math.min(bottom, localY));
+      const dx = localX - nearestX;
+      const dy = localY - nearestY;
       const distanceSq = dx * dx + dy * dy;
       if (distanceSq >= radius * radius) continue;
 
+      let resolvedX = localX, resolvedY = localY;
       if (distanceSq > 0.001) {
         const distance = Math.sqrt(distanceSq);
-        x += (dx / distance) * (radius - distance);
-        y += (dy / distance) * (radius - distance);
+        resolvedX += (dx / distance) * (radius - distance);
+        resolvedY += (dy / distance) * (radius - distance);
       } else {
-        const pushLeft = x - left;
-        const pushRight = right - x;
-        const pushTop = y - top;
-        const pushBottom = bottom - y;
+        const pushLeft = localX - left;
+        const pushRight = right - localX;
+        const pushTop = localY - top;
+        const pushBottom = bottom - localY;
         const nearestEdge = Math.min(pushLeft, pushRight, pushTop, pushBottom);
-        if (nearestEdge === pushLeft) x = left - radius;
-        else if (nearestEdge === pushRight) x = right + radius;
-        else if (nearestEdge === pushTop) y = top - radius;
-        else y = bottom + radius;
+        if (nearestEdge === pushLeft) resolvedX = left - radius;
+        else if (nearestEdge === pushRight) resolvedX = right + radius;
+        else if (nearestEdge === pushTop) resolvedY = top - radius;
+        else resolvedY = bottom + radius;
       }
+      const cos = Math.cos(solid.rotation), sin = Math.sin(solid.rotation);
+      x = solid.x + resolvedX * cos - resolvedY * sin;
+      y = solid.y + resolvedX * sin + resolvedY * cos;
     }
   }
   return [x, y];
@@ -236,10 +280,8 @@ export function resolveBuildingCollision(x: number, y: number, radius: number): 
 export function isInsideBuilding(x: number, y: number): boolean {
   for (const solids of BUILDING_SOLID_RECTS) {
     for (const solid of solids) {
-      if (
-        x >= solid.x - solid.halfWidth && x <= solid.x + solid.halfWidth &&
-        y >= solid.y - solid.halfHeight && y <= solid.y + solid.halfHeight
-      ) return true;
+      const [localX, localY] = toSolidLocal(x, y, solid);
+      if (Math.abs(localX) <= solid.halfWidth && Math.abs(localY) <= solid.halfHeight) return true;
     }
   }
   if (campaignLayout) for (let i = 0; i < campaignLayout.gates.length; i++) {
@@ -253,27 +295,7 @@ export function segmentHitsBuilding(x1: number, y1: number, x2: number, y2: numb
   const dx = x2 - x1;
   const dy = y2 - y1;
   for (const solids of BUILDING_SOLID_RECTS) {
-    for (const s of solids) {
-      let near = 0;
-      let far = 1;
-      if (Math.abs(dx) < 0.00001) {
-        if (x1 < s.x - s.halfWidth || x1 > s.x + s.halfWidth) continue;
-      } else {
-        const a = (s.x - s.halfWidth - x1) / dx;
-        const b = (s.x + s.halfWidth - x1) / dx;
-        near = Math.max(near, Math.min(a, b));
-        far = Math.min(far, Math.max(a, b));
-      }
-      if (Math.abs(dy) < 0.00001) {
-        if (y1 < s.y - s.halfHeight || y1 > s.y + s.halfHeight) continue;
-      } else {
-        const a = (s.y - s.halfHeight - y1) / dy;
-        const b = (s.y + s.halfHeight - y1) / dy;
-        near = Math.max(near, Math.min(a, b));
-        far = Math.min(far, Math.max(a, b));
-      }
-      if (near <= far) return true;
-    }
+    for (const solid of solids) if (segmentIntersectsSolid(x1, y1, x2, y2, solid)) return true;
   }
   if (campaignLayout) for (let i = 0; i < campaignLayout.gates.length; i++) {
     if (!isCampaignGateClosed(i)) continue;

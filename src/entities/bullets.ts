@@ -2,7 +2,7 @@
 
 import { Pool } from '../core/pool';
 import { Camera } from '../core/camera';
-import { isInsideBuilding } from './map-geometry';
+import { segmentHitsBuilding } from './map-geometry';
 
 const GUN_PROJECTILE_SPEED_MULTIPLIER = 1.25;
 
@@ -92,14 +92,13 @@ export class BulletSystem {
       b.life -= dt;
       if (b.life <= 0) return true; // release
 
-      const steps = Math.max(1, Math.ceil(Math.hypot(b.vx, b.vy) * dt / 12));
-      const stepX = b.vx * dt / steps;
-      const stepY = b.vy * dt / steps;
-      for (let i = 0; i < steps; i++) {
-        b.x += stepX;
-        b.y += stepY;
-        if (collideBuildings && isInsideBuilding(b.x, b.y)) return true;
-      }
+      const nextX = b.x + b.vx * dt;
+      const nextY = b.y + b.vy * dt;
+      // Sweep the complete projectile path against the same rotated solid
+      // geometry used by actors; endpoint-only checks can miss thin corners.
+      if (collideBuildings && segmentHitsBuilding(b.x, b.y, nextX, nextY)) return true;
+      b.x = nextX;
+      b.y = nextY;
       return false;
     });
   }

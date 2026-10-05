@@ -335,7 +335,7 @@ export class CampaignMapRenderer {
       mall: '#3b3a38', rail: '#353738', lab: '#303a3b', quarantine: '#3a3534', hive: '#3b3032',
     };
     const floor = b.variant ? floorByVariant[b.variant] : b.kind === 'warehouse' ? '#303638' : '#2b3031';
-    const exteriorByVariant: Record<string,string> = { suburb:'#596057', fuel:'#735d3f', medical:'#697873' };
+    const exteriorByVariant: Record<string,string> = { suburb:'#626b5d', fuel:'#806844', medical:'#72817b' };
     ctx.fillStyle = exteriorByVariant[b.variant ?? ''] ?? (b.variant === 'hive' ? '#513a3b' : b.variant === 'lab' || b.variant === 'mall' ? '#474947' : b.kind === 'warehouse' ? '#444744' : '#383b3b'); ctx.fillRect(-w / 2, -h / 2, w, h);
     ctx.fillStyle = floor;
     ctx.fillRect(-w / 2 + 18, -h / 2 + 18, w - 36, h - 36);
@@ -352,24 +352,9 @@ export class CampaignMapRenderer {
       ctx.beginPath(); ctx.ellipse(w*.24,-h*.18,w*.14,h*.09,.18,0,Math.PI*2); ctx.fill();
       ctx.restore();
     }
-    ctx.strokeStyle = b.variant === 'suburb' ? '#303a39' : '#77766b'; ctx.lineWidth = b.large ? 20 : 13;
-    if (b.large) {
-      ctx.beginPath();
-      ctx.moveTo(-w/2+5,-h/2+5); ctx.lineTo(w/2-5,-h/2+5);
-      ctx.moveTo(-w/2+5,-h/2+5); ctx.lineTo(-w/2+5,h/2-5);
-      ctx.moveTo(w/2-5,-h/2+5); ctx.lineTo(w/2-5,h/2-5);
-      ctx.moveTo(-w/2+5,h/2-5); ctx.lineTo(-126,h/2-5);
-      ctx.moveTo(126,h/2-5); ctx.lineTo(w/2-5,h/2-5); ctx.stroke();
-    } else ctx.strokeRect(-w / 2 + 5, -h / 2 + 5, w - 10, h - 10);
+    this.drawBuildingWalls(ctx, b, w, h, accent);
     if (b.variant === 'suburb') {
-      // Pale top edges and a dark inner seam give each solid wall a clear height.
-      ctx.strokeStyle = '#a3aa99'; ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(-w/2+11,-h/2+10); ctx.lineTo(w/2-11,-h/2+10);
-      ctx.moveTo(-w/2+11,-h/2+10); ctx.lineTo(-w/2+11,h/2-14);
-      ctx.moveTo(w/2-11,-h/2+10); ctx.lineTo(w/2-11,h/2-14);
-      ctx.moveTo(-w/2+11,h/2-10); ctx.lineTo(-126,h/2-10);
-      ctx.moveTo(126,h/2-10); ctx.lineTo(w/2-11,h/2-10); ctx.stroke();
+      // Distinct boarded windows sit above the wall band, fixed to the building.
       ctx.fillStyle = '#1b292b';
       ctx.fillRect(-w*.26,-h/2+3,w*.2,10);
       ctx.fillRect(w*.12,-h/2+3,w*.2,10);
@@ -379,8 +364,11 @@ export class CampaignMapRenderer {
     }
     // A doorway remains visibly open and matches the collision geometry.
     if (b.large) {
-      ctx.strokeStyle = '#282c2d'; ctx.lineWidth = 25;
-      ctx.beginPath(); ctx.moveTo(-126, h / 2 - 3); ctx.lineTo(-126, h / 2 - 32); ctx.moveTo(126, h / 2 - 3); ctx.lineTo(126, h / 2 - 32); ctx.stroke();
+      // Draw the jambs inside their exact 28x28 collision footprints so there is
+      // no apparent wall beyond the solid boundary at the doorway corners.
+      ctx.fillStyle = '#252c2a'; ctx.fillRect(-140, h / 2 - 28, 28, 28); ctx.fillRect(112, h / 2 - 28, 28, 28);
+      ctx.fillStyle = b.variant === 'fuel' ? '#c39450' : b.variant === 'medical' ? '#9aafa3' : '#9ca58b';
+      ctx.fillRect(-137, h / 2 - 27, 3, 23); ctx.fillRect(134, h / 2 - 27, 3, 23);
       ctx.fillStyle = accent; ctx.globalAlpha = .5; ctx.fillRect(-38, h / 2 - 17, 76, 5); ctx.globalAlpha = 1;
       if(b.variant==='suburb'){
         ctx.fillStyle='rgba(14,24,24,.45)'; ctx.fillRect(-122,h/2-10,244,9);
@@ -406,6 +394,62 @@ export class CampaignMapRenderer {
       ctx.fillStyle = 'rgba(156,121,89,.28)'; ctx.fillRect(w * .1, h * .18, w * .2, 8);
     }
     this.drawBuildingSetDressing(ctx, b, w, h, accent);
+    ctx.restore();
+  }
+
+  /** Heavy, beveled wall bands use the same 28px footprint as collision. */
+  private drawBuildingWalls(ctx: CanvasRenderingContext2D, b: StageBuildingDef, w: number, h: number, accent: string): void {
+    const left = -w / 2, right = w / 2, top = -h / 2, bottom = h / 2;
+    const x0 = left + 14, x1 = right - 14;
+    const y0 = -h / 2 + 14, y1 = h / 2 - 14;
+    const wallPath = (path: CanvasRenderingContext2D) => {
+      path.beginPath();
+      if (b.large) {
+        // Center lines follow the rotated collision boxes exactly, including
+        // the corner overlaps and the two lower wall segments.
+        path.moveTo(left, y0); path.lineTo(right, y0);
+        path.moveTo(x0, top); path.lineTo(x0, bottom);
+        path.moveTo(x1, top); path.lineTo(x1, bottom);
+        path.moveTo(left, y1); path.lineTo(-126, y1);
+        path.moveTo(126, y1); path.lineTo(right, y1);
+      } else path.rect(-w / 2 + 14, -h / 2 + 14, w - 28, h - 28);
+    };
+    const face = b.variant === 'fuel' ? '#927348' : b.variant === 'medical' ? '#74857d' : b.variant === 'suburb' ? '#687161' : '#626a65';
+    const rim = b.variant === 'fuel' ? '#d4ad68' : b.variant === 'medical' ? '#b5c7b9' : '#bbc09e';
+    const seam = b.variant === 'fuel' ? 'rgba(37,29,20,.72)' : 'rgba(22,28,27,.76)';
+
+    ctx.save(); ctx.lineJoin = 'bevel'; ctx.lineCap = 'butt';
+    wallPath(ctx); ctx.strokeStyle = 'rgba(5,9,10,.72)'; ctx.lineWidth = 30; ctx.stroke();
+    wallPath(ctx); ctx.strokeStyle = face; ctx.lineWidth = 28; ctx.stroke();
+    wallPath(ctx); ctx.strokeStyle = seam; ctx.lineWidth = 2; ctx.stroke();
+
+    // A fixed, soft rim light catches the raised edge without lighting the room flat.
+    ctx.save(); ctx.shadowColor = accent; ctx.shadowBlur = 8;
+    ctx.strokeStyle = rim; ctx.globalAlpha = .88; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(left + 7, y0 + 7); ctx.lineTo(right - 7, y0 + 7);
+    ctx.moveTo(x0 + 7, top + 7); ctx.lineTo(x0 + 7, bottom - 7);
+    ctx.moveTo(x1 - 7, top + 7); ctx.lineTo(x1 - 7, bottom - 7);
+    ctx.moveTo(left + 7, y1 - 7); ctx.lineTo(-142, y1 - 7);
+    ctx.moveTo(142, y1 - 7); ctx.lineTo(right - 7, y1 - 7);
+    ctx.stroke(); ctx.restore();
+
+    // Mortar joints, panel seams and small impact scars make each wall readable
+    // at combat zoom while staying anchored to the building's local coordinates.
+    ctx.strokeStyle = seam; ctx.lineWidth = 2;
+    for (let px = x0 + 46; px < x1 - 24; px += 48) {
+      ctx.beginPath(); ctx.moveTo(px, y0 - 9); ctx.lineTo(px, y0 + 9); ctx.stroke();
+      if (px < -146 || px > 146) { ctx.beginPath(); ctx.moveTo(px, y1 - 9); ctx.lineTo(px, y1 + 9); ctx.stroke(); }
+    }
+    for (let py = y0 + 46; py < y1 - 25; py += 48) {
+      ctx.beginPath(); ctx.moveTo(x0 - 9, py); ctx.lineTo(x0 + 9, py); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x1 - 9, py); ctx.lineTo(x1 + 9, py); ctx.stroke();
+    }
+    ctx.strokeStyle = b.variant === 'fuel' ? 'rgba(36,28,19,.68)' : 'rgba(19,24,23,.7)';
+    ctx.lineWidth = 3;
+    for (const [cx, cy] of [[x0 + 34, y0 + 4], [x1 - 42, y0 + 5], [x0 + 7, y1 - 64]] as const) {
+      ctx.beginPath(); ctx.moveTo(cx - 5, cy - 5); ctx.lineTo(cx + 1, cy); ctx.lineTo(cx - 3, cy + 6); ctx.lineTo(cx + 7, cy + 12); ctx.stroke();
+    }
     ctx.restore();
   }
 

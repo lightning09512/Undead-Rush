@@ -229,6 +229,7 @@ let campaignBossWaveTimer = 0;
 let campaignGunnerSoundCooldown = 0;
 const CAMPAIGN_SPAWN_PRESSURE_MULTIPLIER = 6;
 const CAMPAIGN_MOB_HP_MULTIPLIER = 1.15;
+const CAMPAIGN_STAGE_WAVE_MULTIPLIERS: Readonly<Record<number, number>> = { 8: 0.5 };
 const CAMPAIGN_ACTIVE_ZOMBIE_LIMIT = 120;
 const CAMPAIGN_BOSS_ACTIVE_ADD_LIMIT = 6;
 const CAMPAIGN_BOSS_ADD_TOTAL_LIMIT = 9;
@@ -254,6 +255,14 @@ function applyCampaignDifficultyToMob(mob: Zombie): void {
   mob.hp = Math.max(1, Math.round(mob.hp * factors.health));
   mob.maxHp = mob.hp;
   mob.damage = Math.max(1, Math.round(mob.damage * factors.damage));
+}
+
+function campaignStageMobHealthMultiplier(stageId: number, mobId: string): number {
+  if (stageId !== 8) return 1;
+  if (mobId === 'tank') return 0.65;
+  if (mobId === 'mutant') return 0.72;
+  if (mobId === 'multihead') return 0.68;
+  return 1;
 }
 
 function showCampaignSkillDirections(): boolean {
@@ -315,7 +324,9 @@ function syncMusicForThreat(): void {
   // full Campaign boss room; Music 3 remains reserved for Survival bosses.
   activeMusicThreat = bossAlive ? 'boss' : hasSeenZombiesThisRun ? 'combat' : 'calm';
 
-  audio.setMusicScene(activeMusicThreat);
+  // Campaign boss rooms have an explicit scene mapped to Music 2. It remains
+  // selected after the boss dies because stageBossSpawned stays true until exit.
+  audio.setMusicScene(campaignBossRoomMusic ? 'campaignBoss' : activeMusicThreat);
 }
 
 // ─── Spitter attack timer (shared) ───
@@ -1418,12 +1429,12 @@ function updateCampaignTransitAmbushes(stage: typeof STAGES[number]): void {
     const offsets = Math.abs(toY - fromY) > 20
       ? [[0,-166],[0,166],[-76,0],[76,0],[0,-96],[0,96]]
       : [[-166,0],[166,0],[0,-76],[0,76],[-104,-54],[104,54]];
-    const desiredCount = stage.id >= 5 ? 3 : 2;
+    const desiredCount = stage.id >= 5 && stage.id !== 8 ? 3 : 2;
     const chosen: Array<{ x: number; y: number; type: ZombieTypeDef }> = [];
     const distanceFromPlayer = Math.max(165, player.size + 68);
     for (let attempt = 0; attempt < offsets.length && chosen.length < desiredCount; attempt++) {
       const [ox, oy] = offsets[(attempt + (stage.id + linkIndex) % offsets.length) % offsets.length];
-      const type = chooseCampaignWaveMob(roster);
+      const type = chooseCampaignWaveMob(roster, stage.id);
       const x = routeX + ox + (Math.random() - .5) * 24;
       const y = routeY + oy + (Math.random() - .5) * 24;
       const radius = type.size * .72;
@@ -1441,7 +1452,7 @@ function updateCampaignTransitAmbushes(stage: typeof STAGES[number]): void {
     for (const spawn of chosen) {
       const mob = zombies.spawn(spawn.type, spawn.x, spawn.y, 1, 1, 1);
       mob.campaignZoneIndex = linkIndex;
-      mob.hp = Math.round(mob.hp * stage.difficultyMult * CAMPAIGN_MOB_HP_MULTIPLIER);
+      mob.hp = Math.round(mob.hp * stage.difficultyMult * CAMPAIGN_MOB_HP_MULTIPLIER * campaignStageMobHealthMultiplier(stage.id, mob.typeId));
       mob.maxHp = mob.hp;
       mob.damage = Math.round(mob.damage * stage.difficultyMult);
       applyCampaignDifficultyToMob(mob);
@@ -1475,9 +1486,10 @@ function spawnCampaignZoneWave(stage: typeof STAGES[number], zoneIndex: number, 
   // Use one authored density multiplier: the old 10x and 3x settings stacked
   // into 30–42x and made each finite wave look endless. Later stages get a
   // small additional bump without multiplying the pressure setting again.
+  const stageWaveMultiplier = CAMPAIGN_STAGE_WAVE_MULTIPLIERS[stage.id] ?? 1;
   const hordeMultiplier = stage.id === 1
     ? CAMPAIGN_SPAWN_PRESSURE_MULTIPLIER
-    : Math.round(CAMPAIGN_SPAWN_PRESSURE_MULTIPLIER * 1.4);
+    : Math.max(1, Math.round(CAMPAIGN_SPAWN_PRESSURE_MULTIPLIER * 1.4 * stageWaveMultiplier));
   const queuedBossAdds = campaignWaveQueue.filter(wave => wave.zoneIndex === zoneIndex && wave.supportOnly)
     .reduce((sum, wave) => sum + wave.remaining, 0);
   const total = supportOnly ? Math.min(3, CAMPAIGN_BOSS_ADD_TOTAL_LIMIT - campaignBossAddsSpawned - queuedBossAdds)
@@ -1497,10 +1509,18 @@ function spawnCampaignZoneWave(stage: typeof STAGES[number], zoneIndex: number, 
   return true;
 }
 
-function chooseCampaignWaveMob(roster: ZombieTypeDef[]): ZombieTypeDef {
+function chooseCampaignWaveMob(roster: ZombieTypeDef[], stageId?: number): ZombieTypeDef {
   // Brutes stay as occasional heavy threats instead of occupying half of a
   // small authored roster. Their data weight is further reduced for Campaign.
-  const weights = roster.map(type => type.weight * (type.id === 'tank' ? 0.22 : 1));
+  const weights = roster.map(type => {
+    let weight = type.weight * (type.id === 'tank' ? 0.22 : 1);
+    if (stageId === 8) {
+      if (type.id === 'tank') weight *= 0.5;
+      else if (type.id === 'mutant') weight *= 0.65;
+      else if (type.id === 'multihead') weight *= 0.5;
+    }
+    return weight;
+  });
   const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
   let roll = Math.random() * totalWeight;
   for (let i = 0; i < roster.length; i++) {
@@ -1625,7 +1645,7 @@ function spawnCampaignZombie(stage: typeof STAGES[number], wave: CampaignWaveQue
       const mob = zombies.spawn(type, x, y, 1, 1, 1);
       mob.campaignZoneIndex = wave.zoneIndex;
       if (wave.supportOnly) campaignBossAddsSpawned++;
-      mob.hp = Math.round(mob.hp * stage.difficultyMult * CAMPAIGN_MOB_HP_MULTIPLIER);
+      mob.hp = Math.round(mob.hp * stage.difficultyMult * CAMPAIGN_MOB_HP_MULTIPLIER * campaignStageMobHealthMultiplier(stage.id, mob.typeId));
       mob.maxHp = mob.hp;
       mob.damage = Math.round(mob.damage * stage.difficultyMult);
       applyCampaignDifficultyToMob(mob);
@@ -1664,8 +1684,8 @@ function updateCampaignSpawnQueue(stage: typeof STAGES[number], dt: number): voi
   }
   wave.spawnTimer -= dt;
   if (wave.spawnTimer > 0 || zombies.pool.activeCount >= CAMPAIGN_ACTIVE_ZOMBIE_LIMIT) return;
-  const spawnRate = Math.min(4, 2.5 + (stage.id - 1) * .17);
-  const type = chooseCampaignWaveMob(wave.roster);
+  const spawnRate = stage.id === 8 ? 2.8 : Math.min(4, 2.5 + (stage.id - 1) * .17);
+  const type = chooseCampaignWaveMob(wave.roster, stage.id);
   if (!spawnCampaignZombie(stage, wave, type)) {
     wave.spawnTimer = .25;
     return;

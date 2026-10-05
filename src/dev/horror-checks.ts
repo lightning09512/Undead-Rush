@@ -124,7 +124,7 @@ export function runHorrorChecks(): string[] {
   assert(!!warehouse, 'real enterable warehouse exists');
   const wallY = warehouse.y - warehouse.halfHeight;
   const doorY = warehouse.y + warehouse.halfHeight;
-  assert(segmentHitsBuilding(warehouse.x, wallY - 40, warehouse.x, wallY + 70), 'line of sight intersects actual 24px warehouse wall');
+  assert(segmentHitsBuilding(warehouse.x, wallY - 40, warehouse.x, wallY + 70), 'line of sight intersects actual 28px warehouse wall');
   assert(!segmentHitsBuilding(warehouse.x, doorY + 45, warehouse.x, doorY - 80), 'line of sight passes through actual warehouse doorway');
   assert(!segmentHitsBuilding(2000, 2000, 2100, 2000), 'clear horizontal line remains clear');
   assert(!segmentHitsBuilding(2000, 2000, 2000, 2100), 'clear vertical line remains clear');

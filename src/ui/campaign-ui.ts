@@ -2,7 +2,7 @@ import { CHARACTERS, STAGES } from '../data/meta';
 import { SaveSystem } from '../systems/save';
 import { UPGRADES } from '../data/upgrades';
 import { createCampaignGunDefs } from '../systems/gun-loadout';
-import { drawGunArt, drawHunterPortrait } from '../graphics/campaign-menu-art';
+import { drawGunArt, drawHunterPortrait, type GunArtView } from '../graphics/campaign-menu-art';
 import { UI_PALETTE as C } from './palette';
 import { createQuarantineBackdrop } from './horror-texture';
 import { getStageCopy, getUiTerm, localizeZombieName, sentenceCaseDisplay } from '../data/localization';
@@ -47,6 +47,9 @@ export class CampaignUI {
   message = '';
   armoryTab: 'guns' | 'drone' = 'guns';
   gunPage = 0;
+  selectedGunId = '';
+  selectedGunView: GunArtView = 'side';
+  private gunListNeedsSync = true;
   focusedCharacter = 'survivor';
   canWatchRevive = true;
   reviveAdPending = false;
@@ -76,10 +79,11 @@ export class CampaignUI {
     if (b.action === 'main') return 'main';
     if (b.action === 'stages') { this.page = 'stages'; return null; }
     if (b.action === 'briefing') { this.page = 'briefing'; return null; }
-    if (b.action === 'armory') { this.page = 'armory'; return null; }
+    if (b.action === 'armory') { this.page = 'armory'; this.prepareGunShowcase(p.equippedGun); return null; }
     if (b.action === 'post_stage_armory') {
       this.page = 'armory';
       this.armoryTab = 'guns';
+      this.prepareGunShowcase(p.equippedGun);
       return null;
     }
     if (b.action === 'tab:guns' || b.action === 'tab:drone') { this.armoryTab = b.action === 'tab:guns' ? 'guns' : 'drone'; return null; }
@@ -95,12 +99,18 @@ export class CampaignUI {
     if (b.action === 'start') return 'start';
     if (b.action === 'retry') return 'retry';
     if (b.action === 'revive_ad') return 'revive_ad';
-    if (b.action === 'return_armory') { this.page = 'armory'; return null; }
+    if (b.action === 'return_armory') { this.page = 'armory'; this.prepareGunShowcase(p.equippedGun); return null; }
     if (b.action === 'next') {
       this.selectedStage = Math.min(STAGES.length - 1, this.selectedStage + 1);
       this.page = 'briefing'; return null;
     }
     if (b.action.startsWith('page:')) { this.stagePage = Number(b.action.slice(5)); return null; }
+    if (b.action.startsWith('focusgun:')) { this.selectedGunId = b.action.slice(9); return null; }
+    if (b.action.startsWith('gunview:')) {
+      const view = b.action.slice(8);
+      if (view === 'side' || view === 'muzzle' || view === 'stock') this.selectedGunView = view;
+      return null;
+    }
     if (b.action.startsWith('stage:')) {
       const index = Number(b.action.slice(6));
       if (index + 1 <= p.unlockedStage) { this.selectedStage = index; this.page = 'briefing'; }
@@ -118,6 +128,7 @@ export class CampaignUI {
     }
     if (b.action.startsWith('gun:')) {
       const id = b.action.slice(4);
+      this.selectedGunId = id;
       const definition = GUNS.find(g => g.id === id);
       if (!definition || !p.ownedGuns.includes(id)) { this.message = this.language === 'en' ? 'Defeat the boss and recover this weapon first.' : 'Hãy hạ trùm và nhặt khẩu súng này trước.'; return null; }
       p.equippedGun = id; save.save(); return null;
@@ -193,6 +204,13 @@ export class CampaignUI {
       ? { character: 'Character', stages: 'Missions', briefing: 'Mission brief', armory: 'Armory', result: 'Report', failure: 'Mission failed' }
       : { character: 'Nhân vật', stages: 'Tuyến màn', briefing: 'Nhiệm vụ', armory: 'Kho vũ khí', result: 'Báo cáo', failure: 'Thất bại' };
     return labels[this.page];
+  }
+
+  private prepareGunShowcase(gunId: string): void {
+    this.selectedGunId = GUNS.some(gun => gun.id === gunId) ? gunId : GUNS[0].id;
+    this.selectedGunView = 'side';
+    this.gunPage = 0;
+    this.gunListNeedsSync = true;
   }
 
   private characters(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, p: SaveSystem['data']['campaign'], narrow: boolean): void {
@@ -290,68 +308,242 @@ export class CampaignUI {
 
   private drawGuns(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, p: SaveSystem['data']['campaign'], narrow: boolean): void {
     const english = this.language === 'en';
-    const cols = narrow ? 1 : 2;
-    const cardTop = y + 128;
-    const pagerY = y + h - 177;
-    const cardBottom = pagerY - 8;
-    const gap = 8;
-    const rows = Math.max(1, Math.min(2, Math.floor((cardBottom - cardTop + gap) / (narrow ? 126 : 145))));
-    const pageSize = cols * rows, pageCount = Math.ceil(GUNS.length / pageSize);
-    this.gunPage = Math.max(0, Math.min(pageCount - 1, this.gunPage));
-    const shown = GUNS.slice(this.gunPage * pageSize, (this.gunPage + 1) * pageSize);
-    const bw = (w - 44 - gap * (cols - 1)) / cols;
-    const rowH = Math.max(68, (cardBottom - cardTop - gap * (rows - 1)) / rows);
-    shown.forEach((g, i) => {
-      const bx = x + 22 + (i % cols) * (bw + gap), by = cardTop + Math.floor(i / cols) * (rowH + gap);
-      const sidearm = g.id === 'p9', owned = sidearm || p.ownedGuns.includes(g.id);
-      const upgradeLevel = Math.min(3, p.gunLevels[g.id] ?? 0);
-      const upgradeCost = this.gunUpgradeCost(upgradeLevel);
-      const upgradedDamage = Math.round(g.baseDamage * (1 + upgradeLevel * .12));
-      const ammo = savedAmmo(p, g.id), compact = rowH < 132;
-      this.panel(ctx, bx, by, bw, rowH, p.equippedGun === g.id ? C.cyanBright : C.borderSoft);
-      if (!owned) { ctx.fillStyle = 'rgba(3, 8, 10, .52)'; ctx.fillRect(bx + 1, by + 1, bw - 2, rowH - 2); }
-      const artW = narrow ? Math.min(118, bw * .32) : Math.min(150, bw * .34);
-      ctx.save(); ctx.globalAlpha = owned ? 1 : .38;
-      drawGunArt(ctx, bx + 9, by + 8, artW, Math.min(48, rowH * .34), g.id);
-      ctx.restore();
-      const tx = bx + artW + 17;
-      ctx.fillStyle = owned ? C.text : C.textMuted; ctx.textAlign = 'left'; ctx.font = `bold ${narrow ? 12 : 16}px Segoe UI, Arial`;
-      ctx.fillText(`${g.shortName}  ·  ${sidearm ? (english ? 'pistol' : 'Súng lục') : this.weaponType(g.type)}`, tx, by + 22, bw - artW - 26);
-      ctx.fillStyle = owned ? C.textSoft : C.textMuted; ctx.font = `${narrow ? 9 : 11}px Segoe UI, Arial`;
-      ctx.fillText(english
-        ? `${upgradedDamage}${g.pellets ? `×${g.pellets}` : ''} damage · ${g.rpm} RPM · ${g.magSize} rounds`
-        : `${upgradedDamage}${g.pellets ? `×${g.pellets}` : ''} sát thương · ${g.rpm} RPM · ${g.magSize} viên`, tx, by + 41, bw - artW - 26);
-      ctx.fillStyle = owned ? C.cyanBright : C.textMuted;
-      ctx.font = `bold ${narrow ? 9 : 11}px Segoe UI, Arial`;
-      const reserveText = ammo.reserveAmmo < 0 ? '∞' : String(ammo.reserveAmmo);
-      ctx.fillText(owned
-        ? english ? `Ammo ${ammo.currentAmmo}/${g.magSize} · Reserve ammo ${reserveText}` : `Đạn ${ammo.currentAmmo}/${g.magSize} · Đạn dự trữ ${reserveText}`
-        : english ? `Unlocks on mission ${g.unlockStage} · Recover in mission` : `Mở ở màn ${g.unlockStage} · Nhặt trong màn`, tx, by + 60, bw - artW - 26);
-      if (!compact) {
-        ctx.fillStyle = C.textMuted; ctx.font = '10px Segoe UI, Arial';
-        ctx.fillText(owned
-          ? english ? `Level ${upgradeLevel}/3 · +${upgradeLevel * 12}% damage · ammo carries over` : `Cấp ${upgradeLevel}/3 · +${upgradeLevel * 12}% sát thương · giữ đạn qua màn`
-          : english ? 'Recover this weapon after defeating the boss.' : 'Nhặt khẩu súng này sau khi hạ trùm.', tx, by + 78, bw - artW - 26);
-      }
-      const buttonY = by + rowH - 28, buttonH = 22, actionW = Math.max(42, (bw - 28) / 3), actionGap = 5;
-      const actionLabel = !owned ? english ? `Mission ${(g.unlockStage ?? 2) - 1} boss · Recover` : `Hạ trùm màn ${(g.unlockStage ?? 2) - 1} · Nhặt`
-        : p.equippedGun === g.id ? (english ? 'Equipped' : 'Đang dùng') : (english ? 'Equip' : 'Trang bị');
-      this.add(bx + 9, buttonY, actionW, buttonH, actionLabel, `gun:${g.id}`, !owned || p.equippedGun === g.id);
-      const upgradeLabel = !owned ? (english ? 'Not recovered' : 'Chưa có súng') : upgradeLevel >= 3 ? (english ? 'Max level' : 'Tối đa') : `${english ? 'Upgrade' : 'Nâng'} · ${upgradeCost}`;
-      this.add(bx + 9 + actionW + actionGap, buttonY, actionW, buttonH, upgradeLabel, `upgrade:${g.id}`,
-        !owned || upgradeLevel >= 3 || p.credits < upgradeCost);
-      const ammoCost = GUN_AMMO_COST[g.id] ?? 0;
-      const ammoFull = ammo.reserveAmmo < 0 || ammo.reserveAmmo >= g.magSize * 12;
-      const ammoLabel = sidearm ? (english ? 'Unlimited ammo' : 'Đạn vô hạn') : !owned ? (english ? 'Not recovered' : 'Chưa có súng') : ammoFull ? (english ? 'Ammo full' : 'Đủ đạn') : `${english ? 'Buy' : 'Mua'} +${g.magSize * 2} · ${ammoCost}`;
-      this.add(bx + 9 + (actionW + actionGap) * 2, buttonY, actionW, buttonH, ammoLabel, `buyammo:${g.id}`,
-        sidearm || !owned || ammoFull || p.credits < ammoCost);
-    });
-    if (pageCount > 1) {
-      const pageButtonW = Math.min(100, (w - 100) / 2);
-      this.add(x + 22, pagerY, pageButtonW, 25, english ? '← Previous' : '← Trước', `gunpage:${this.gunPage - 1}`, this.gunPage === 0);
-      ctx.fillStyle = C.textSoft; ctx.textAlign = 'center'; ctx.font = '12px Segoe UI, Arial'; ctx.fillText(`${this.gunPage + 1}/${pageCount}`, x + w / 2, pagerY + 17);
-      this.add(x + w - pageButtonW - 22, pagerY, pageButtonW, 25, english ? 'Next →' : 'Sau →', `gunpage:${this.gunPage + 1}`, this.gunPage === pageCount - 1);
+    const contentX = x + 22, contentY = y + 128, contentW = w - 44;
+    const contentBottom = y + h - 151;
+    const areaH = Math.max(90, contentBottom - contentY);
+    const compact = narrow || areaH < 360;
+    if (!GUNS.some(gun => gun.id === this.selectedGunId)) {
+      this.selectedGunId = GUNS.some(gun => gun.id === p.equippedGun) ? p.equippedGun : GUNS[0].id;
+      this.gunListNeedsSync = true;
     }
+    const selectedIndex = Math.max(0, GUNS.findIndex(gun => gun.id === this.selectedGunId));
+    const selected = GUNS[selectedIndex] ?? GUNS.find(gun => gun.id === p.equippedGun) ?? GUNS[0];
+    const selectedOwned = selected.id === 'p9' || p.ownedGuns.includes(selected.id);
+    const upgradeLevel = Math.min(3, p.gunLevels[selected.id] ?? 0);
+    const upgradeCost = this.gunUpgradeCost(upgradeLevel);
+    const damage = Math.round(selected.baseDamage * (1 + upgradeLevel * .12));
+    const ammo = savedAmmo(p, selected.id);
+    const reserveText = ammo.reserveAmmo < 0 ? '∞' : String(ammo.reserveAmmo);
+    const contentGap = 8;
+    let previewX = contentX, previewY = contentY, previewW = contentW, previewH = areaH;
+    let listX = contentX, listY = contentY, listW = contentW, listH = 0;
+    let visibleRows = GUNS.length, rowH = 0, pageCount = 1;
+
+    if (!compact) {
+      previewW = Math.round((contentW - contentGap) * .46);
+      listX = contentX + previewW + contentGap;
+      listW = contentW - previewW - contentGap;
+      listY = contentY + 19;
+      listH = Math.max(60, areaH - 19);
+      rowH = listH / GUNS.length;
+      this.gunPage = 0;
+      this.gunListNeedsSync = false;
+    } else {
+      previewH = Math.min(214, Math.max(140, areaH * .47));
+      previewH = Math.min(previewH, Math.max(112, areaH - 62));
+      listY = contentY + previewH + contentGap;
+      listH = Math.max(38, contentBottom - listY);
+      visibleRows = Math.max(1, Math.floor((listH - 27) / 40));
+      pageCount = Math.ceil(GUNS.length / visibleRows);
+      if (this.gunListNeedsSync) this.gunPage = Math.floor(selectedIndex / visibleRows);
+      this.gunPage = Math.max(0, Math.min(pageCount - 1, this.gunPage));
+      rowH = Math.min(46, (listH - (pageCount > 1 ? 26 : 0)) / visibleRows);
+      if (pageCount === 1) rowH = listH / visibleRows;
+      this.gunListNeedsSync = false;
+    }
+
+    this.drawGunShowcase(ctx, previewX, previewY, previewW, previewH, selected, selectedOwned,
+      p, upgradeLevel, upgradeCost, damage, ammo.currentAmmo, reserveText, compact, english);
+
+    // The armory rail uses the same cached, detailed gun art as the player HUD and world pickups.
+    const first = compact ? this.gunPage * visibleRows : 0;
+    const shown = compact ? GUNS.slice(first, first + visibleRows) : GUNS;
+    shown.forEach((gun, index) => {
+      const by = compact ? listY + index * rowH : listY + index * rowH;
+      const sidearm = gun.id === 'p9', owned = sidearm || p.ownedGuns.includes(gun.id);
+      const equipped = p.equippedGun === gun.id;
+      const isSelected = selected.id === gun.id;
+      this.panel(ctx, listX, by, listW, rowH - 2, isSelected ? C.cyanBright : equipped ? C.amberBright : C.borderSoft);
+      ctx.fillStyle = isSelected ? 'rgba(79, 139, 145, .28)' : equipped ? 'rgba(120, 91, 49, .22)' : 'rgba(27, 37, 39, .78)';
+      ctx.fillRect(listX + 1, by + 1, listW - 2, rowH - 3);
+      if (isSelected) { ctx.fillStyle = C.cyanBright; ctx.fillRect(listX + 1, by + 2, 3, rowH - 5); }
+      const artW = Math.min(compact ? 82 : 100, listW * .22);
+      const artH = artW * 60 / 170;
+      ctx.save(); ctx.globalAlpha = owned ? 1 : .52;
+      drawGunArt(ctx, listX + 8, by + Math.max(1, (rowH - 2 - artH) / 2), artW, artH, gun.id);
+      ctx.restore();
+      const textX = listX + artW + 18;
+      const nameSize = compact ? 10 : 12;
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = owned ? C.text : C.textMuted; ctx.font = `800 ${nameSize}px Segoe UI, Arial`;
+      ctx.fillText(gun.shortName, textX, by + rowH * .37, Math.max(20, listW - artW - 116));
+      ctx.fillStyle = owned ? C.textSoft : C.textMuted; ctx.font = `600 ${compact ? 8 : 9}px Segoe UI, Arial`;
+      const gunAmmo = savedAmmo(p, gun.id);
+      ctx.fillText(owned
+        ? `${english ? 'Ammo' : 'Đạn'} ${gunAmmo.currentAmmo}/${gun.magSize}  ·  ${gunAmmo.reserveAmmo < 0 ? '∞' : gunAmmo.reserveAmmo}`
+        : `${english ? 'Mission' : 'Màn'} ${gun.unlockStage}  ·  ${english ? 'boss recovery' : 'hạ trùm để nhặt'}`,
+      textX, by + rowH * .72, Math.max(20, listW - artW - 116));
+      const status = equipped ? (english ? 'Equipped' : 'Đang dùng') : owned ? (english ? 'Owned' : 'Đã có') : (english ? 'Locked' : 'Chưa mở');
+      ctx.textAlign = 'right'; ctx.fillStyle = equipped ? C.amberBright : owned ? C.cyanBright : C.textMuted;
+      ctx.font = `800 ${compact ? 7 : 8}px Segoe UI, Arial`;
+      ctx.fillText(status, listX + listW - 8, by + rowH / 2, 64);
+      this.add(listX + 1, by + 1, listW - 2, rowH - 3, '', `focusgun:${gun.id}`);
+    });
+
+    if (compact && pageCount > 1) {
+      const pagerY = listY + visibleRows * rowH + 1;
+      const pageButtonW = Math.min(112, (listW - 72) / 2);
+      this.add(listX, pagerY, pageButtonW, 24, english ? '← Previous' : '← Trước', `gunpage:${this.gunPage - 1}`, this.gunPage === 0);
+      ctx.fillStyle = C.textSoft; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = '700 10px Segoe UI, Arial';
+      ctx.fillText(`${this.gunPage + 1} / ${pageCount}`, listX + listW / 2, pagerY + 12);
+      this.add(listX + listW - pageButtonW, pagerY, pageButtonW, 24, english ? 'Next →' : 'Sau →', `gunpage:${this.gunPage + 1}`, this.gunPage === pageCount - 1);
+    }
+  }
+
+  private drawGunShowcase(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number,
+    gun: typeof GUNS[number], owned: boolean, p: SaveSystem['data']['campaign'], level: number,
+    upgradeCost: number, damage: number, currentAmmo: number, reserveText: string,
+    compact: boolean, english: boolean): void {
+    this.panel(ctx, x, y, w, h, p.equippedGun === gun.id ? C.cyanBright : C.amberBright);
+    ctx.fillStyle = 'rgba(6, 12, 14, .93)'; ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+    // Sparse measuring marks make the inspection bay feel like a field armorer's bench.
+    ctx.strokeStyle = 'rgba(127, 157, 153, .20)'; ctx.lineWidth = 1;
+    for (let i = 0; i < 8; i++) {
+      const tx = x + 12 + i * (w - 24) / 7;
+      ctx.beginPath(); ctx.moveTo(tx, y + 41); ctx.lineTo(tx, y + 46 + (i % 2) * 3); ctx.stroke();
+    }
+    ctx.fillStyle = owned ? C.text : C.textMuted; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.font = `900 ${compact ? 13 : 16}px Segoe UI, Arial`;
+    ctx.fillText(gun.shortName, x + 14, y + 20, w * .58);
+    ctx.textAlign = 'right'; ctx.fillStyle = owned ? C.cyanBright : C.amberBright;
+    ctx.font = `800 ${compact ? 8 : 9}px Segoe UI, Arial`;
+    ctx.fillText(owned ? (p.equippedGun === gun.id ? (english ? 'Equipped' : 'Đang trang bị') : (english ? 'Recovered' : 'Đã thu hồi'))
+      : (english ? `Mission ${gun.unlockStage}` : `Màn ${gun.unlockStage}`), x + w - 12, y + 20);
+
+    const actionY = y + h - (compact ? 28 : 34), actionH = compact ? 23 : 28;
+    const tinyCompact = compact && h < 205;
+    const naturalArtH = (w - 30) * 60 / 170;
+    const maxArtH = Math.max(35, Math.min(compact ? 88 : 142, h * (tinyCompact ? .29 : compact ? .38 : .40)));
+    const artH = Math.min(naturalArtH, maxArtH);
+    const artW = artH * 170 / 60;
+    const artX = x + (w - artW) / 2;
+    const artY = y + 31 + Math.max(0, (maxArtH - artH) / 2);
+    ctx.save(); ctx.globalAlpha = owned ? 1 : .58;
+    drawGunArt(ctx, artX, artY, artW, artH, gun.id, this.selectedGunView);
+    ctx.restore();
+
+    const viewY = y + 31 + maxArtH + 4;
+    const rearLabel = gun.id === 'p9' || gun.id === 'rpg4';
+    const viewLabels: Array<{ view: GunArtView; vi: string; en: string }> = [
+      { view: 'side', vi: 'Ngang', en: 'Side' },
+      { view: 'muzzle', vi: 'Đầu nòng', en: 'Muzzle' },
+      { view: 'stock', vi: rearLabel ? 'Phía sau' : 'Báng', en: rearLabel ? 'Rear' : 'Stock' },
+    ];
+    const viewGap = 4, viewW = (w - 24 - viewGap * 2) / 3;
+    const viewH = tinyCompact ? 17 : compact ? 21 : 25;
+    viewLabels.forEach((view, i) => {
+      const vx = x + 12 + i * (viewW + viewGap);
+      const selected = this.selectedGunView === view.view;
+      ctx.fillStyle = selected ? 'rgba(86, 147, 150, .20)' : 'rgba(30, 42, 43, .72)';
+      ctx.fillRect(vx, viewY, viewW, viewH);
+      ctx.strokeStyle = selected ? C.cyanBright : C.borderSoft; ctx.lineWidth = 1;
+      ctx.strokeRect(vx + .5, viewY + .5, viewW - 1, viewH - 1);
+      ctx.fillStyle = selected ? C.cyanBright : C.textSoft; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = `800 ${compact ? 7 : 8}px Segoe UI, Arial`;
+      ctx.fillText(english ? view.en : view.vi, vx + viewW / 2, viewY + viewH / 2);
+      this.add(vx, viewY, viewW, viewH, '', `gunview:${view.view}`);
+    });
+
+    const infoY = viewY + viewH + (compact ? 5 : 8);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    if (tinyCompact) {
+      ctx.fillStyle = owned ? C.amberBright : C.textMuted; ctx.font = '800 8px Segoe UI, Arial';
+      ctx.fillText(owned ? `${currentAmmo}/${gun.magSize}  ·  ${english ? 'reserve' : 'dự trữ'} ${reserveText}`
+        : (english ? 'Recover after the mission boss' : 'Nhặt sau khi hạ trùm'), x + 13, actionY - 6, w - 26);
+    } else {
+      ctx.fillStyle = C.textSoft; ctx.font = `700 ${compact ? 8 : 10}px Segoe UI, Arial`;
+      const role = this.weaponRole(gun.id, english);
+      ctx.fillText(role, x + 13, infoY + 6, w - 26);
+      const damageText = english ? `${damage}${gun.pellets ? ` × ${gun.pellets}` : ''} damage  ·  ${gun.rpm} RPM  ·  ${gun.magSize}/mag`
+        : `${damage}${gun.pellets ? ` × ${gun.pellets}` : ''} sát thương  ·  ${gun.rpm} RPM  ·  ${gun.magSize}/băng`;
+      ctx.fillStyle = C.text; ctx.font = `800 ${compact ? 8 : 10}px Segoe UI, Arial`;
+      ctx.fillText(damageText, x + 13, infoY + (compact ? 19 : 23), w - 26);
+      ctx.fillStyle = owned ? C.amberBright : C.textMuted; ctx.font = `800 ${compact ? 8 : 10}px Segoe UI, Arial`;
+      ctx.fillText(owned
+        ? `${english ? 'Ammo' : 'Đạn'}  ${currentAmmo} / ${gun.magSize}     ${english ? 'Reserve' : 'Dự trữ'}  ${reserveText}`
+        : (english ? 'Recover this weapon after defeating its mission boss.' : 'Hạ trùm màn tương ứng để thu hồi khẩu súng này.'),
+        x + 13, infoY + (compact ? 32 : 42), w - 26);
+    }
+
+    if (!compact) {
+      const stats: Array<[string, string]> = [
+        [english ? 'Damage' : 'Sát thương', gun.pellets ? `${damage} × ${gun.pellets}` : String(damage)],
+        [english ? 'Fire rate' : 'Tốc độ bắn', `${gun.rpm} RPM`],
+        [english ? 'Magazine' : 'Băng đạn', `${gun.magSize} ${english ? 'rounds' : 'viên'}`],
+        [english ? 'Reload' : 'Nạp đạn', `${gun.reloadDuration.toFixed(1)}s`],
+      ];
+      const statGap = 5, statW = (w - 26 - statGap) / 2, statH = 31;
+      stats.forEach(([label, value], index) => {
+        const col = index % 2, row = Math.floor(index / 2);
+        const sx = x + 13 + col * (statW + statGap), sy = infoY + 56 + row * (statH + 5);
+        ctx.fillStyle = 'rgba(31, 44, 45, .76)'; ctx.fillRect(sx, sy, statW, statH);
+        ctx.strokeStyle = 'rgba(120, 151, 148, .38)'; ctx.lineWidth = 1; ctx.strokeRect(sx + .5, sy + .5, statW - 1, statH - 1);
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = C.textMuted; ctx.font = '700 7px Segoe UI, Arial'; ctx.fillText(label, sx + 7, sy + 9);
+        ctx.fillStyle = C.text; ctx.font = '800 10px Segoe UI, Arial'; ctx.fillText(value, sx + 7, sy + 22, statW - 14);
+      });
+
+      const ammoY = y + h - 100, ammoH = 51;
+      ctx.fillStyle = 'rgba(19, 30, 31, .92)'; ctx.fillRect(x + 12, ammoY, w - 24, ammoH);
+      ctx.strokeStyle = 'rgba(194, 154, 101, .54)'; ctx.lineWidth = 1; ctx.strokeRect(x + 12.5, ammoY + .5, w - 25, ammoH - 1);
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = C.textMuted; ctx.font = '800 8px Segoe UI, Arial';
+      ctx.fillText(english ? 'Loaded / reserve' : 'Trong băng / dự trữ', x + 20, ammoY + 12);
+      ctx.textAlign = 'right'; ctx.fillStyle = owned ? C.amberBright : C.textMuted;
+      ctx.font = '900 14px Segoe UI, Arial';
+      ctx.fillText(owned ? `${currentAmmo}/${gun.magSize}  ·  ${reserveText}` : (english ? 'Recover from boss' : 'Nhặt sau khi hạ trùm'), x + w - 20, ammoY + 13);
+      ctx.fillStyle = 'rgba(171, 190, 181, .16)'; ctx.fillRect(x + 20, ammoY + 30, w - 40, 5);
+      const ammoRatio = gun.magSize > 0 ? Math.max(0, Math.min(1, currentAmmo / gun.magSize)) : 0;
+      ctx.fillStyle = currentAmmo <= Math.ceil(gun.magSize * .2) ? C.dangerBright : C.health;
+      ctx.fillRect(x + 20, ammoY + 30, (w - 40) * (owned ? ammoRatio : 0), 5);
+      ctx.fillStyle = C.textSoft; ctx.font = '700 7px Segoe UI, Arial'; ctx.textAlign = 'left';
+      ctx.fillText(owned ? (english ? `Level ${level}/3` : `Cấp súng ${level}/3`) : (english ? 'Not recovered' : 'Chưa thu hồi'), x + 20, ammoY + 44);
+    }
+
+    const actionGap = 4, actionX = x + 9, actionW = (w - 18 - actionGap * 2) / 3;
+    const sidearm = gun.id === 'p9';
+    const ammoCost = GUN_AMMO_COST[gun.id] ?? 0;
+    const ammoFull = reserveText === '∞' || Number(reserveText) >= gun.magSize * 12;
+    const labels = [
+      p.equippedGun === gun.id ? (english ? 'Equipped' : 'Đang dùng') : english ? 'Equip' : 'Trang bị',
+      !owned ? (english ? 'Not recovered' : 'Chưa có súng') : level >= 3 ? (english ? 'Max level' : 'Tối đa') : `${english ? 'Upgrade' : 'Nâng'} · ${upgradeCost}`,
+      sidearm ? (english ? 'Unlimited' : 'Vô hạn') : !owned ? (english ? 'Not recovered' : 'Chưa có súng')
+        : ammoFull ? (english ? 'Ammo full' : 'Đủ đạn') : `${english ? 'Buy' : 'Mua'} +${gun.magSize * 2} · ${ammoCost}`,
+    ];
+    const actions = [`gun:${gun.id}`, `upgrade:${gun.id}`, `buyammo:${gun.id}`];
+    const disabled = [!owned || p.equippedGun === gun.id,
+      !owned || level >= 3 || p.credits < upgradeCost,
+      sidearm || !owned || ammoFull || p.credits < ammoCost];
+    for (let i = 0; i < actions.length; i++) {
+      this.add(actionX + i * (actionW + actionGap), actionY, actionW, actionH, labels[i], actions[i], disabled[i]);
+    }
+  }
+
+  private weaponRole(id: string, english: boolean): string {
+    const roles: Record<string, [string, string]> = {
+      p9: ['Súng lục · đạn dự trữ vô hạn', 'Sidearm · unlimited reserve ammo'],
+      ar7: ['Súng trường · cân bằng cho giao tranh tầm trung', 'Rifle · balanced mid-range fire'],
+      smg9: ['SMG · tốc độ bắn cao ở cự ly gần', 'SMG · high rate of fire at close range'],
+      sg12: ['Shotgun · nhiều pellet trong một phát bắn', 'Shotgun · multiple pellets per shot'],
+      dmr55: ['DMR · phát bắn chính xác, sát thương cao', 'DMR · precise, high-damage shots'],
+      bulldog: ['Shotgun nặng · tỏa rộng, uy lực lớn', 'Heavy shotgun · wide, hard-hitting spread'],
+      lmg6: ['LMG · băng đạn lớn cho hỏa lực liên tục', 'LMG · large magazine for sustained fire'],
+      flamer8: ['Súng phun lửa · thiêu đốt ở cự ly gần', 'Flamethrower · burns targets at close range'],
+      rpg4: ['RPG · đầu đạn nổ gây sát thương diện rộng', 'RPG · explosive rounds deal area damage'],
+      rail_lance: ['Rail Lance · đạn năng lượng xuyên mục tiêu', 'Rail Lance · energy rounds pierce targets'],
+    };
+    const role = roles[id] ?? roles.ar7;
+    return english ? role[1] : role[0];
   }
 
   private drawGear(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number,
