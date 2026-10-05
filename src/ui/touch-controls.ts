@@ -145,6 +145,25 @@ function drawSkillButton(
   ctx.fillStyle = ready && isRage ? '#ffd294' : '#f1eee7';
   ctx.font = `900 ${Math.max(9, size * 0.145)}px 'Segoe UI', Arial, sans-serif`;
   ctx.fillText(button.label, cx, y + size * 0.88);
+
+  // Keep the keyboard shortcut visible without covering the ability icon or cooldown.
+  const keyLabel = isRage ? 'F' : 'SHIFT';
+  const keyWidth = isRage ? 18 : 34;
+  const keyHeight = 11;
+  const keyX = cx - keyWidth / 2;
+  const keyY = y - keyHeight - 3;
+  ctx.fillStyle = isRage ? 'rgba(40, 21, 19, 0.96)' : 'rgba(12, 26, 29, 0.96)';
+  ctx.strokeStyle = style.stroke;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(keyX, keyY, keyWidth, keyHeight, 3);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#f1eee7';
+  ctx.font = `900 ${Math.max(7, size * 0.115)}px 'Segoe UI', Arial, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(keyLabel, cx, keyY + keyHeight / 2);
   ctx.restore();
 }
 
