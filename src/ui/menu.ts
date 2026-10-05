@@ -4,6 +4,7 @@ import { Audio } from '../core/audio';
 import { SaveSystem, type CampaignDifficulty } from '../systems/save';
 import { UI_PALETTE as C } from './palette';
 import { STAGES } from '../data/meta';
+import { getUiTerm, sentenceCaseDisplay } from '../data/localization';
 import { createQuarantineBackdrop, drawBloodHandprint, drawWornPanel } from './horror-texture';
 
 export type MenuScreen = 'main' | 'newgame' | 'savegame' | 'settings' | 'campaign' | 'playing' | 'paused' | 'gameover' | 'stage_complete' | 'hunter_profile' | 'tutorial';
@@ -28,6 +29,8 @@ export class MenuUI {
   private pointerX = -1;
   private pointerY = -1;
   private backdrop?: HTMLCanvasElement;
+  private backdropLanguage?: 'vi' | 'en';
+  private language: 'vi' | 'en' = 'vi';
 
   setPointer(x: number, y: number): void {
     this.pointerX = x;
@@ -35,8 +38,9 @@ export class MenuUI {
   }
 
   private drawStaticBackdrop(ctx: CanvasRenderingContext2D, w: number, h: number, shade = 0): void {
-    if (!this.backdrop || this.backdrop.width !== Math.ceil(w) || this.backdrop.height !== Math.ceil(h)) {
-      this.backdrop = createQuarantineBackdrop(w, h);
+    if (!this.backdrop || this.backdrop.width !== Math.ceil(w) || this.backdrop.height !== Math.ceil(h) || this.backdropLanguage !== this.language) {
+      this.backdrop = createQuarantineBackdrop(w, h, this.language);
+      this.backdropLanguage = this.language;
     }
     ctx.drawImage(this.backdrop, 0, 0, w, h);
     if (shade > 0) {
@@ -357,17 +361,18 @@ export class MenuUI {
 
   draw(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
     this.titlePulse += 0.02;
+    this.language = save?.data.language ?? 'vi';
 
     switch (this.currentScreen) {
       case 'main': this.drawMainMenu(ctx, w, h, save); break;
       case 'newgame': this.drawNewGameMenu(ctx, w, h, save); break;
       case 'savegame': this.drawSaveGameMenu(ctx, w, h, save); break;
       case 'settings': this.drawSettings(ctx, w, h, save); break;
-      case 'paused': this.drawPause(ctx, w, h); break;
-      case 'gameover': this.drawGameOver(ctx, w, h); break;
+      case 'paused': this.drawPause(ctx, w, h, save); break;
+      case 'gameover': this.drawGameOver(ctx, w, h, save); break;
       case 'stage_complete': this.drawStageComplete(ctx, w, h, save); break;
       case 'hunter_profile': this.drawHunterProfile(ctx, w, h, save); break;
-      case 'tutorial': this.drawTutorial(ctx, w, h); break;
+      case 'tutorial': this.drawTutorial(ctx, w, h, save); break;
     }
   }
 
@@ -381,7 +386,7 @@ export class MenuUI {
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.fillStyle = C.textMuted;
     ctx.font = "bold 10px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText(english ? 'QUARANTINE ZONE  /  03' : 'KHU VỰC CÁCH LY  /  03', x + 26, y + 27);
+    ctx.fillText(english ? 'Quarantine zone / 03' : 'Khu cách ly / 03', x + 26, y + 27);
     const titleTop = l.landscape ? y + 95 : y + 78;
     const titleSize = l.landscape ? Math.min(50, cardW * 0.072) : Math.min(55, cardW * 0.145);
     ctx.textAlign = 'center';
@@ -396,7 +401,7 @@ export class MenuUI {
     ctx.moveTo(titleX + 30, titleTop + titleSize * 0.66); ctx.lineTo(titleX + 46, titleTop + titleSize * 1.06); ctx.stroke();
     ctx.fillStyle = C.textSoft;
     ctx.font = "11px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText(english ? 'SURVIVE THE INFESTATION' : 'SỐNG SÓT QUA VÙNG NHIỄM BỆNH', titleX, titleTop + titleSize + 31);
+    ctx.fillText(english ? 'Survive the outbreak' : 'Sống sót qua vùng dịch', titleX, titleTop + titleSize + 31);
     if (l.landscape) {
       ctx.strokeStyle = C.borderSoft; ctx.beginPath(); ctx.moveTo(x + cardW * 0.48, y + 47); ctx.lineTo(x + cardW * 0.48, y + cardH - 48); ctx.stroke();
     } else {
@@ -405,13 +410,13 @@ export class MenuUI {
     const checkpoint = save?.data.campaign.hasCheckpoint ?? false;
     const lastStage = save?.data.campaign.lastStage ?? 1;
     const buttons: Array<[string, string, string, boolean]> = [
-      [english ? 'NEW GAME' : 'GAME MỚI', english ? 'CHOOSE MODE' : 'CHỌN CHẾ ĐỘ', C.cyan, false],
-      [english ? 'LOAD GAME' : 'TẢI GAME', checkpoint
-        ? english ? `CAMPAIGN · MISSION ${lastStage}` : `CHIẾN DỊCH · MÀN ${lastStage}`
-        : english ? 'NO CAMPAIGN SAVE' : 'CHƯA CÓ DỮ LIỆU LƯU', C.textSoft, !checkpoint],
-      [english ? 'SETTINGS' : 'CÀI ĐẶT', '', C.amber, false],
-      [english ? 'HUNTER PROFILE' : 'HỒ SƠ THỢ SĂN', '', C.textSoft, false],
-      [english ? 'HOW TO PLAY' : 'HƯỚNG DẪN', '', C.textSoft, false],
+      [english ? 'New game' : 'Game mới', english ? 'Choose a mode' : 'Chọn chế độ', C.cyan, false],
+      [english ? 'Load game' : 'Tải game', checkpoint
+        ? english ? `Campaign · mission ${lastStage}` : `Chiến dịch · màn ${lastStage}`
+        : english ? 'No campaign save' : 'Chưa có dữ liệu lưu', C.textSoft, !checkpoint],
+      [english ? 'Settings' : 'Cài đặt', '', C.amber, false],
+      [english ? 'Hunter profile' : 'Hồ sơ thợ săn', '', C.textSoft, false],
+      [english ? 'How to play' : 'Hướng dẫn', '', C.textSoft, false],
     ];
     for (let i = 0; i < buttons.length; i++) {
       this.drawFieldButton(ctx, l.buttonX, l.buttonY + i * l.gap, l.buttonW, l.buttonH,
@@ -421,24 +426,24 @@ export class MenuUI {
     ctx.textAlign = 'left';
     ctx.fillStyle = C.amber;
     ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText(`${save?.data.gold ?? 0} ${english ? 'GOLD' : 'VÀNG'}`, x + 26, footerY);
+    ctx.fillText(`${save?.data.gold ?? 0} ${getUiTerm('gold', english ? 'en' : 'vi')}`, x + 26, footerY);
     ctx.textAlign = 'right';
     ctx.fillStyle = C.textMuted;
     ctx.font = "11px 'Segoe UI', Arial, sans-serif";
     const best = save?.data.bestTime ?? 0;
     const bestTime = `${Math.floor(best / 60)}:${Math.floor(best % 60).toString().padStart(2, '0')}`;
     ctx.fillText(english
-      ? `BEST  ${bestTime}  /  ${save?.data.bestKills ?? 0} KILLS`
-      : `KỶ LỤC  ${bestTime}  /  ${save?.data.bestKills ?? 0} HẠ GỤC`, x + cardW - 26, footerY);
+      ? `Best time ${bestTime} · ${save?.data.bestKills ?? 0} kills`
+      : `Kỷ lục ${bestTime} · ${save?.data.bestKills ?? 0} hạ gục`, x + cardW - 26, footerY);
     if (w >= 850 && h >= 540) {
       ctx.textAlign = 'left'; ctx.fillStyle = C.textMuted;
       ctx.font = "11px 'Segoe UI', Arial, sans-serif";
       ctx.fillText(english
-        ? 'WASD  MOVE     MOUSE  SHOOT     R  RELOAD     ESC  PAUSE'
-        : 'WASD  DI CHUYỂN     CHUỘT  BẮN     R  NẠP ĐẠN     ESC  TẠM DỪNG', x, Math.min(h - 20, y + cardH + 28));
+        ? 'WASD: move · Mouse: fire · R: reload · Esc: pause'
+        : 'WASD: di chuyển · Chuột: bắn · R: nạp đạn · Esc: tạm dừng', x, Math.min(h - 20, y + cardH + 28));
       ctx.textAlign = 'right'; ctx.fillStyle = '#8c8773';
       ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
-      ctx.fillText(english ? 'THE GATE IS OPEN.  KEEP MOVING.' : 'CỬA ĐÃ MỞ.  ĐỪNG DỪNG LẠI.', w - 35, h - 29);
+      ctx.fillText(english ? 'The gate is open. Keep moving.' : 'Cửa đã mở. Tiếp tục di chuyển.', w - 35, h - 29);
     }
     ctx.restore();
   }
@@ -451,13 +456,13 @@ export class MenuUI {
     drawWornPanel(ctx, l.x, l.y, l.cardW, l.cardH, true);
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.fillStyle = C.textMuted; ctx.font = "bold 10px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText(english ? 'START A NEW RUN' : 'BẮT ĐẦU CUỘC CHƠI MỚI', l.x + 26, l.y + 27);
+    ctx.fillText(english ? 'Start a new run' : 'Bắt đầu lượt chơi mới', l.x + 26, l.y + 27);
     if (this.newGameStep === 'difficulty') {
       this.drawCampaignDifficultyMenu(ctx, w, h, english);
     } else {
       ctx.textAlign = 'center';
       ctx.fillStyle = C.text; ctx.font = `900 ${Math.min(30, l.cardW * .085)}px 'Arial Black', Impact, sans-serif`;
-      ctx.fillText(english ? 'CHOOSE MODE' : 'CHỌN CHẾ ĐỘ', l.titleX, l.landscape ? l.y + l.cardH * .42 : l.y + 253);
+      ctx.fillText(english ? 'Choose a mode' : 'Chọn chế độ', l.titleX, l.landscape ? l.y + l.cardH * .42 : l.y + 253);
       ctx.fillStyle = C.textSoft; ctx.font = "11px 'Segoe UI', Arial, sans-serif";
       ctx.fillText(english ? 'Choose how you want to survive.' : 'Bạn muốn sống sót trong chế độ nào?', l.titleX,
         l.landscape ? l.y + l.cardH * .51 : l.y + 278, l.landscape ? l.cardW * .46 : l.cardW - 50);
@@ -469,9 +474,9 @@ export class MenuUI {
       }
 
       const buttons: Array<[string, string, string]> = [
-        [english ? 'CAMPAIGN' : 'CHIẾN DỊCH', english ? '10 MISSIONS · STORY' : '10 MÀN · CỐT TRUYỆN', C.cyan],
-        [english ? 'SURVIVAL' : 'SINH TỒN', english ? 'ENDLESS MODE' : 'SỐNG SÓT VÔ TẬN', C.amber],
-        [english ? 'BACK' : 'QUAY LẠI', '', C.textSoft],
+        [english ? 'Campaign' : 'Chiến dịch', english ? '10 missions · Story' : '10 màn · Cốt truyện', C.cyan],
+        [getUiTerm('survival', english ? 'en' : 'vi'), english ? 'Endless mode' : 'Sống sót vô tận', C.amber],
+        [english ? 'Back' : 'Quay lại', '', C.textSoft],
       ];
       buttons.forEach(([label, note, color], index) => this.drawFieldButton(ctx,
         l.buttonX, l.buttonY + index * l.gap, l.buttonW, l.buttonH, label, color, index === 0, note));
@@ -484,10 +489,10 @@ export class MenuUI {
     const l = this.newGameDifficultyLayout(w, h);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = C.text; ctx.font = `900 ${Math.min(27, l.cardW * .07)}px 'Arial Black', Impact, sans-serif`;
-    ctx.fillText(english ? 'CHOOSE YOUR NIGHTMARE' : 'CHỌN CƠN ÁC MỘNG', l.titleX,
+    ctx.fillText(english ? 'Choose your nightmare' : 'Chọn độ khó', l.titleX,
       l.landscape ? l.y + l.cardH * .35 : l.y + 62, l.landscape ? l.cardW * .46 : l.cardW - 40);
     ctx.fillStyle = C.textSoft; ctx.font = `${w < 480 ? 9 : 11}px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText(english ? 'Select a Campaign difficulty. The dead remember.' : 'Chọn độ khó Chiến dịch. Lũ chết chóc sẽ nhớ bạn.', l.titleX,
+    ctx.fillText(english ? 'Set the stakes for this campaign.' : 'Chọn mức thử thách cho Chiến dịch.', l.titleX,
       l.landscape ? l.y + l.cardH * .43 : l.y + 84, l.landscape ? l.cardW * .46 : l.cardW - 42);
     if (l.landscape) {
       ctx.strokeStyle = C.borderSoft;
@@ -497,13 +502,13 @@ export class MenuUI {
     }
 
     const options: Array<{ id: CampaignDifficulty; name: string; stats: string; dread: string; color: string }> = english ? [
-      { id: 'normal', name: 'NORMAL', stats: 'Standard enemy health and damage · Skill direction visible.', dread: 'The warning light still burns before the dark reaches you.', color: C.cyan },
-      { id: 'hard', name: 'HARD', stats: '+30% enemy health and damage · Skill direction hidden.', dread: 'The warning dies. You hear claws only when they are close.', color: C.amber },
-      { id: 'impossible', name: 'IMPOSSIBLE', stats: '+50% enemy health and damage · No skill direction.', dread: 'One death sends you back to Mission 1. No way out.', color: C.dangerBright },
+      { id: 'normal', name: 'Normal', stats: 'Standard enemy health and damage · Attack direction visible.', dread: 'Warning signs give you a moment to react.', color: C.cyan },
+      { id: 'hard', name: 'Hard', stats: '+30% enemy health and damage · Attack direction hidden.', dread: 'Warnings fade. You hear claws when they are already close.', color: C.amber },
+      { id: 'impossible', name: 'Impossible', stats: '+50% enemy health and damage · No attack direction.', dread: 'One death erases the campaign save. Begin again at mission 1.', color: C.dangerBright },
     ] : [
-      { id: 'normal', name: 'BÌNH THƯỜNG', stats: 'Máu, sát thương chuẩn · Hướng kỹ năng hiện rõ.', dread: 'Ít nhất, ánh báo còn lóe trước khi bóng tối ập tới.', color: C.cyan },
-      { id: 'hard', name: 'KHÓ', stats: 'Quái +30% máu, +30% sát thương · Ẩn hướng skill.', dread: 'Ánh báo tắt. Chỉ còn tiếng móng vuốt mỗi lúc một gần.', color: C.amber },
-      { id: 'impossible', name: 'CỰC KHÓ · IMPOSSIBLE', stats: 'Quái +50% máu, +50% sát thương · Không báo hướng skill.', dread: 'Gục ngã là về Màn 1. Không checkpoint. Không lối thoát.', color: C.dangerBright },
+      { id: 'normal', name: 'Bình thường', stats: 'Máu và sát thương tiêu chuẩn · Hiện hướng đòn đánh.', dread: 'Tín hiệu cảnh báo cho bạn thời gian né đòn.', color: C.cyan },
+      { id: 'hard', name: 'Khó', stats: 'Quái +30% máu, +30% sát thương · Ẩn hướng đòn đánh.', dread: 'Tín hiệu tắt. Chỉ còn tiếng móng vuốt khi chúng đã áp sát.', color: C.amber },
+      { id: 'impossible', name: 'Cực khó', stats: 'Quái +50% máu, +50% sát thương · Không hiện hướng đòn đánh.', dread: 'Chết là mất hồ sơ Chiến dịch. Chơi lại từ màn 1.', color: C.dangerBright },
     ];
     options.forEach((option, index) => {
       const x = l.buttonX, y = l.itemY + index * (l.itemH + l.gap), cardW = l.buttonW, cardH = l.itemH;
@@ -520,7 +525,7 @@ export class MenuUI {
       ctx.fillText(option.dread, x + 19, y + (cardH < 54 ? 39 : compact ? 46 : 55), cardW - 32);
     });
     this.drawFieldButton(ctx, l.buttonX, l.backY, l.buttonW, l.backH,
-      english ? 'BACK TO MODES' : 'QUAY LẠI CHỌN CHẾ ĐỘ', C.textSoft);
+      english ? 'Back to modes' : 'Quay lại chọn chế độ', C.textSoft);
   }
 
   private drawSettings(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
@@ -533,50 +538,51 @@ export class MenuUI {
     drawWornPanel(ctx, l.x, l.y, l.panelW, l.panelH, true);
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.fillStyle = C.textMuted; ctx.font = "bold 10px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText(english ? 'SURVIVOR OPTIONS' : 'TÙY CHỌN THỢ SĂN', l.rowX, l.y + 28);
+    ctx.fillText(english ? 'Survivor settings' : 'Cài đặt', l.rowX, l.y + 28);
     ctx.fillStyle = C.text; ctx.font = `900 ${Math.min(32, l.panelW * .075)}px 'Arial Black', Impact, sans-serif`;
-    ctx.fillText(english ? 'SETTINGS' : 'CÀI ĐẶT', l.rowX, l.y + 66);
+    ctx.fillText(english ? 'Settings' : 'Cài đặt', l.rowX, l.y + 66);
     ctx.fillStyle = C.borderSoft; ctx.fillRect(l.rowX, l.y + 88, l.rowW, 1);
 
     const halfW = (l.rowW - 8) / 2;
     ctx.fillStyle = C.textSoft; ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText(english ? 'LANGUAGE' : 'NGÔN NGỮ', l.rowX, l.languageY);
+    ctx.fillText(english ? 'Language' : 'Ngôn ngữ', l.rowX, l.languageY);
     this.drawFieldButton(ctx, l.rowX, l.languageY + 25, halfW, l.buttonH,
-      english ? 'VIETNAMESE' : 'TIẾNG VIỆT', C.cyan, language === 'vi', language === 'vi' ? (english ? 'SELECTED' : 'ĐANG CHỌN') : '');
+      english ? 'Vietnamese' : 'Tiếng Việt', C.cyan, language === 'vi', language === 'vi' ? (english ? 'Selected' : 'Đang chọn') : '');
     this.drawFieldButton(ctx, l.rowX + halfW + 8, l.languageY + 25, halfW, l.buttonH,
-      'ENGLISH', C.cyan, language === 'en', language === 'en' ? (english ? 'SELECTED' : 'ĐANG CHỌN') : '');
+      'English', C.cyan, language === 'en', language === 'en' ? (english ? 'Selected' : 'Đang chọn') : '');
 
     ctx.fillStyle = C.textSoft; ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText(english ? 'BACKGROUND MUSIC' : 'NHẠC NỀN', l.rowX, l.musicY);
+    ctx.fillText(english ? 'Music' : 'Nhạc nền', l.rowX, l.musicY);
     this.drawFieldButton(ctx, l.rowX, l.musicY + 25, l.rowW, l.buttonH,
-      musicEnabled ? (english ? 'MUSIC  ·  ON' : 'NHẠC  ·  BẬT') : (english ? 'MUSIC  ·  OFF' : 'NHẠC  ·  TẮT'),
-      musicEnabled ? C.cyan : C.textMuted, musicEnabled, english ? 'TOGGLE' : 'BẬT / TẮT');
+      musicEnabled ? (english ? 'On' : 'Bật') : (english ? 'Off' : 'Tắt'),
+      musicEnabled ? C.cyan : C.textMuted, musicEnabled, english ? 'Toggle' : 'Bật / tắt');
 
     this.drawFieldButton(ctx, l.rowX, l.backY, l.rowW, l.buttonH,
-      english ? 'BACK TO MENU' : 'QUAY LẠI MENU', C.textSoft);
+      english ? 'Back to menu' : 'Quay lại menu', C.textSoft);
     ctx.restore();
   }
 
   private drawSaveGameMenu(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
+    const english = save?.data.language === 'en';
     this.drawStaticBackdrop(ctx, w, h, .28);
     const l = this.saveMenuLayout(w, h);
     ctx.save();
     drawWornPanel(ctx, l.x, l.y, l.panelW, l.panelH, true);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = C.textMuted; ctx.font = "bold 10px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText('CHIẾN DỊCH  /  DỮ LIỆU LƯU', w / 2, l.y + 27);
+    ctx.fillText(english ? 'Campaign / save data' : 'Chiến dịch / dữ liệu lưu', w / 2, l.y + 27);
     ctx.fillStyle = C.text; ctx.font = `900 ${Math.min(30, l.panelW * .075)}px 'Arial Black', Impact, sans-serif`;
-    ctx.fillText('NEW GAME  /  LOAD GAME', w / 2, l.y + 56, l.panelW - 36);
+    ctx.fillText(english ? 'New game / load game' : 'Game mới / tải game', w / 2, l.y + 56, l.panelW - 36);
     ctx.fillStyle = C.textSoft; ctx.font = "11px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText('Bắt đầu hồ sơ mới hoặc tiếp tục từ checkpoint chiến dịch.', w / 2, l.y + 78, l.panelW - 36);
+    ctx.fillText(english ? 'Start a new file or continue from your campaign save.' : 'Tạo hồ sơ mới hoặc tiếp tục từ dữ liệu lưu Chiến dịch.', w / 2, l.y + 78, l.panelW - 36);
 
     const checkpoint = save?.data.campaign.hasCheckpoint ?? false;
     const lastStage = save?.data.campaign.lastStage ?? 1;
     const buttons: Array<[string, string, string, boolean]> = [
-      ['NEW GAME', 'XÓA TIẾN ĐỘ CŨ · BẮT ĐẦU CHIẾN DỊCH TỪ MÀN 1', C.amber, false],
-      ['LOAD GAME', checkpoint ? `MÀN ${lastStage} · KHỞI ĐỘNG LẠI TỪ ĐẦU MÀN` : 'CHƯA CÓ CHECKPOINT CHIẾN DỊCH', C.cyan, !checkpoint],
-      ['CHỌN MÀN', 'MỞ BẢN ĐỒ CÁC MÀN ĐÃ MỞ KHÓA', C.textSoft, false],
-      ['VỀ MENU', '', C.textMuted, false],
+      [english ? 'New game' : 'Game mới', english ? 'Reset campaign progress and begin at Mission 1' : 'Xóa tiến trình cũ và bắt đầu Chiến dịch từ màn 1', C.amber, false],
+      [english ? 'Load game' : 'Tải game', checkpoint ? english ? `Mission ${lastStage} · Restart this mission` : `Màn ${lastStage} · Chơi lại từ đầu màn` : english ? 'No campaign save' : 'Chưa có dữ liệu lưu Chiến dịch', C.cyan, !checkpoint],
+      [english ? 'Choose mission' : 'Chọn màn', english ? 'View unlocked missions' : 'Xem bản đồ các màn đã mở khóa', C.textSoft, false],
+      [english ? 'Back to menu' : 'Về menu', '', C.textMuted, false],
     ];
     buttons.forEach(([label, note, color, disabled], index) => this.drawFieldButton(ctx,
       l.buttonX, l.buttonY + index * l.gap, l.buttonW, l.buttonH, label, color, index === 1 && !disabled, note, disabled));
@@ -592,45 +598,47 @@ export class MenuUI {
     drawWornPanel(ctx, l.x, l.y, l.panelW, l.panelH, true);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = C.amberBright; ctx.font = "900 19px 'Arial Black', Impact, sans-serif";
-    ctx.fillText(english ? 'START A NEW CAMPAIGN?' : 'BẮT ĐẦU CHIẾN DỊCH MỚI?', w / 2, l.y + 34, l.panelW - 32);
+    ctx.fillText(english ? 'Start a new campaign?' : 'Bắt đầu Chiến dịch mới?', w / 2, l.y + 34, l.panelW - 32);
     ctx.fillStyle = C.textSoft; ctx.font = "12px 'Segoe UI', Arial, sans-serif";
     ctx.fillText(english
-      ? 'This resets Campaign progress, credits, weapons and equipment.'
+      ? 'Campaign progress, credits, weapons, and equipment will be reset.'
       : 'Tiến trình, tín dụng, súng và trang bị Chiến dịch sẽ được đặt lại.',
     w / 2, l.y + 75, l.panelW - 34);
-    ctx.fillText(english ? 'Survival records stay untouched. You can cancel.' : 'Hồ sơ Sinh tồn được giữ nguyên. Bạn có thể hủy.',
+    ctx.fillText(english ? 'Survival records will remain. You can cancel.' : 'Hồ sơ Sinh tồn được giữ nguyên. Bạn có thể hủy.',
       w / 2, l.y + 98, l.panelW - 34);
     const difficultyName = english
-      ? ({ normal: 'NORMAL', hard: 'HARD', impossible: 'IMPOSSIBLE' } as const)[this.selectedCampaignDifficulty]
-      : ({ normal: 'BÌNH THƯỜNG', hard: 'KHÓ', impossible: 'CỰC KHÓ · IMPOSSIBLE' } as const)[this.selectedCampaignDifficulty];
+      ? ({ normal: 'Normal', hard: 'Hard', impossible: 'Impossible' } as const)[this.selectedCampaignDifficulty]
+      : ({ normal: 'Bình thường', hard: 'Khó', impossible: 'Cực khó' } as const)[this.selectedCampaignDifficulty];
     ctx.fillStyle = this.selectedCampaignDifficulty === 'impossible' ? C.dangerBright : C.amberBright;
     ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText(`${english ? 'DIFFICULTY' : 'ĐỘ KHÓ'}: ${difficultyName}`,
+    ctx.fillText(`${english ? 'Difficulty' : 'Độ khó'}: ${difficultyName}`,
       w / 2, l.y + 121, l.panelW - 34);
     this.drawFieldButton(ctx, l.confirmX, l.buttonY, l.buttonW, 38,
-      english ? 'START CAMPAIGN' : 'BẮT ĐẦU', C.dangerBright, true);
-    this.drawFieldButton(ctx, l.cancelX, l.buttonY, l.buttonW, 38, english ? 'CANCEL' : 'HỦY', C.textSoft);
+      english ? 'Start Campaign' : 'Bắt đầu', C.dangerBright, true);
+    this.drawFieldButton(ctx, l.cancelX, l.buttonY, l.buttonW, 38, english ? 'Cancel' : 'Hủy', C.textSoft);
     ctx.restore();
   }
 
-  private drawPause(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+  private drawPause(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
+    const english = save?.data.language === 'en';
     ctx.fillStyle = 'rgba(5, 8, 10, 0.78)'; ctx.fillRect(0, 0, w, h);
     const pw = Math.min(350, w - 32); const ph = Math.min(304, h - 24);
     const px = (w - pw) / 2; const py = h / 2 - 134;
     drawWornPanel(ctx, px, py, pw, ph, true);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = C.textMuted; ctx.font = "11px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText('TRẠM NGHỈ TẠM THỜI', w / 2, h / 2 - 98);
+    ctx.fillText(english ? 'Field pause' : 'Tạm nghỉ', w / 2, h / 2 - 98);
     ctx.fillStyle = C.text; ctx.font = "bold 29px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText('TẠM DỪNG', w / 2, h / 2 - 64);
+    ctx.fillText(english ? 'Paused' : 'Tạm dừng', w / 2, h / 2 - 64);
     const bx = (w - 200) / 2;
-    this.drawFieldButton(ctx, bx, h / 2 - 10, 200, 45, 'TIẾP TỤC', C.cyan, true);
-    this.drawFieldButton(ctx, bx, h / 2 + 48, 200, 45, 'THOÁT VỀ MENU', C.textSoft);
+    this.drawFieldButton(ctx, bx, h / 2 - 10, 200, 45, english ? 'Resume' : 'Tiếp tục', C.cyan, true);
+    this.drawFieldButton(ctx, bx, h / 2 + 48, 200, 45, english ? 'Return to menu' : 'Về menu', C.textSoft);
     ctx.fillStyle = C.textMuted; ctx.font = "11px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText('ESC để trở lại cuộc săn', w / 2, h / 2 + 125);
+    ctx.fillText(english ? 'Press Esc to return to the hunt' : 'Nhấn Esc để tiếp tục', w / 2, h / 2 + 125);
   }
 
-  private drawGameOver(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+  private drawGameOver(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
+    const english = save?.data.language === 'en';
     ctx.fillStyle = 'rgba(7, 9, 11, 0.82)'; ctx.fillRect(0, 0, w, h);
     const l = this.resultLayout(w, h);
     const { x, y, panelW, panelH } = l;
@@ -642,20 +650,20 @@ export class MenuUI {
     drawWornPanel(ctx, x, y, panelW, panelH, true);
     ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
     ctx.fillStyle = C.dangerBright; ctx.font = "bold 10px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText('LIÊN LẠC ĐÃ MẤT', x + 26, y + 29);
+    ctx.fillText(english ? 'Signal lost' : 'Mất liên lạc', x + 26, y + 29);
     ctx.fillStyle = C.text; ctx.font = `900 ${Math.min(34, panelW * 0.082)}px 'Arial Black', Impact, sans-serif`;
-    ctx.fillText('BẠN ĐÃ CHẾT', x + 26, y + 69);
+    ctx.fillText(english ? 'You are dead' : 'Bạn đã gục ngã', x + 26, y + 69);
     ctx.fillStyle = C.textMuted; ctx.font = "12px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText('Cuộc săn kết thúc. Dấu vết còn lại.', x + 26, y + 99);
+    ctx.fillText(english ? 'The hunt is over. Only your trail remains.' : 'Cuộc săn khép lại. Dấu vết của bạn còn đây.', x + 26, y + 99);
     const statX = x + 26;
     const statW = l.compact ? panelW * 0.42 : panelW - 52;
     const statTop = y + (l.compact ? 132 : 139);
     const statGap = l.compact ? 41 : Math.min(44, panelH * 0.077);
     const rows = [
-      ['THỜI GIAN', `${Math.floor(this.finalTime / 60)}:${Math.floor(this.finalTime % 60).toString().padStart(2, '0')}`, C.cyanBright],
-      ['HẠ GỤC', `${this.finalKills}`, C.text],
-      ['CẤP ĐỘ', `${this.finalLevel}`, C.text],
-      ['THU HỒI', `+${this.finalGold} VÀNG`, C.amberBright],
+      [english ? 'Time' : 'Thời gian', `${Math.floor(this.finalTime / 60)}:${Math.floor(this.finalTime % 60).toString().padStart(2, '0')}`, C.cyanBright],
+      [english ? 'Kills' : 'Hạ gục', `${this.finalKills}`, C.text],
+      [english ? 'Level' : 'Cấp độ', `${this.finalLevel}`, C.text],
+      [english ? 'Recovered' : 'Thu hồi', `+${this.finalGold} ${getUiTerm('gold', english ? 'en' : 'vi')}`, C.amberBright],
     ];
     for (let i = 0; i < rows.length; i++) {
       const ry = statTop + i * statGap;
@@ -665,11 +673,11 @@ export class MenuUI {
       ctx.fillText(rows[i][1], statX + statW, ry);
       ctx.fillStyle = C.borderSoft; ctx.fillRect(statX, ry + 17, statW, 1);
     }
-    this.drawFieldButton(ctx, l.buttonX, l.buttonY, l.buttonW, l.buttonH, 'THỬ LẠI', C.cyan, true);
-    this.drawFieldButton(ctx, l.buttonX, l.buttonY + l.gap, l.buttonW, l.buttonH, 'MENU CHÍNH', C.textSoft);
+    this.drawFieldButton(ctx, l.buttonX, l.buttonY, l.buttonW, l.buttonH, english ? 'Try again' : 'Chơi lại', C.cyan, true);
+    this.drawFieldButton(ctx, l.buttonX, l.buttonY + l.gap, l.buttonW, l.buttonH, english ? 'Main menu' : 'Menu chính', C.textSoft);
     this.drawFieldButton(ctx, l.buttonX, l.buttonY + l.gap * 2, l.buttonW, l.buttonH,
-      this.reviveAdPending ? 'ĐANG CHỜ QUẢNG CÁO' : 'HỒI SINH', C.health, false,
-      this.reviveAdPending ? 'CHỜ' : this.canWatchRevive ? 'XEM QUẢNG CÁO' : 'ĐÃ DÙNG',
+      this.reviveAdPending ? (english ? 'Loading ad' : 'Đang tải quảng cáo') : (english ? 'Revive' : 'Hồi sinh'), C.health, false,
+      this.reviveAdPending ? (english ? 'Please wait' : 'Vui lòng chờ') : this.canWatchRevive ? (english ? 'Watch ad' : 'Xem quảng cáo') : (english ? 'Used' : 'Đã dùng'),
       !this.canWatchRevive || this.reviveAdPending);
   }
   private drawStageComplete(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
@@ -685,30 +693,31 @@ export class MenuUI {
 
     ctx.fillStyle = C.text;
     ctx.font = `900 ${Math.min(38, panelW * 0.085)}px 'Arial Black', Impact, sans-serif`;
-    ctx.fillText(english ? 'RUN COMPLETE' : 'MÀN ĐÃ HOÀN THÀNH', w / 2, h * 0.15, panelW - 42);
+    ctx.fillText(english ? 'Run complete' : 'Đã hoàn thành màn', w / 2, h * 0.15, panelW - 42);
 
     const minutes = Math.floor(this.finalTime / 60);
     const seconds = Math.floor(this.finalTime % 60);
 
     ctx.fillStyle = C.textSoft;
     ctx.font = `${Math.min(17, Math.max(13, w * 0.04))}px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText(english ? `⏱ TIME: ${minutes}M ${seconds}S` : `⏱ THỜI GIAN: ${minutes} PHÚT ${seconds} GIÂY`, w / 2, h * 0.30, panelW - 42);
-    ctx.fillText(english ? `💀 KILLS: ${this.finalKills}` : `💀 HẠ GỤC: ${this.finalKills}`, w / 2, h * 0.36, panelW - 42);
-    ctx.fillText(english ? `⭐ LEVEL: ${this.finalLevel}` : `⭐ CẤP ĐỘ: ${this.finalLevel}`, w / 2, h * 0.42, panelW - 42);
+    ctx.fillText(english ? `⏱ Time: ${minutes}m ${seconds}s` : `⏱ Thời gian: ${minutes} phút ${seconds} giây`, w / 2, h * 0.30, panelW - 42);
+    ctx.fillText(english ? `💀 Kills: ${this.finalKills}` : `💀 Hạ gục: ${this.finalKills}`, w / 2, h * 0.36, panelW - 42);
+    ctx.fillText(english ? `⭐ Level: ${this.finalLevel}` : `⭐ Cấp độ: ${this.finalLevel}`, w / 2, h * 0.42, panelW - 42);
 
     ctx.fillStyle = C.amberBright;
     ctx.font = `bold ${Math.min(20, Math.max(14, w * 0.045))}px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText(english ? `💰 +${this.finalGold} GOLD` : `💰 +${this.finalGold} VÀNG`, w / 2, h * 0.52, panelW - 42);
+    ctx.fillText(english ? `💰 +${this.finalGold} gold` : `💰 +${this.finalGold} vàng`, w / 2, h * 0.52, panelW - 42);
 
     const btnW = 200;
     const btnH = 45;
     const bx = (w - btnW) / 2;
 
-    this.drawFieldButton(ctx, bx, h * 0.65, btnW, btnH, 'MÀN TIẾP THEO', C.cyan, true);
-    this.drawFieldButton(ctx, bx, h * 0.73, btnW, btnH, 'MENU CHÍNH', C.dangerBright);
+    this.drawFieldButton(ctx, bx, h * 0.65, btnW, btnH, english ? 'Next mission' : 'Màn tiếp theo', C.cyan, true);
+    this.drawFieldButton(ctx, bx, h * 0.73, btnW, btnH, english ? 'Main menu' : 'Menu chính', C.dangerBright);
   }
 
   private drawHunterProfile(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
+    const english = save?.data.language === 'en';
     this.drawStaticBackdrop(ctx, w, h, 0.3);
     const panelW = Math.min(620, w - 32);
     const panelH = Math.min(520, h - 120);
@@ -716,17 +725,17 @@ export class MenuUI {
     drawWornPanel(ctx, x, y, panelW, panelH, true);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = C.text;
     ctx.font = `bold ${w < 480 ? 24 : 30}px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText('HỒ SƠ THỢ SĂN', w / 2, y - 27);
-    this.drawFieldButton(ctx, (w - 200) / 2, h - 58, 200, 45, 'QUAY LẠI', C.cyan);
+    ctx.fillText(english ? 'Hunter profile' : 'Hồ sơ thợ săn', w / 2, y - 27);
+    this.drawFieldButton(ctx, (w - 200) / 2, h - 58, 200, 45, english ? 'Back' : 'Quay lại', C.cyan);
     if (!save) return;
     const rows: [string, string, string][] = [
-      ['VÀNG TÍCH LŨY', `${save.data.gold}`, C.amber],
-      ['SỐNG SÓT LÂU NHẤT', `${Math.floor(save.data.bestTime / 60)}:${Math.floor(save.data.bestTime % 60).toString().padStart(2, '0')}`, C.cyan],
-      ['KỶ LỤC HẠ GỤC', `${save.data.bestKills}`, C.text],
-      ['CẤP CAO NHẤT', `${save.data.bestLevel}`, C.text],
-      ['TỔNG LƯỢT CHƠI', `${save.data.totalGamesPlayed}`, C.text],
-      ['TỔNG HẠ GỤC', `${save.data.totalKills}`, C.text],
-      ['CỬA ẢI HOÀN THÀNH', `${save.data.completedStages.length} / ${STAGES.length}`, C.health],
+      [english ? 'Gold earned' : 'Vàng tích lũy', `${save.data.gold}`, C.amber],
+      [english ? 'Longest survival' : 'Sống sót lâu nhất', `${Math.floor(save.data.bestTime / 60)}:${Math.floor(save.data.bestTime % 60).toString().padStart(2, '0')}`, C.cyan],
+      [english ? 'Kill record' : 'Kỷ lục hạ gục', `${save.data.bestKills}`, C.text],
+      [english ? 'Highest level' : 'Cấp cao nhất', `${save.data.bestLevel}`, C.text],
+      [english ? 'Runs played' : 'Tổng lượt chơi', `${save.data.totalGamesPlayed}`, C.text],
+      [english ? 'Total kills' : 'Tổng hạ gục', `${save.data.totalKills}`, C.text],
+      [english ? 'Missions complete' : 'Màn đã hoàn thành', `${save.data.completedStages.length} / ${STAGES.length}`, C.health],
     ];
     const rowH = Math.min(64, (panelH - 24) / rows.length);
     for (let i = 0; i < rows.length; i++) {
@@ -741,7 +750,8 @@ export class MenuUI {
     }
   }
 
-  private drawTutorial(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+  private drawTutorial(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
+    const english = save?.data.language === 'en';
     this.drawStaticBackdrop(ctx, w, h, 0.3);
     const landscape = h < 500 && w >= 620;
     const panelW = Math.min(760, w - 32);
@@ -750,14 +760,19 @@ export class MenuUI {
     drawWornPanel(ctx, x, y, panelW, panelH, true);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = C.text;
     ctx.font = `bold ${w < 480 ? 24 : 30}px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText('HƯỚNG DẪN', w / 2, y - 27);
-    this.drawFieldButton(ctx, (w - 200) / 2, h - 58, 200, 45, 'QUAY LẠI', C.cyan);
+    ctx.fillText(english ? 'Field guide' : 'Hướng dẫn', w / 2, y - 27);
+    this.drawFieldButton(ctx, (w - 200) / 2, h - 58, 200, 45, english ? 'Back' : 'Quay lại', C.cyan);
     const columns = landscape || w >= 650 ? 2 : 1;
-    const sections = [
-      { title: 'ĐIỀU KHIỂN', color: C.cyan, lines: ['WASD / mũi tên: di chuyển', 'Giữ chuột trái: bắn · R: nạp đạn', 'Shift: lướt · G: lựu đạn · F: nộ', '1 / 2 / 3: đổi súng · ESC: tạm dừng', 'Cảm ứng: cần trái, nút hành động phải'] },
-      { title: 'CHẾ ĐỘ SINH TỒN', color: C.text, lines: ['Cuộc chơi kết thúc khi bạn bị hạ gục.', 'Thu thập XP để chọn thẻ nâng cấp.', 'Di chuyển liên tục, giữ đường rút lui.'] },
-      { title: 'TIẾP TẾ', color: C.amber, lines: ['Xanh lục: hồi máu · Cyan: thông tin', 'Hổ phách: đạn, linh kiện và đồ hiếm', 'Bắn vỡ thùng để lấy vật phẩm.'] },
-      { title: 'ĐỌC ĐÒN QUÁI', color: C.dangerBright, lines: ['Vùng sáng báo hướng và tầm đánh.', 'Né ngang khi nhện và vua chuột lao.', 'Lùi khỏi đòn nặng rồi phản công.'] },
+    const sections = english ? [
+      { title: 'Controls', color: C.cyan, lines: ['WASD / arrows: move', 'Hold left mouse: fire · R: reload', 'Shift: dodge · G: grenade · F: rage', '1 / 2 / 3: switch weapon · Esc: pause', 'Touch: left stick to move, right buttons to act'] },
+      { title: 'Survival', color: C.text, lines: ['A run ends when you are killed.', 'Collect XP to improve your loadout.', 'Keep moving and leave yourself an escape route.'] },
+      { title: 'Supplies', color: C.amber, lines: ['Green: health · cyan: information', 'Amber: ammo, parts, and rare gear', 'Shoot supply crates to break them open.'] },
+      { title: 'Read the enemy', color: C.dangerBright, lines: ['Telegraphs show an attack’s direction and reach.', 'Dodge sideways when the spider or Rat King lunges.', 'Clear heavy attacks, then strike back.'] },
+    ] : [
+      { title: 'Điều khiển', color: C.cyan, lines: ['WASD / phím mũi tên: di chuyển', 'Giữ chuột trái: bắn · R: nạp đạn', 'Shift: lướt · G: lựu đạn · F: nộ', '1 / 2 / 3: đổi súng · Esc: tạm dừng', 'Cảm ứng: cần trái để di chuyển, nút phải để hành động'] },
+      { title: 'Sinh tồn', color: C.text, lines: ['Lượt chơi kết thúc khi bạn gục ngã.', 'Thu thập XP để tăng cường trang bị.', 'Luôn di chuyển và giữ đường rút lui.'] },
+      { title: 'Tiếp tế', color: C.amber, lines: ['Xanh lá: hồi máu · xanh lam: thông tin', 'Màu hổ phách: đạn, linh kiện và trang bị hiếm', 'Bắn thùng tiếp tế để phá vỡ chúng.'] },
+      { title: 'Đọc đòn quái', color: C.dangerBright, lines: ['Tín hiệu báo hướng và tầm đánh.', 'Né ngang khi nhện hoặc Vua Chuột lao tới.', 'Tránh đòn nặng rồi phản công.'] },
     ];
     const rows = sections.length / columns;
     const cellW = (panelW - 40) / columns;
@@ -798,11 +813,11 @@ export class MenuUI {
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.fillStyle = disabled ? '#6d797d' : primary ? '#102024' : C.text;
     ctx.font = `bold ${w < 230 ? 12 : 13}px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText(text.toLocaleUpperCase('vi-VN'), x + 20, y + h / 2);
+    ctx.fillText(sentenceCaseDisplay(text, this.language), x + 20, y + h / 2);
     if (note && w >= 150) {
       ctx.textAlign = 'right'; ctx.font = "bold 9px 'Segoe UI', Arial, sans-serif";
       ctx.fillStyle = disabled ? '#657074' : primary ? '#29474c' : C.textMuted;
-      ctx.fillText(note.toLocaleUpperCase('vi-VN'), x + w - 17, y + h / 2);
+      ctx.fillText(sentenceCaseDisplay(note, this.language), x + w - 17, y + h / 2);
     } else if (!disabled) {
       ctx.strokeStyle = primary ? '#29474c' : accent; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(x + w - 20, y + h / 2 - 4); ctx.lineTo(x + w - 16, y + h / 2); ctx.lineTo(x + w - 20, y + h / 2 + 4); ctx.stroke();

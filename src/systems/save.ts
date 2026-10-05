@@ -268,13 +268,9 @@ export class SaveSystem {
     this.save();
   }
 
-  /** Preserve the player's kit and records, but send an Impossible run back to mission one. */
-  resetCampaignRunToFirstStage(): void {
-    const progress = this.data.campaign;
-    progress.unlockedStage = 1;
-    progress.lastStage = 1;
-    progress.hasCheckpoint = true;
-    progress.completedStages = [];
+  /** Wipe the Campaign save after an Impossible death while preserving other modes and settings. */
+  resetCampaignAfterImpossibleDeath(): void {
+    this.data.campaign = newCampaign('impossible');
     this.save();
   }
 

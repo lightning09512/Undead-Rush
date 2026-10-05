@@ -5,6 +5,7 @@ import { createCampaignGunDefs } from '../systems/gun-loadout';
 import { drawGunArt, drawHunterPortrait } from '../graphics/campaign-menu-art';
 import { UI_PALETTE as C } from './palette';
 import { createQuarantineBackdrop } from './horror-texture';
+import { getStageCopy, getUiTerm, localizeZombieName, sentenceCaseDisplay } from '../data/localization';
 
 export type CampaignPage = 'character' | 'stages' | 'briefing' | 'armory' | 'result' | 'failure';
 type Button = { x: number; y: number; w: number; h: number; label: string; action: string; disabled?: boolean; selected?: boolean };
@@ -52,7 +53,9 @@ export class CampaignUI {
   impossibleDeath = false;
   private buttons: Button[] = [];
   private backdrop?: HTMLCanvasElement;
+  private backdropLanguage?: 'vi' | 'en';
   private resultAnimationStartedAt = 0;
+  private language: 'vi' | 'en' = 'vi';
 
   showResult(result: CampaignResult): void {
     this.result = result;
@@ -60,6 +63,7 @@ export class CampaignUI {
   }
 
   click(x: number, y: number, save: SaveSystem): string | null {
+    this.language = save.data.language;
     if (this.page === 'failure' && this.reviveAdPending) return null;
     const b = this.buttons.findLast(v => x >= v.x && x <= v.x + v.w && y >= v.y && y <= v.y + v.h);
     if (!b || b.disabled) return null;
@@ -85,8 +89,8 @@ export class CampaignUI {
       const level = p.cardLevels.drone ?? 0;
       if (level >= DRONE_UPGRADE.maxLevel) return null;
       const cost = this.dronePrice(level);
-      if (!save.spendCampaign(cost)) { this.message = 'CHƯA ĐỦ TÍN DỤNG'; return null; }
-      p.cardLevels.drone = level + 1; save.save(); this.message = `ĐÃ NÂNG DRONE · CẤP ${level + 1}`; return null;
+      if (!save.spendCampaign(cost)) { this.message = this.language === 'en' ? 'Not enough credits' : 'Không đủ tín dụng'; return null; }
+      p.cardLevels.drone = level + 1; save.save(); this.message = this.language === 'en' ? `Drone upgraded · level ${level + 1}` : `Đã nâng drone · cấp ${level + 1}`; return null;
     }
     if (b.action === 'start') return 'start';
     if (b.action === 'retry') return 'retry';
@@ -115,15 +119,15 @@ export class CampaignUI {
     if (b.action.startsWith('gun:')) {
       const id = b.action.slice(4);
       const definition = GUNS.find(g => g.id === id);
-      if (!definition || !p.ownedGuns.includes(id)) { this.message = 'HẠ BOSS VÀ NHẶT SÚNG TRÊN MAP TRƯỚC'; return null; }
+      if (!definition || !p.ownedGuns.includes(id)) { this.message = this.language === 'en' ? 'Defeat the boss and recover this weapon first.' : 'Hãy hạ trùm và nhặt khẩu súng này trước.'; return null; }
       p.equippedGun = id; save.save(); return null;
     }
     if (b.action.startsWith('upgrade:')) {
       const id = b.action.slice(8), level = p.gunLevels[id] ?? 0;
       if (level >= 3 || !p.ownedGuns.includes(id)) return null;
       const cost = this.gunUpgradeCost(level);
-      if (!save.spendCampaign(cost)) { this.message = 'CHƯA ĐỦ TÍN DỤNG'; return null; }
-      p.gunLevels[id] = level + 1; save.save(); this.message = `ĐÃ NÂNG SÚNG · CẤP ${level + 1}`; return null;
+      if (!save.spendCampaign(cost)) { this.message = this.language === 'en' ? 'Not enough credits' : 'Không đủ tín dụng'; return null; }
+      p.gunLevels[id] = level + 1; save.save(); this.message = this.language === 'en' ? `Weapon upgraded · level ${level + 1}` : `Đã nâng súng · cấp ${level + 1}`; return null;
     }
     if (b.action.startsWith('buyammo:')) {
       const id = b.action.slice(8), gun = GUNS.find(value => value.id === id);
@@ -131,24 +135,24 @@ export class CampaignUI {
       if (!gun || id === 'p9' || !p.ownedGuns.includes(id)) return null;
       const ammo = savedAmmo(p, id), rounds = gun.magSize * 2;
       if (ammo.reserveAmmo >= gun.magSize * 12) return null;
-      if (!save.spendCampaign(price)) { this.message = 'CHƯA ĐỦ TÍN DỤNG'; return null; }
+      if (!save.spendCampaign(price)) { this.message = this.language === 'en' ? 'Not enough credits' : 'Không đủ tín dụng'; return null; }
       p.gunAmmo[id] = { ...ammo, reserveAmmo: Math.min(gun.magSize * 12, ammo.reserveAmmo + rounds) };
       save.save(); return null;
     }
     if (b.action === 'med') {
-      if (p.medKits >= 5 || !save.spendCampaign(70)) { this.message = p.medKits >= 5 ? 'TÚI CỨU THƯƠNG ĐÃ ĐẦY' : 'CHƯA ĐỦ TÍN DỤNG'; return null; }
+      if (p.medKits >= 5 || !save.spendCampaign(70)) { this.message = p.medKits >= 5 ? (this.language === 'en' ? 'Medical kit slots are full.' : 'Túi cứu thương đã đầy.') : (this.language === 'en' ? 'Not enough credits' : 'Không đủ tín dụng'); return null; }
       p.medKits++; save.save(); return null;
     }
     if (b.action === 'flashlight') {
       if (p.flashlightLevel >= 3) return null;
       const cost = 95 + p.flashlightLevel * 75;
-      if (!save.spendCampaign(cost)) { this.message = 'CHƯA ĐỦ TÍN DỤNG'; return null; }
+      if (!save.spendCampaign(cost)) { this.message = this.language === 'en' ? 'Not enough credits' : 'Không đủ tín dụng'; return null; }
       p.flashlightLevel++; save.save(); return null;
     }
     if (b.action === 'armor') {
       if (p.armorLevel >= 3) return null;
       const cost = [150, 260, 390][p.armorLevel] ?? 390;
-      if (!save.spendCampaign(cost)) { this.message = 'CHƯA ĐỦ TÍN DỤNG'; return null; }
+      if (!save.spendCampaign(cost)) { this.message = this.language === 'en' ? 'Not enough credits' : 'Không đủ tín dụng'; return null; }
       p.armorLevel++; save.save(); return null;
     }
     return null;
@@ -156,9 +160,11 @@ export class CampaignUI {
 
   draw(ctx: CanvasRenderingContext2D, w: number, h: number, save: SaveSystem): void {
     this.buttons.length = 0;
+    this.language = save.data.language;
     const p = save.data.campaign;
-    if (!this.backdrop || this.backdrop.width !== Math.ceil(w) || this.backdrop.height !== Math.ceil(h)) {
-      this.backdrop = createQuarantineBackdrop(w, h);
+    if (!this.backdrop || this.backdrop.width !== Math.ceil(w) || this.backdrop.height !== Math.ceil(h) || this.backdropLanguage !== this.language) {
+      this.backdrop = createQuarantineBackdrop(w, h, this.language);
+      this.backdropLanguage = this.language;
     }
     ctx.drawImage(this.backdrop, 0, 0, w, h);
     ctx.fillStyle = 'rgba(4, 7, 9, 0.32)'; ctx.fillRect(0, 0, w, h);
@@ -168,8 +174,9 @@ export class CampaignUI {
     ctx.fillStyle = C.background; ctx.fillRect(x, y, panelW, panelH);
     ctx.strokeStyle = C.border; ctx.lineWidth = 2; ctx.strokeRect(x, y, panelW, panelH);
     ctx.fillStyle = C.textSoft; ctx.textAlign = 'left'; ctx.font = 'bold 15px Segoe UI, Arial';
-    ctx.fillText(`CHIẾN DỊCH  /  ${this.page.toUpperCase()}`, x + 20, y + 30);
-    ctx.textAlign = 'right'; ctx.fillStyle = C.amberBright; ctx.fillText(`${p.credits} TÍN DỤNG`, x + panelW - 20, y + 30);
+    const pageName = this.pageLabel();
+    ctx.fillText(`${getUiTerm('campaign', this.language)} / ${pageName}`, x + 20, y + 30);
+    ctx.textAlign = 'right'; ctx.fillStyle = C.amberBright; ctx.fillText(`${p.credits} ${getUiTerm('credits', this.language)}`, x + panelW - 20, y + 30);
     ctx.fillStyle = C.borderSoft; ctx.fillRect(x + 20, y + 42, panelW - 40, 1);
     if (this.page === 'character') this.characters(ctx, x, y, panelW, panelH, p, narrow);
     if (this.page === 'stages') this.stages(ctx, x, y, panelW, panelH, p, narrow);
@@ -177,23 +184,31 @@ export class CampaignUI {
     if (this.page === 'armory') this.armory(ctx, x, y, panelW, panelH, p, narrow);
     if (this.page === 'result') this.results(ctx, x, y, panelW, panelH);
     if (this.page === 'failure') this.failure(ctx, x, y, panelW, panelH);
-    if (this.message) { ctx.fillStyle = C.dangerBright; ctx.textAlign = 'center'; ctx.font = 'bold 13px Segoe UI, Arial'; ctx.fillText(this.message, w / 2, y + panelH - 67); }
+    if (this.message) { ctx.fillStyle = C.dangerBright; ctx.textAlign = 'center'; ctx.font = 'bold 13px Segoe UI, Arial'; ctx.fillText(sentenceCaseDisplay(this.message, this.language), w / 2, y + panelH - 67); }
     this.buttons.forEach(b => this.drawButton(ctx, b));
   }
 
+  private pageLabel(): string {
+    const labels = this.language === 'en'
+      ? { character: 'Character', stages: 'Missions', briefing: 'Mission brief', armory: 'Armory', result: 'Report', failure: 'Mission failed' }
+      : { character: 'Nhân vật', stages: 'Tuyến màn', briefing: 'Nhiệm vụ', armory: 'Kho vũ khí', result: 'Báo cáo', failure: 'Thất bại' };
+    return labels[this.page];
+  }
+
   private characters(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, p: SaveSystem['data']['campaign'], narrow: boolean): void {
-    this.title(ctx, 'CHỌN NHÂN VẬT', x + 22, y + 78);
+    const english = this.language === 'en';
+    this.title(ctx, english ? 'Choose a character' : 'Chọn nhân vật', x + 22, y + 78);
     const portraitW = narrow ? Math.min(155, w * .38) : Math.min(285, w * .34);
     const portraitH = Math.max(145, Math.min(h - 195, narrow ? 210 : 330));
     const focused = CHARACTERS.find(c => c.id === this.focusedCharacter) ?? CHARACTERS[0];
     this.panel(ctx, x + 22, y + 98, portraitW, portraitH, focused.color);
     drawHunterPortrait(ctx, x + 30, y + 110, portraitW - 16, portraitH - 50, focused.id, focused.color);
     ctx.fillStyle = C.text; ctx.font = `bold ${narrow ? 13 : 17}px Segoe UI, Arial`; ctx.textAlign = 'center';
-    ctx.fillText(focused.name.toUpperCase(), x + 22 + portraitW / 2, y + 98 + portraitH - 18, portraitW - 12);
+    ctx.fillText(this.characterName(focused.id, focused.name), x + 22 + portraitW / 2, y + 98 + portraitH - 18, portraitW - 12);
     ctx.textAlign = 'left'; ctx.fillStyle = C.textMuted; ctx.font = `bold ${narrow ? 9 : 10}px Segoe UI, Arial`;
-    ctx.fillText('THẾ MẠNH RIÊNG', x + 23, y + 120 + portraitH, portraitW);
+    ctx.fillText(english ? 'Specialty' : 'Thế mạnh', x + 23, y + 120 + portraitH, portraitW);
     ctx.fillStyle = C.amberBright; ctx.font = `bold ${narrow ? 9 : 11}px Segoe UI, Arial`;
-    ctx.fillText(focused.description, x + 23, y + 139 + portraitH, portraitW);
+    ctx.fillText(this.characterDescription(focused.id, focused.description), x + 23, y + 139 + portraitH, portraitW);
     const listX = x + 32 + portraitW, listW = w - portraitW - 54;
     const cardH = Math.min(narrow ? 56 : 67, (h - 195) / 6 - 4);
     CHARACTERS.forEach((c, i) => {
@@ -201,18 +216,19 @@ export class CampaignUI {
       const selected = p.selectedCharacter === c.id;
       this.panel(ctx, bx, by, cardW, cardH, this.focusedCharacter === c.id ? C.amberBright : C.borderSoft);
       ctx.fillStyle = c.color; ctx.fillRect(bx + 7, by + 8, 4, cardH - 16);
-      ctx.fillStyle = C.text; ctx.font = `bold ${narrow ? 11 : 15}px Segoe UI, Arial`; ctx.textAlign = 'left'; ctx.fillText(c.name.toUpperCase(), bx + 18, by + 19, cardW - 95);
-      if (cardH >= 45) { ctx.fillStyle = C.textSoft; ctx.font = `${narrow ? 9 : 11}px Segoe UI, Arial`; ctx.fillText(c.description, bx + 18, by + 35, cardW - 93); }
+      ctx.fillStyle = C.text; ctx.font = `bold ${narrow ? 11 : 15}px Segoe UI, Arial`; ctx.textAlign = 'left'; ctx.fillText(this.characterName(c.id, c.name), bx + 18, by + 19, cardW - 95);
+      if (cardH >= 45) { ctx.fillStyle = C.textSoft; ctx.font = `${narrow ? 9 : 11}px Segoe UI, Arial`; ctx.fillText(this.characterDescription(c.id, c.description), bx + 18, by + 35, cardW - 93); }
       this.add(bx + cardW - (narrow ? 74 : 108), by + 8, narrow ? 67 : 100, cardH - 16,
-        selected ? 'ĐANG CHỌN' : 'CHỌN', `char:${c.id}`, selected);
+        selected ? (english ? 'Selected' : 'Đang chọn') : (english ? 'Choose' : 'Chọn'), `char:${c.id}`, selected);
       this.add(bx + 12, by + 2, Math.max(1, cardW - (narrow ? 90 : 125)), cardH - 4, '', `focus:${c.id}`);
     });
-    this.add(x + 22, y + h - 52, Math.min(140, (w - 52) / 2), 34, 'VỀ MENU', 'main');
-    this.add(x + w - Math.min(205, (w - 52) / 2) - 22, y + h - 52, Math.min(205, (w - 52) / 2), 34, 'CHUẨN BỊ →', 'armory');
+    this.add(x + 22, y + h - 52, Math.min(140, (w - 52) / 2), 34, english ? 'Main menu' : 'Về menu', 'main');
+    this.add(x + w - Math.min(205, (w - 52) / 2) - 22, y + h - 52, Math.min(205, (w - 52) / 2), 34, english ? 'Prepare →' : 'Chuẩn bị →', 'armory');
   }
 
   private stages(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, p: SaveSystem['data']['campaign'], narrow: boolean): void {
-    this.title(ctx, 'TUYẾN CHIẾN DỊCH', x + 22, y + 78);
+    const english = this.language === 'en';
+    this.title(ctx, english ? 'Campaign missions' : 'Tuyến Chiến dịch', x + 22, y + 78);
     const start = narrow ? this.stagePage * 5 : 0;
     const list = STAGES.slice(start, start + (narrow ? 5 : 10));
     const cols = narrow ? 1 : 2, gap = 8, bw = (w - 44 - gap * (cols - 1)) / cols;
@@ -222,48 +238,58 @@ export class CampaignUI {
       const locked = s.id > p.unlockedStage, done = p.completedStages.includes(s.id);
       this.panel(ctx, bx, by, bw, rowH, done ? '#789b88' : locked ? '#39474b' : '#bf9468');
       ctx.fillStyle = locked ? C.textMuted : C.text; ctx.textAlign = 'left'; ctx.font = `bold ${narrow ? 12 : 15}px Segoe UI, Arial`;
-      ctx.fillText(`${String(s.id).padStart(2, '0')}  ${s.name.toLocaleUpperCase('vi-VN')}`, bx + 12, by + 25, bw - 24);
+      const copy = getStageCopy(s, this.language);
+      ctx.fillText(`${String(s.id).padStart(2, '0')}  ${copy.name}`, bx + 12, by + 25, bw - 24);
       ctx.fillStyle = C.textSoft; ctx.font = '11px Segoe UI, Arial';
-      ctx.fillText((locked ? 'KHÓA' : done ? 'ĐÃ HOÀN THÀNH' : `ĐÃ MỞ · ${s.reward} TÍN DỤNG`).toLocaleUpperCase('vi-VN'), bx + 12, by + Math.min(rowH - 10, 46));
+      ctx.fillText(locked ? (english ? 'Locked' : 'Đã khóa') : done ? (english ? 'Complete' : 'Đã hoàn thành') :
+        english ? `Unlocked · ${s.reward} credits` : `Đã mở · ${s.reward} tín dụng`, bx + 12, by + Math.min(rowH - 10, 46));
       this.add(bx, by, bw, rowH, '', `stage:${s.id - 1}`, locked);
     });
     if (narrow) { this.add(x + 22, y + h - 95, 100, 28, '01–05', 'page:0', this.stagePage === 0); this.add(x + 130, y + h - 95, 100, 28, '06–10', 'page:1', this.stagePage === 1); }
-    this.add(x + 22, y + h - 52, 140, 34, '← CHUẨN BỊ', 'back');
+    this.add(x + 22, y + h - 52, 140, 34, english ? '← Prepare' : '← Chuẩn bị', 'back');
   }
 
   private briefing(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, narrow: boolean, p: SaveSystem['data']['campaign']): void {
     const s = STAGES[this.selectedStage];
-    this.title(ctx, `${String(s.id).padStart(2, '0')} / ${s.name}`, x + 22, y + 80);
+    const english = this.language === 'en';
+    const copy = getStageCopy(s, this.language);
+    this.title(ctx, `${String(s.id).padStart(2, '0')} / ${copy.name}`, x + 22, y + 80);
     if (h < 570) {
-      this.copy(ctx, 'NHIỆM VỤ', s.description, x + 24, y + 116, w - 48);
-      this.copy(ctx, 'MỤC TIÊU', s.objectiveLabel, x + 24, y + 190, w - 48);
-      this.copy(ctx, 'ĐỐI TƯỢNG', `BOSS: ${s.bossName}`, x + 24, y + 260, w - 48);
-      this.add(x + 22, y + h - 52, narrow ? 112 : 150, 34, '← BẢN ĐỒ', 'back');
-      this.add(x + w - (narrow ? 165 : 205) - 22, y + h - 52, narrow ? 165 : 205, 34, 'VÀO MÀN NGAY →', 'start');
+      this.copy(ctx, english ? 'Mission' : 'Nhiệm vụ', copy.description, x + 24, y + 116, w - 48);
+      this.copy(ctx, english ? 'Objective' : 'Mục tiêu', copy.objectiveLabel, x + 24, y + 190, w - 48);
+      this.copy(ctx, english ? 'Target' : 'Mục tiêu', `${english ? 'Boss' : 'Trùm'}: ${copy.bossName}`, x + 24, y + 260, w - 48);
+      this.add(x + 22, y + h - 52, narrow ? 112 : 150, 34, english ? '← Missions' : '← Bản đồ', 'back');
+      this.add(x + w - (narrow ? 165 : 205) - 22, y + h - 52, narrow ? 165 : 205, 34, english ? 'Deploy →' : 'Vào màn →', 'start');
       return;
     }
-    this.copy(ctx, 'NHIỆM VỤ', s.description, x + 24, y + 125, w - 48);
-    this.copy(ctx, 'MỤC TIÊU CHÍNH', s.objectiveLabel, x + 24, y + 205, w - 48);
-    this.copy(ctx, 'MỤC TIÊU PHỤ', 'Khám phá trạm tiếp tế và giữ máu trước trận boss. Thu thập vật tư trên tuyến.', x + 24, y + 285, w - 48);
-    this.copy(ctx, 'ĐỐI TƯỢNG', `${s.mobIds.join(' · ')}  /  BOSS: ${s.bossName}`, x + 24, y + 365, w - 48);
-    this.copy(ctx, 'CHIẾN THUẬT', 'Đạn hữu hạn. Đi qua hộp để nhặt tiếp tế; E để dùng thiết bị nhiệm vụ; R để thay đạn; Shift/Space để né. Súng P-9 có đạn dự trữ vô hạn.', x + 24, y + Math.min(445, h - 170), w - 48);
-    this.add(x + 22, y + h - 52, narrow ? 112 : 150, 34, '← BẢN ĐỒ', 'back');
-    this.add(x + w - (narrow ? 165 : 205) - 22, y + h - 52, narrow ? 165 : 205, 34, 'VÀO MÀN NGAY →', 'start');
+    this.copy(ctx, english ? 'Mission' : 'Nhiệm vụ', copy.description, x + 24, y + 125, w - 48);
+    this.copy(ctx, english ? 'Primary objective' : 'Mục tiêu chính', copy.objectiveLabel, x + 24, y + 205, w - 48);
+    this.copy(ctx, english ? 'Field note' : 'Ghi chú hiện trường', english
+      ? 'Check supply points and conserve health before the boss fight. Recover what you can along the route.'
+      : 'Kiểm tra điểm tiếp tế và giữ máu trước trận trùm. Thu gom vật tư dọc đường.', x + 24, y + 285, w - 48);
+    this.copy(ctx, english ? 'Threats' : 'Mối đe dọa', `${s.mobIds.map(id => this.zombieName(id)).join(' · ')}  /  ${english ? 'Boss' : 'Trùm'}: ${copy.bossName}`, x + 24, y + 365, w - 48);
+    this.copy(ctx, english ? 'Field tactics' : 'Chiến thuật', english
+      ? 'Ammo is limited. Walk over supply crates to collect them. Use E on mission devices, R to reload, and Shift / Space to dodge. The P-9 has unlimited reserve ammo.'
+      : 'Đạn có hạn. Đi qua thùng để nhặt tiếp tế. Nhấn E dùng thiết bị nhiệm vụ, R nạp đạn, Shift / Space để lướt. P-9 có đạn dự trữ vô hạn.', x + 24, y + Math.min(445, h - 170), w - 48);
+    this.add(x + 22, y + h - 52, narrow ? 112 : 150, 34, english ? '← Missions' : '← Bản đồ', 'back');
+    this.add(x + w - (narrow ? 165 : 205) - 22, y + h - 52, narrow ? 165 : 205, 34, english ? 'Deploy →' : 'Vào màn →', 'start');
   }
 
   private armory(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, p: SaveSystem['data']['campaign'], narrow: boolean): void {
-    this.title(ctx, 'TRẠM CHUẨN BỊ', x + 22, y + 77);
+    const english = this.language === 'en';
+    this.title(ctx, english ? 'Staging area' : 'Trạm chuẩn bị', x + 22, y + 77);
     const tabW = (w - 54) / 2;
-    this.add(x + 22, y + 87, tabW, 31, 'VŨ KHÍ', 'tab:guns', this.armoryTab === 'guns');
-    this.add(x + 32 + tabW, y + 87, tabW, 31, 'DRONE HỘ VỆ', 'tab:drone', this.armoryTab === 'drone');
+    this.add(x + 22, y + 87, tabW, 31, english ? 'Weapons' : 'Vũ khí', 'tab:guns', this.armoryTab === 'guns');
+    this.add(x + 32 + tabW, y + 87, tabW, 31, english ? 'Support drone' : 'Drone hộ vệ', 'tab:drone', this.armoryTab === 'drone');
     if (this.armoryTab === 'guns') this.drawGuns(ctx, x, y, w, h, p, narrow);
     else this.drawDrone(ctx, x, y, w, h, p, narrow);
     this.drawGear(ctx, x, y, w, h, p, narrow);
-    this.add(x + 22, y + h - 52, narrow ? 105 : 145, 34, '← NHÂN VẬT', 'back');
-    this.add(x + w - (narrow ? 155 : 195) - 22, y + h - 52, narrow ? 155 : 195, 34, 'CHỌN MÀN →', 'stages');
+    this.add(x + 22, y + h - 52, narrow ? 105 : 145, 34, english ? '← Character' : '← Nhân vật', 'back');
+    this.add(x + w - (narrow ? 155 : 195) - 22, y + h - 52, narrow ? 155 : 195, 34, english ? 'Choose mission →' : 'Chọn màn →', 'stages');
   }
 
   private drawGuns(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, p: SaveSystem['data']['campaign'], narrow: boolean): void {
+    const english = this.language === 'en';
     const cols = narrow ? 1 : 2;
     const cardTop = y + 128;
     const pagerY = y + h - 177;
@@ -290,45 +316,52 @@ export class CampaignUI {
       ctx.restore();
       const tx = bx + artW + 17;
       ctx.fillStyle = owned ? C.text : C.textMuted; ctx.textAlign = 'left'; ctx.font = `bold ${narrow ? 12 : 16}px Segoe UI, Arial`;
-      ctx.fillText(`${g.shortName}  ·  ${sidearm ? 'SÚNG LỤC' : g.type.toUpperCase()}`, tx, by + 22, bw - artW - 26);
+      ctx.fillText(`${g.shortName}  ·  ${sidearm ? (english ? 'pistol' : 'Súng lục') : this.weaponType(g.type)}`, tx, by + 22, bw - artW - 26);
       ctx.fillStyle = owned ? C.textSoft : C.textMuted; ctx.font = `${narrow ? 9 : 11}px Segoe UI, Arial`;
-      ctx.fillText(`${upgradedDamage}${g.pellets ? `×${g.pellets}` : ''} DMG · ${g.rpm} RPM · ${g.magSize} VIÊN`, tx, by + 41, bw - artW - 26);
+      ctx.fillText(english
+        ? `${upgradedDamage}${g.pellets ? `×${g.pellets}` : ''} damage · ${g.rpm} RPM · ${g.magSize} rounds`
+        : `${upgradedDamage}${g.pellets ? `×${g.pellets}` : ''} sát thương · ${g.rpm} RPM · ${g.magSize} viên`, tx, by + 41, bw - artW - 26);
       ctx.fillStyle = owned ? C.cyanBright : C.textMuted;
       ctx.font = `bold ${narrow ? 9 : 11}px Segoe UI, Arial`;
       const reserveText = ammo.reserveAmmo < 0 ? '∞' : String(ammo.reserveAmmo);
-      ctx.fillText(owned ? `ĐẠN  ${ammo.currentAmmo}/${g.magSize}  ·  DỰ TRỮ ${reserveText}` : `MỞ MÀN ${g.unlockStage}  ·  NHẶT SÚNG`, tx, by + 60, bw - artW - 26);
+      ctx.fillText(owned
+        ? english ? `Ammo ${ammo.currentAmmo}/${g.magSize} · Reserve ammo ${reserveText}` : `Đạn ${ammo.currentAmmo}/${g.magSize} · Đạn dự trữ ${reserveText}`
+        : english ? `Unlocks on mission ${g.unlockStage} · Recover in mission` : `Mở ở màn ${g.unlockStage} · Nhặt trong màn`, tx, by + 60, bw - artW - 26);
       if (!compact) {
         ctx.fillStyle = C.textMuted; ctx.font = '10px Segoe UI, Arial';
-        ctx.fillText(owned ? `CẤP ${upgradeLevel}/3 · +${upgradeLevel * 12}% SÁT THƯƠNG · GIỮ ĐẠN QUA MÀN`
-          : 'Nhận khẩu súng này sau khi hạ boss.', tx, by + 78, bw - artW - 26);
+        ctx.fillText(owned
+          ? english ? `Level ${upgradeLevel}/3 · +${upgradeLevel * 12}% damage · ammo carries over` : `Cấp ${upgradeLevel}/3 · +${upgradeLevel * 12}% sát thương · giữ đạn qua màn`
+          : english ? 'Recover this weapon after defeating the boss.' : 'Nhặt khẩu súng này sau khi hạ trùm.', tx, by + 78, bw - artW - 26);
       }
       const buttonY = by + rowH - 28, buttonH = 22, actionW = Math.max(42, (bw - 28) / 3), actionGap = 5;
-      const actionLabel = !owned ? `HẠ BOSS MÀN ${(g.unlockStage ?? 2) - 1} · NHẶT` : p.equippedGun === g.id ? 'ĐANG DÙNG' : 'TRANG BỊ';
+      const actionLabel = !owned ? english ? `Mission ${(g.unlockStage ?? 2) - 1} boss · Recover` : `Hạ trùm màn ${(g.unlockStage ?? 2) - 1} · Nhặt`
+        : p.equippedGun === g.id ? (english ? 'Equipped' : 'Đang dùng') : (english ? 'Equip' : 'Trang bị');
       this.add(bx + 9, buttonY, actionW, buttonH, actionLabel, `gun:${g.id}`, !owned || p.equippedGun === g.id);
-      const upgradeLabel = !owned ? 'CHƯA CÓ SÚNG' : upgradeLevel >= 3 ? 'TỐI ĐA' : `NÂNG · ${upgradeCost}`;
+      const upgradeLabel = !owned ? (english ? 'Not recovered' : 'Chưa có súng') : upgradeLevel >= 3 ? (english ? 'Max level' : 'Tối đa') : `${english ? 'Upgrade' : 'Nâng'} · ${upgradeCost}`;
       this.add(bx + 9 + actionW + actionGap, buttonY, actionW, buttonH, upgradeLabel, `upgrade:${g.id}`,
         !owned || upgradeLevel >= 3 || p.credits < upgradeCost);
       const ammoCost = GUN_AMMO_COST[g.id] ?? 0;
       const ammoFull = ammo.reserveAmmo < 0 || ammo.reserveAmmo >= g.magSize * 12;
-      const ammoLabel = sidearm ? 'ĐẠN VÔ HẠN' : !owned ? 'CHƯA CÓ SÚNG' : ammoFull ? 'ĐỦ ĐẠN' : `MUA +${g.magSize * 2} · ${ammoCost}`;
+      const ammoLabel = sidearm ? (english ? 'Unlimited ammo' : 'Đạn vô hạn') : !owned ? (english ? 'Not recovered' : 'Chưa có súng') : ammoFull ? (english ? 'Ammo full' : 'Đủ đạn') : `${english ? 'Buy' : 'Mua'} +${g.magSize * 2} · ${ammoCost}`;
       this.add(bx + 9 + (actionW + actionGap) * 2, buttonY, actionW, buttonH, ammoLabel, `buyammo:${g.id}`,
         sidearm || !owned || ammoFull || p.credits < ammoCost);
     });
     if (pageCount > 1) {
       const pageButtonW = Math.min(100, (w - 100) / 2);
-      this.add(x + 22, pagerY, pageButtonW, 25, '← TRƯỚC', `gunpage:${this.gunPage - 1}`, this.gunPage === 0);
+      this.add(x + 22, pagerY, pageButtonW, 25, english ? '← Previous' : '← Trước', `gunpage:${this.gunPage - 1}`, this.gunPage === 0);
       ctx.fillStyle = C.textSoft; ctx.textAlign = 'center'; ctx.font = '12px Segoe UI, Arial'; ctx.fillText(`${this.gunPage + 1}/${pageCount}`, x + w / 2, pagerY + 17);
-      this.add(x + w - pageButtonW - 22, pagerY, pageButtonW, 25, 'SAU →', `gunpage:${this.gunPage + 1}`, this.gunPage === pageCount - 1);
+      this.add(x + w - pageButtonW - 22, pagerY, pageButtonW, 25, english ? 'Next →' : 'Sau →', `gunpage:${this.gunPage + 1}`, this.gunPage === pageCount - 1);
     }
   }
 
   private drawGear(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number,
     p: SaveSystem['data']['campaign'], narrow: boolean): void {
+    const english = this.language === 'en';
     const gearY = y + h - 143, gearH = 62, gap = 6, cellW = (w - 44 - gap * 2) / 3;
     const items = [
-      { title: `ĐÈN PIN · CẤP ${p.flashlightLevel}/3`, detail: p.flashlightLevel >= 3 ? 'ĐỘ SÁNG TỐI ĐA' : 'TẦM CHIẾU XA HƠN', action: 'flashlight', cost: 95 + p.flashlightLevel * 75, disabled: p.flashlightLevel >= 3 },
-      { title: `ÁO GIÁP · CẤP ${p.armorLevel}/3`, detail: p.armorLevel ? `GIẢM ${[0, 10, 18, 25][p.armorLevel]}% SÁT THƯƠNG` : 'GIẢM SÁT THƯƠNG NHẬN', action: 'armor', cost: [150, 260, 390][p.armorLevel] ?? 390, disabled: p.armorLevel >= 3 },
-      { title: `TÚI CỨU THƯƠNG · ${p.medKits}/5`, detail: 'TỰ DÙNG · HỒI 50% MÁU', action: 'med', cost: 70, disabled: p.medKits >= 5 },
+      { title: english ? `Flashlight · level ${p.flashlightLevel}/3` : `Đèn pin · cấp ${p.flashlightLevel}/3`, detail: p.flashlightLevel >= 3 ? (english ? 'Maximum brightness' : 'Độ sáng tối đa') : (english ? 'Longer beam' : 'Chiếu xa hơn'), action: 'flashlight', cost: 95 + p.flashlightLevel * 75, disabled: p.flashlightLevel >= 3 },
+      { title: english ? `Armor · level ${p.armorLevel}/3` : `Áo giáp · cấp ${p.armorLevel}/3`, detail: p.armorLevel ? (english ? `Reduces damage by ${[0, 10, 18, 25][p.armorLevel]}%` : `Giảm ${[0, 10, 18, 25][p.armorLevel]}% sát thương`) : (english ? 'Reduces incoming damage' : 'Giảm sát thương nhận vào'), action: 'armor', cost: [150, 260, 390][p.armorLevel] ?? 390, disabled: p.armorLevel >= 3 },
+      { title: english ? `Medical kit · ${p.medKits}/5` : `Túi cứu thương · ${p.medKits}/5`, detail: english ? 'Auto-use · restores 50% HP' : 'Tự dùng · hồi 50% máu', action: 'med', cost: 70, disabled: p.medKits >= 5 },
     ];
     items.forEach((item, i) => {
       const bx = x + 22 + i * (cellW + gap);
@@ -337,7 +370,7 @@ export class CampaignUI {
       ctx.fillText(item.title, bx + 6, gearY + 13, cellW - 12);
       ctx.fillStyle = C.textSoft; ctx.font = `${narrow ? 7 : 9}px Segoe UI, Arial`;
       ctx.fillText(item.detail, bx + 6, gearY + 26, cellW - 12);
-      const label = item.disabled ? (item.action === 'med' ? 'ĐẦY TÚI' : 'TỐI ĐA') : `MUA · ${item.cost}`;
+      const label = item.disabled ? (item.action === 'med' ? (english ? 'Full' : 'Đầy túi') : (english ? 'Max level' : 'Tối đa')) : `${english ? 'Buy' : 'Mua'} · ${item.cost}`;
       this.add(bx + 5, gearY + 33, cellW - 10, 23, label, item.action,
         item.disabled || p.credits < item.cost);
     });
@@ -351,6 +384,7 @@ export class CampaignUI {
 
   private drawDrone(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number,
     p: SaveSystem['data']['campaign'], narrow: boolean): void {
+    const english = this.language === 'en';
     const level = Math.min(DRONE_UPGRADE.maxLevel, p.cardLevels.drone ?? 0);
     const maxed = level >= DRONE_UPGRADE.maxLevel;
     const cost = this.dronePrice(level);
@@ -359,15 +393,15 @@ export class CampaignUI {
     const compactPanel = panelH < 270;
     ctx.textAlign = 'center'; ctx.fillStyle = C.cyanBright;
     ctx.font = `bold ${narrow ? 12 : 15}px Segoe UI, Arial`;
-    ctx.fillText('HỖ TRỢ HỎA LỰC TỰ ĐỘNG', x + w / 2, panelY + 25);
+    ctx.fillText(english ? 'Automatic fire support' : 'Hỗ trợ hỏa lực tự động', x + w / 2, panelY + 25);
     this.drawDroneIcon(ctx, x + w / 2, panelY + (compactPanel ? 60 : 80), narrow ? 1.1 : 1.5);
     ctx.fillStyle = C.text; ctx.font = `bold ${narrow ? 16 : 20}px Segoe UI, Arial`;
-    ctx.fillText(DRONE_UPGRADE.name.toUpperCase(), x + w / 2, panelY + (compactPanel ? 110 : 145));
+    ctx.fillText(english ? 'Support drone' : 'Drone hộ vệ', x + w / 2, panelY + (compactPanel ? 110 : 145));
     ctx.fillStyle = C.textSoft; ctx.font = `${narrow ? 11 : 13}px Segoe UI, Arial`;
     if (compactPanel) {
-      ctx.fillText('Bay quanh người chơi và tự bắn mục tiêu gần nhất.', x + 40, panelY + 129, w - 80);
+      ctx.fillText(english ? 'Orbits the player and fires at the nearest target.' : 'Bay quanh người chơi và tự bắn mục tiêu gần nhất.', x + 40, panelY + 129, w - 80);
     } else {
-      this.wrap(ctx, 'Drone bay quanh nhân vật và tự động bắn mục tiêu gần nhất. Mỗi cấp thêm một drone.',
+      this.wrap(ctx, english ? 'The drone circles the player and fires at the nearest target. Each level adds another drone.' : 'Drone bay quanh nhân vật và tự động bắn mục tiêu gần nhất. Mỗi cấp thêm một drone.',
         x + 40, panelY + 171, w - 80, 17, 2);
     }
     const pipGap = 20, pipStart = x + w / 2 - (DRONE_UPGRADE.maxLevel - 1) * pipGap / 2;
@@ -376,12 +410,12 @@ export class CampaignUI {
       ctx.fillStyle = i < level ? C.cyanBright : C.borderSoft; ctx.fill();
     }
     ctx.fillStyle = C.textSoft; ctx.font = 'bold 11px Segoe UI, Arial';
-    ctx.fillText(`CẤP ${level}/${DRONE_UPGRADE.maxLevel}  ·  ${level} DRONE ĐANG HOẠT ĐỘNG`, x + w / 2, panelY + panelH - 27);
-    const label = maxed ? 'ĐÃ ĐẠT CẤP TỐI ĐA' : `NÂNG DRONE LÊN CẤP ${level + 1}  ·  ${cost} TÍN DỤNG`;
+    ctx.fillText(english ? `Level ${level}/${DRONE_UPGRADE.maxLevel} · ${level} drones active` : `Cấp ${level}/${DRONE_UPGRADE.maxLevel} · ${level} drone đang hoạt động`, x + w / 2, panelY + panelH - 27);
+      const label = maxed ? (english ? 'Maximum level reached' : 'Đã đạt cấp tối đa') : english ? `Upgrade to level ${level + 1} · ${cost} credits` : `Nâng drone lên cấp ${level + 1} · ${cost} tín dụng`;
     this.add(x + 42, y + h - 194, w - 84, 30, label, 'drone', maxed || p.credits < cost);
     if (!maxed && p.credits < cost) {
       ctx.fillStyle = C.textMuted; ctx.font = '11px Segoe UI, Arial';
-      ctx.fillText(`CÒN THIẾU ${cost - p.credits} TÍN DỤNG`, x + w / 2, y + h - 200);
+      ctx.fillText(english ? `${cost - p.credits} more credits needed` : `Còn thiếu ${cost - p.credits} tín dụng`, x + w / 2, y + h - 200);
     }
   }
 
@@ -407,61 +441,79 @@ export class CampaignUI {
 
   private results(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
     const s = STAGES[this.selectedStage];
-    this.title(ctx, `HOÀN THÀNH · ${s.name}`, x + 22, y + 82);
+    const english = this.language === 'en';
+    const stage = getStageCopy(s, this.language);
+    this.title(ctx, `${english ? 'Mission complete' : 'Đã hoàn thành'} · ${stage.name}`, x + 22, y + 82);
     const progress = Math.min(1, Math.max(0, (performance.now() - this.resultAnimationStartedAt) / 1700));
     const eased = 1 - Math.pow(1 - progress, 3);
     const countedTotal = Math.round(this.result.previousTotalScore
       + (this.result.totalScore - this.result.previousTotalScore) * eased);
-    const formatScore = (value: number) => Math.max(0, value).toLocaleString('vi-VN');
-    const rows = [
-      `TỔNG ĐIỂM CHIẾN DỊCH: ${formatScore(countedTotal)}  (+${formatScore(this.result.scoreAdded)})`,
-      `ĐIỂM MÀN NÀY: ${formatScore(this.result.score)}`,
-      `THỜI GIAN: ${Math.floor(this.result.time / 60)}:${String(Math.floor(this.result.time % 60)).padStart(2, '0')}  ·  QUÁI HẠ: ${this.result.kills}`,
-      `BOSS: ${s.bossName} ĐÃ BỊ HẠ  ·  ĐIỂM TIẾP TẾ: ${this.result.optional}`,
-      `THƯỞNG LẦN ĐẦU: +${this.result.reward} TÍN DỤNG`,
-      this.result.newStage ? `ĐÃ MỞ MÀN ${this.result.newStage}` : 'KHÔNG CÓ MÀN MỚI',
+    const formatScore = (value: number) => Math.max(0, value).toLocaleString(english ? 'en-US' : 'vi-VN');
+    const time = `${Math.floor(this.result.time / 60)}:${String(Math.floor(this.result.time % 60)).padStart(2, '0')}`;
+    const rows = english ? [
+      `Campaign score: ${formatScore(countedTotal)} (+${formatScore(this.result.scoreAdded)})`,
+      `Mission score: ${formatScore(this.result.score)}`,
+      `Time: ${time} · Kills: ${this.result.kills}`,
+      `Boss defeated: ${stage.bossName} · Supplies secured: ${this.result.optional}`,
+      `First-clear reward: +${this.result.reward} credits`,
+      this.result.newStage ? `Mission ${this.result.newStage} unlocked` : 'No new mission unlocked',
+    ] : [
+      `Tổng điểm Chiến dịch: ${formatScore(countedTotal)} (+${formatScore(this.result.scoreAdded)})`,
+      `Điểm màn này: ${formatScore(this.result.score)}`,
+      `Thời gian: ${time} · Quái hạ gục: ${this.result.kills}`,
+      `Đã hạ trùm: ${stage.bossName} · Tiếp tế thu hồi: ${this.result.optional}`,
+      `Thưởng lần đầu: +${this.result.reward} tín dụng`,
+      this.result.newStage ? `Đã mở màn ${this.result.newStage}` : 'Chưa mở màn mới',
     ];
     ctx.textAlign = 'left'; ctx.font = '15px Segoe UI, Arial';
     rows.forEach((line, i) => {
       ctx.fillStyle = i === 0 ? C.amberBright : i === 5 ? C.text : C.textSoft;
       if (i === 0) ctx.font = 'bold 17px Segoe UI, Arial';
       else ctx.font = '15px Segoe UI, Arial';
-      ctx.fillText(line.toLocaleUpperCase('vi-VN'), x + 26, y + 125 + i * Math.min(49, (h - 225) / rows.length), w - 50);
+      ctx.fillText(line, x + 26, y + 125 + i * Math.min(49, (h - 225) / rows.length), w - 50);
     });
     if (w < 600) {
-      this.add(x + 22, y + h - 96, w - 44, 34, 'KHO VŨ KHÍ + DRONE', 'post_stage_armory');
+      this.add(x + 22, y + h - 96, w - 44, 34, english ? 'Armory and drone' : 'Kho vũ khí và drone', 'post_stage_armory');
       const bw = (w - 52) / 2;
-      this.add(x + 22, y + h - 54, bw, 34, 'BẢN ĐỒ', 'stages');
-      this.add(x + w - bw - 22, y + h - 54, bw, 34, 'CHƠI LẠI', 'retry');
+      this.add(x + 22, y + h - 54, bw, 34, english ? 'Missions' : 'Bản đồ', 'stages');
+      this.add(x + w - bw - 22, y + h - 54, bw, 34, english ? 'Retry' : 'Chơi lại', 'retry');
     } else {
       const bw = Math.min(220, (w - 64) / 3);
-      this.add(x + 22, y + h - 54, bw, 36, 'BẢN ĐỒ', 'stages');
-      this.add(x + (w - bw) / 2, y + h - 54, bw, 36, 'CHƠI LẠI', 'retry');
-      this.add(x + w - bw - 22, y + h - 54, bw, 36, 'KHO VŨ KHÍ + DRONE', 'post_stage_armory');
+      this.add(x + 22, y + h - 54, bw, 36, english ? 'Missions' : 'Bản đồ', 'stages');
+      this.add(x + (w - bw) / 2, y + h - 54, bw, 36, english ? 'Retry' : 'Chơi lại', 'retry');
+      this.add(x + w - bw - 22, y + h - 54, bw, 36, english ? 'Armory and drone' : 'Kho vũ khí và drone', 'post_stage_armory');
     }
   }
 
   private failure(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
-    this.title(ctx, 'NHIỆM VỤ THẤT BẠI', x + 22, y + 82);
-    this.copy(ctx, 'BÁO CÁO', `${STAGES[this.selectedStage].name} · ${this.result.kills} quái hạ · ${Math.floor(this.result.time)} giây sống sót`, x + 24, y + 130, w - 48);
-    this.copy(ctx, this.impossibleDeath ? 'MỘT MẠNG DUY NHẤT' : 'TIẾN TRÌNH',
+    const english = this.language === 'en';
+    const stage = getStageCopy(STAGES[this.selectedStage], this.language);
+    this.title(ctx, english ? 'Mission failed' : 'Nhiệm vụ thất bại', x + 22, y + 82);
+    this.copy(ctx, english ? 'After-action report' : 'Báo cáo', english
+      ? `${stage.name} · ${this.result.kills} kills · survived ${Math.floor(this.result.time)} seconds`
+      : `${stage.name} · hạ ${this.result.kills} quái · sống sót ${Math.floor(this.result.time)} giây`, x + 24, y + 130, w - 48);
+    this.copy(ctx, this.impossibleDeath ? (english ? 'No second chance' : 'Không còn cơ hội') : (english ? 'Campaign status' : 'Tiến trình'),
       this.impossibleDeath
-        ? 'Run đã kết thúc. Chọn Thử lại để bắt đầu từ Màn 1. Trang bị và kỷ lục vẫn được giữ.'
-        : 'Không ghi hoàn thành. Súng, drone, đạn còn lại và vật tư chưa dùng vẫn được giữ.',
+        ? english ? 'The Campaign save has been erased. Start a new game from Mission 1.' : 'Hồ sơ Chiến dịch đã bị xóa. Game mới sẽ bắt đầu từ màn 1.'
+        : english ? 'Mission incomplete. Your weapons, drone, remaining ammo, and unused supplies are retained.'
+          : 'Màn chưa hoàn thành. Súng, drone, đạn còn lại và vật tư chưa dùng vẫn được giữ.',
       x + 24, y + 215, w - 48);
     const bw = Math.min(210, (w - 60) / 2);
-    if (!this.impossibleDeath) {
+    if (this.impossibleDeath) {
+      this.add(x + 22, y + h - 54, bw, 36, english ? 'Main menu' : 'Menu chính', 'main');
+      this.add(x + w - bw - 22, y + h - 54, bw, 36, english ? 'New game' : 'Game mới', 'retry');
+    } else {
       this.add(x + 22, y + h - 96, w - 44, 32,
-        this.reviveAdPending ? 'QUẢNG CÁO ĐANG TẢI…' : 'HỒI SINH · XEM QUẢNG CÁO', 'revive_ad',
+        this.reviveAdPending ? (english ? 'Loading ad…' : 'Đang tải quảng cáo…') : (english ? 'Revive · watch an ad' : 'Hồi sinh · xem quảng cáo'), 'revive_ad',
         !this.canWatchRevive || this.reviveAdPending);
+      this.add(x + 22, y + h - 54, bw, 36, english ? 'Armory' : 'Kho vũ khí', 'return_armory');
+      this.add(x + w - bw - 22, y + h - 54, bw, 36, english ? 'Retry' : 'Thử lại', 'retry');
     }
-    this.add(x + 22, y + h - 54, bw, 36, 'KHO VŨ KHÍ', 'return_armory');
-    this.add(x + w - bw - 22, y + h - 54, bw, 36, 'THỬ LẠI', 'retry');
   }
 
-  private title(ctx: CanvasRenderingContext2D, text: string, x: number, y: number): void { ctx.textAlign = 'left'; ctx.fillStyle = C.text; ctx.font = 'bold 22px Segoe UI, Arial'; ctx.fillText(text.toLocaleUpperCase('vi-VN'), x, y); }
+  private title(ctx: CanvasRenderingContext2D, text: string, x: number, y: number): void { ctx.textAlign = 'left'; ctx.fillStyle = C.text; ctx.font = 'bold 22px Segoe UI, Arial'; ctx.fillText(sentenceCaseDisplay(text, this.language), x, y); }
   private copy(ctx: CanvasRenderingContext2D, label: string, body: string, x: number, y: number, width: number): void {
-    ctx.textAlign = 'left'; ctx.fillStyle = C.amberBright; ctx.font = 'bold 12px Segoe UI, Arial'; ctx.fillText(label, x, y);
+    ctx.textAlign = 'left'; ctx.fillStyle = C.amberBright; ctx.font = 'bold 12px Segoe UI, Arial'; ctx.fillText(sentenceCaseDisplay(label, this.language), x, y);
     ctx.fillStyle = C.textSoft; ctx.font = '13px Segoe UI, Arial'; this.wrap(ctx, body, x, y + 23, width, 18, 2);
   }
   private wrap(ctx: CanvasRenderingContext2D, str: string, x: number, y: number, width: number, lineH: number, maxLines: number): void {
@@ -479,10 +531,34 @@ export class CampaignUI {
   private add(x: number, y: number, w: number, h: number, label: string, action: string, disabled = false): void { this.buttons.push({ x, y, w, h, label, action, disabled }); }
   private drawButton(ctx: CanvasRenderingContext2D, b: Button): void {
     if (!b.label) return;
-    const selected = b.disabled && (b.action.startsWith('tab:') || b.label === 'ĐANG CHỌN' || b.label === 'ĐANG DÙNG');
+    const normalizedLabel = b.label.toLocaleLowerCase('vi-VN');
+    const selected = b.disabled && (b.action.startsWith('tab:') || normalizedLabel === 'đang chọn' || normalizedLabel === 'đang dùng' || normalizedLabel === 'selected' || normalizedLabel === 'equipped');
     ctx.fillStyle = selected ? C.selected : b.disabled ? '#30383c' : '#49675c'; ctx.fillRect(b.x, b.y, b.w, b.h);
     ctx.strokeStyle = selected ? C.selectedBorder : b.disabled ? C.borderSoft : C.health; ctx.strokeRect(b.x, b.y, b.w, b.h);
     ctx.fillStyle = b.disabled && !selected ? C.textMuted : C.text; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.font = `bold ${b.w < 140 ? 10 : 12}px Segoe UI, Arial`; ctx.fillText(b.label.toLocaleUpperCase('vi-VN'), b.x + b.w / 2, b.y + b.h / 2, b.w - 8); ctx.textBaseline = 'alphabetic';
+    ctx.font = `bold ${b.w < 140 ? 10 : 12}px Segoe UI, Arial`; ctx.fillText(sentenceCaseDisplay(b.label, this.language), b.x + b.w / 2, b.y + b.h / 2, b.w - 8); ctx.textBaseline = 'alphabetic';
+  }
+
+  private characterName(id: string, fallback: string): string {
+    const names = this.language === 'en'
+      ? { survivor: 'Survivor', soldier: 'Soldier', scout: 'Scout', medic: 'Medic', engineer: 'Engineer', berserker: 'Berserker' }
+      : { survivor: 'Người sống sót', soldier: 'Lính', scout: 'Trinh sát', medic: 'Quân y', engineer: 'Kỹ sư', berserker: 'Cuồng chiến' };
+    return names[id as keyof typeof names] ?? fallback;
+  }
+
+  private characterDescription(id: string, fallback: string): string {
+    const descriptions = this.language === 'en'
+      ? { survivor: 'Picks up items from 20% farther away', soldier: 'Deals 20% more damage', scout: 'Moves 20% faster', medic: 'Has 25% more maximum HP', engineer: 'Fires 18% faster', berserker: 'Takes 18% less damage' }
+      : { survivor: 'Nhặt vật phẩm xa hơn 20%', soldier: 'Gây thêm 20% sát thương', scout: 'Di chuyển nhanh hơn 20%', medic: 'Tăng 25% máu tối đa', engineer: 'Tăng 18% tốc độ bắn', berserker: 'Giảm 18% sát thương nhận vào' };
+    return descriptions[id as keyof typeof descriptions] ?? fallback;
+  }
+
+  private zombieName(id: string): string {
+    return localizeZombieName(id, this.language);
+  }
+
+  private weaponType(type: string): string {
+    if (this.language === 'en') return type === 'smg' ? 'SMG' : type.toLocaleLowerCase('en-US');
+    return type === 'rifle' ? 'Súng trường' : type === 'shotgun' ? 'Shotgun' : 'SMG';
   }
 }

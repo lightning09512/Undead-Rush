@@ -102,6 +102,7 @@ export class ShopUI {
 
       if (x >= btnX && x <= btnX + btnW && y >= btnY && y <= btnY + btnH) {
         const char = CHARACTERS[i];
+        const cost = (char as CharacterDef & { cost?: number }).cost;
         const isUnlocked = save.data.unlockedCharacters.includes(char.id);
 
         if (isUnlocked) {
@@ -109,8 +110,8 @@ export class ShopUI {
           save.save();
           audio.menuSelect();
           return 'selected';
-        } else if (save.data.gold >= char.cost) {
-          save.data.gold -= char.cost;
+        } else if (cost !== undefined && save.data.gold >= cost) {
+          save.data.gold -= cost;
           save.unlockCharacter(char.id);
           save.data.selectedCharacter = char.id;
           save.save();
@@ -323,9 +324,10 @@ export class ShopUI {
       } else if (isUnlocked) {
         this.drawButton(ctx, startX + itemW - 100, iy + 24, 90, 32, 'CHỌN', C.cyan);
       } else {
-        const canAfford = save.data.gold >= char.cost;
+        const cost = (char as CharacterDef & { cost?: number }).cost;
+        const canAfford = cost !== undefined && save.data.gold >= cost;
         this.drawButton(ctx, startX + itemW - 100, iy + 24, 90, 32,
-          `${char.cost} 💰`, canAfford ? C.health : C.inactive);
+          cost === undefined ? '—' : `${cost} 💰`, canAfford ? C.health : C.inactive);
       }
     }
   }

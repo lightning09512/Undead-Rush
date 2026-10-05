@@ -50,6 +50,7 @@ import { canDamageCampaignSpawnPortal } from './systems/campaign-portal-rules';
 import { CampaignResources } from './systems/campaign-resources';
 import { CampaignUI } from './ui/campaign-ui';
 import { createCampaignGunDefs } from './systems/gun-loadout';
+import { getStageCopy, getUiTerm, localizeZoneName, sentenceCaseDisplay } from './data/localization';
 
 // Development encounters use an isolated, non-persistent save from the outset.
 const horrorPreview = import.meta.env.DEV && new URLSearchParams(location.search).get('horror-preview') === '1';
@@ -326,7 +327,7 @@ function gameLoop(timestamp: number): void {
     ctx.fillStyle = '#ffffff';
     ctx.font = '24px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('LOADING ASSETS...', viewportWidth / 2, viewportHeight / 2);
+    ctx.fillText(save.data.language === 'en' ? 'Loading assets' : 'Đang tải dữ liệu', viewportWidth / 2, viewportHeight / 2);
     return;
   }
 
@@ -959,10 +960,12 @@ function updateGame(dt: number): void {
   }
 
   if (gameMode === 'stage') {
-    const supplies = campaignResources.collectNearby(player, weapons.loadout, upgradeValue('ammo_scavenger', 1));
+    const supplies = campaignResources.collectNearby(player, weapons.loadout, upgradeValue('ammo_scavenger', 1), save.data.language);
     if (supplies.length) {
       const last = supplies[supplies.length - 1];
-      campaignSupplyNotice = supplies.length > 1 ? `${last.label} · +${supplies.length - 1} HỘP` : last.label;
+      campaignSupplyNotice = supplies.length > 1
+        ? `${last.label} · +${supplies.length - 1} ${save.data.language === 'en' ? 'crates' : 'thùng'}`
+        : sentenceCaseDisplay(last.label, save.data.language);
       campaignSupplyNoticeTimer = 2.2;
       for (const supply of supplies) particles.emit(supply.x, supply.y, 6,
         supply.kind === 'med' ? '#9ed4a6' : supply.kind === 'ammo' ? '#e9c47b' : '#9ac8c7', 50, .3, 2);
@@ -1010,7 +1013,8 @@ function handlePickup(itemId: string, value: number, duration: number): void {
     const added = weapons.loadout.addCampaignAmmoForGun(gunId, Math.round(value * upgradeValue('ammo_scavenger', 1)));
     if (added > 0) {
       audio.supplyPickup('ammo');
-      campaignSupplyNotice = `ĐẠN ${campaignGuns.find(gun => gun.id === gunId)?.shortName ?? gunId.toUpperCase()} +${added}`;
+      const gunName = campaignGuns.find(gun => gun.id === gunId)?.shortName ?? gunId.toUpperCase();
+      campaignSupplyNotice = save.data.language === 'en' ? `${gunName} ammo +${added}` : `Đạn ${gunName} +${added}`;
       campaignSupplyNoticeTimer = 1.8;
       particles.emit(player.x, player.y, 5, '#d5b477', 45, .25, 2);
     }
@@ -1024,7 +1028,10 @@ function handlePickup(itemId: string, value: number, duration: number): void {
       save.data.campaign.equippedGun = gunId;
       save.save();
       bossWeaponDrop = null;
-      campaignSupplyNotice = `ĐÃ NHẶT ${campaignGuns.find(gun => gun.id === gunId)?.shortName ?? gunId.toUpperCase()} · CÓ THỂ ĐỔI BẰNG PHÍM SỐ`;
+      const gunName = campaignGuns.find(gun => gun.id === gunId)?.shortName ?? gunId.toUpperCase();
+      campaignSupplyNotice = save.data.language === 'en'
+        ? `Weapon recovered: ${gunName} · select with a number key`
+        : `Đã nhặt ${gunName} · đổi bằng phím số`;
       campaignSupplyNoticeTimer = 3.5;
       particles.emit(player.x, player.y, 24, '#d6b375', 100, .6, 4);
       audio.levelUp();
@@ -1037,7 +1044,8 @@ function handlePickup(itemId: string, value: number, duration: number): void {
     const added = weapons.loadout.addAmmoForGun(gunId, rounds);
     if (added > 0) {
       audio.supplyPickup('ammo');
-      campaignSupplyNotice = `ĐẠN ${campaignGuns.find(gun => gun.id === gunId)?.shortName ?? gunId.toUpperCase()} +${added}`;
+      const gunName = campaignGuns.find(gun => gun.id === gunId)?.shortName ?? gunId.toUpperCase();
+      campaignSupplyNotice = save.data.language === 'en' ? `${gunName} ammo +${added}` : `Đạn ${gunName} +${added}`;
       campaignSupplyNoticeTimer = 1.8;
       particles.emit(player.x, player.y, 5, '#d5b477', 45, .25, 2);
     }
@@ -1048,9 +1056,10 @@ function handlePickup(itemId: string, value: number, duration: number): void {
     const wasOwned = weapons.loadout.hasGun(gunId);
     if (weapons.loadout.collectSurvivalGun(gunId, audio)) {
       if (wasOwned) audio.supplyPickup('ammo'); else audio.supplyPickup('crate');
+      const gunName = campaignGuns.find(gun => gun.id === gunId)?.shortName ?? gunId.toUpperCase();
       campaignSupplyNotice = wasOwned
-        ? `TIẾP ĐẠN ${campaignGuns.find(gun => gun.id === gunId)?.shortName ?? gunId.toUpperCase()}`
-        : `ĐÃ NHẶT ${campaignGuns.find(gun => gun.id === gunId)?.shortName ?? gunId.toUpperCase()} · ĐỔI BẰNG PHÍM SỐ`;
+        ? save.data.language === 'en' ? `${gunName} ammo refilled` : `Đã tiếp đạn ${gunName}`
+        : save.data.language === 'en' ? `Weapon recovered: ${gunName} · select with a number key` : `Đã nhặt ${gunName} · đổi bằng phím số`;
       campaignSupplyNoticeTimer = 2.2;
       particles.emit(player.x, player.y, 18, '#d6b375', 85, .45, 3);
     }
@@ -1250,7 +1259,7 @@ function handlePlayerDeath(): void {
     menuUI.canWatchRevive = !impossibleCampaign;
     if (impossibleCampaign) {
       hasRevive = false;
-      save.resetCampaignRunToFirstStage();
+      save.resetCampaignAfterImpossibleDeath();
     }
     campaignUI.selectedStage = currentStageIndex;
     const totalScore = save.data.campaign.totalScore;
@@ -2205,7 +2214,7 @@ function drawGame(): void {
 
   const campaignStage = gameMode === 'stage' ? STAGES[currentStageIndex] : undefined;
   if (campaignStage) {
-    campaignTerrainRenderer.draw(ctx, camera, campaignStage, stageObjectiveIndex, player.x, player.y, gameTime);
+    campaignTerrainRenderer.draw(ctx, camera, campaignStage, stageObjectiveIndex, player.x, player.y, gameTime, save.data.language);
     bloodStains.draw(ctx, camera);
     LightingRenderer.get().drawCampaignLighting(ctx, camera, campaignStage, player.x, player.y, player.aimAngle,
       viewportWidth, viewportHeight, save.data.campaign.flashlightLevel);
@@ -2232,14 +2241,14 @@ function drawGame(): void {
           : undefined;
     campaignMapRenderer.draw(ctx, camera, campaignStage, stageObjectiveIndex, stageBossSpawned, stageExitActive, stageExitActivated,
       spawnCue, { playerX: player.x, playerY: player.y, gameTime, holdStarted: stageObjectiveHoldStarted, exitInteractable: !bossWeaponDrop,
-        nestCharge: campaignNestCharge?.stageId === campaignStage.id ? campaignNestCharge : undefined });
-    campaignResources.draw(ctx, camera);
+        nestCharge: campaignNestCharge?.stageId === campaignStage.id ? campaignNestCharge : undefined }, save.data.language);
+    campaignResources.draw(ctx, camera, save.data.language);
   } else {
     groundRenderer.draw(ctx, camera);
     bloodStains.draw(ctx, camera);
     drawMapBorder();
     weapons.loadout.casings.draw(ctx, camera);
-    propRenderer.draw(ctx, camera, 'ground', true);
+    propRenderer.draw(ctx, camera, 'ground', true, save.data.language);
   }
 
   if (gameMode === 'endless') {
@@ -2249,10 +2258,10 @@ function drawGame(): void {
   zombies.drawWarnings(ctx, camera, showSkillDirections);
   const directorStageId = campaignStage?.id ?? (gameMode === 'endless' && survivalPhase === 'boss' ? survivalBossStageId : 0);
   if (directorStageId) campaignBossDirector.draw(ctx, camera,
-    zombies.pool.getActive().find((z) => z.campaignBossId === directorStageId), showSkillDirections);
+    zombies.pool.getActive().find((z) => z.campaignBossId === directorStageId), showSkillDirections, save.data.language);
 
   // Draw entities
-  mapPickups.draw(ctx, camera);
+  mapPickups.draw(ctx, camera, save.data.language);
   supplyCrates.draw(ctx, camera);
   if (campaignStage) campaignCredits.draw(ctx, camera);
   else xpGems.draw(ctx, camera);
@@ -2272,7 +2281,7 @@ function drawGame(): void {
   // retain their dedicated renderer inside ZombieSystem.draw.
   zombies.draw(ctx, camera, true);
 
-  if (!campaignStage) propRenderer.draw(ctx, camera, 'above', true);
+  if (!campaignStage) propRenderer.draw(ctx, camera, 'above', true, save.data.language);
 
   particles.draw(ctx, camera);
   explosionEffects.draw(ctx, camera);
@@ -2297,16 +2306,16 @@ function drawGame(): void {
     : undefined;
   hud.draw(ctx, viewportWidth, viewportHeight, player, gameTime, input, zombies, mapPickups, camera,
     campaignStage ? { stage: campaignStage, activeNode: stageObjectiveIndex, bossSpawned: stageBossSpawned,
-      bossName: campaignStage.bossName,
+      bossName: getStageCopy(campaignStage, save.data.language).bossName,
       bossHpRatio: campaignBossForHud ? campaignBossForHud.hp / Math.max(1, campaignBossForHud.maxHp) : 0,
       exitActive: stageExitActive, exitActivated: stageExitActivated,
       credits: save.data.campaign.credits, creditGain: creditGainTimer > 0 ? lastCreditGain : 0 } : undefined,
     gameMode === 'endless' && !previewEncounter ? {
       wave: Math.max(1, survivalWave), phase: survivalPhase,
       bossName: survivalPhase === 'boss' || survivalPhase === 'boss-warning'
-        ? STAGES.find(value => value.id === survivalBossStageId)?.bossName : undefined,
+        ? (() => { const stage = STAGES.find(value => value.id === survivalBossStageId); return stage ? getStageCopy(stage, save.data.language).bossName : undefined; })() : undefined,
       bossHpRatio: survivalBossForHud ? survivalBossForHud.hp / Math.max(1, survivalBossForHud.maxHp) : 0,
-    } : undefined);
+    } : undefined, save.data.language);
 
   // Active buffs display
   drawActiveBuffs();
@@ -2322,7 +2331,7 @@ function drawGame(): void {
       armorLevel: save.data.campaign.armorLevel,
       medKits: save.data.campaign.medKits,
       flashlightLevel: save.data.campaign.flashlightLevel,
-    } : undefined);
+    } : undefined, save.data.language);
     if (gameMode === 'stage' && campaignMedkitFlashTimer > 0) {
       ctx.save();
       ctx.globalAlpha = Math.min(.7, campaignMedkitFlashTimer * .8);
@@ -2337,7 +2346,7 @@ function drawGame(): void {
       rageCooldown: weapons.loadout.rageCooldownTimer,
       rageCooldownMax: weapons.loadout.rageCooldownDuration,
       rageActiveTimer: weapons.loadout.rageActiveTimer,
-    });
+    }, save.data.language);
   }
 
   // ─── Custom Shooter Crosshair (Directional Arrow & Reticle) ───
@@ -2404,7 +2413,15 @@ function drawActiveBuffs(): void {
 
     // Label
     ctx.fillStyle = UI_PALETTE.textSoft;
-    const label = key.replace('_', ' ').toUpperCase();
+    const buffLabels: Record<string, [string, string]> = {
+      speed_boost: ['Tăng tốc', 'Speed boost'],
+      double_xp: ['Nhân đôi XP', 'Double XP'],
+      invincible: ['Bất tử', 'Invulnerability'],
+      freeze: ['Đóng băng', 'Freeze'],
+      shield: ['Lá chắn', 'Shield'],
+    };
+    const label = buffLabels[key]?.[save.data.language === 'en' ? 1 : 0]
+      ?? sentenceCaseDisplay(key.replaceAll('_', ' '), save.data.language);
     ctx.fillText(label, x - 5, y - 3);
     ctx.fillStyle = UI_PALETTE.text;
     ctx.fillText(`${Math.ceil(buff.duration)}s`, x - 5, y + 8);
@@ -2416,6 +2433,8 @@ function drawActiveBuffs(): void {
 function drawStageObjective(): void {
   if (currentStageIndex >= STAGES.length) return;
   const stage = STAGES[currentStageIndex];
+  const english = save.data.language === 'en';
+  const copy = getStageCopy(stage, save.data.language);
 
   const panelW = Math.min(330, Math.max(210, viewportWidth * .52));
   const x = viewportWidth - panelW / 2 - 12;
@@ -2430,15 +2449,24 @@ function drawStageObjective(): void {
   ctx.beginPath(); ctx.roundRect(x - panelW / 2, y - panelHeight / 2 + 3, panelW, panelHeight, 4); ctx.fill(); ctx.stroke();
   ctx.fillStyle = '#d4c7a2'; ctx.font = `bold 10px 'Segoe UI', Arial, sans-serif`;
   const currentZoneIndex = nearestCampaignZone(player.x, player.y);
-  const zoneName = stage.layout?.zones[currentZoneIndex]?.name;
+  const zoneName = localizeZoneName(stage.layout?.zones[currentZoneIndex]?.name ?? copy.name, save.data.language);
+  const alertCopy: Record<string, [string, string]> = {
+    'Ổ SPAWN ĐÃ BỊ PHÁ': ['Ổ sinh quái đã bị phá', 'Spawn nest destroyed'],
+    'CỔNG MÁU ĐANG MỞ': ['Cổng máu đang mở', 'The blood gate is opening'],
+    'QUÁI MỚI ĐANG TRÀN VÀO': ['Quái đang tràn vào', 'Enemies are closing in'],
+    'KHU VỰC ĐÃ SẠCH · LỐI ĐI ĐÃ MỞ': ['Khu vực đã sạch · lối đi đã mở', 'Area clear · route open'],
+  };
   const heading = campaignWaveAlertTimer > 0 && campaignWaveAlertText
-    ? campaignWaveAlertText
-    : !campaignEncounterTriggered ? `TIẾP CẬN AN TOÀN  •  ${zoneName ?? stage.name}` : `CAMPAIGN ${stage.id}/10  •  ${zoneName ?? stage.name}`;
+    ? alertCopy[campaignWaveAlertText]?.[english ? 1 : 0] ?? sentenceCaseDisplay(campaignWaveAlertText, save.data.language)
+    : !campaignEncounterTriggered ? `${english ? 'Approach' : 'Tiếp cận'} · ${zoneName}`
+      : `${getUiTerm('mission', save.data.language)} ${stage.id}/10 · ${zoneName}`;
   const headingY = y - panelHeight / 2 + 16;
   ctx.fillText(heading, x, headingY, panelW - 20);
   let objectiveText: string;
-  if (stageBossSpawned) objectiveText = `HẠ BOSS: ${stage.bossName}`;
-  else if (stageObjectiveIndex >= stage.objectiveNodes.length) objectiveText = stage.id === 1 ? 'ĐẾN KHU BOSS  •  SHIFT / LƯỚT ĐỂ NÉ ĐÒN' : 'ĐANG TIẾN VÀO KHU BOSS';
+  if (stageBossSpawned) objectiveText = `${english ? 'Defeat the boss' : 'Hạ trùm'}: ${copy.bossName}`;
+  else if (stageObjectiveIndex >= stage.objectiveNodes.length) objectiveText = stage.id === 1
+    ? (english ? 'Reach the boss · use Shift to dodge' : 'Đến khu vực trùm · dùng Shift để lướt')
+    : (english ? 'Proceed to the boss arena' : 'Tiến vào phòng trùm');
   else {
     const node = stage.objectiveNodes[stageObjectiveIndex];
     const near = Math.hypot(player.x - node.x, player.y - node.y) < 82;
@@ -2447,11 +2475,14 @@ function drawStageObjective(): void {
     const holdSeconds = stage.objectiveHoldSeconds ?? 5;
     objectiveText = holding
       ? stage.id === 9 && !stageObjectiveHoldStarted
-        ? `KÍCH HOẠT VÙNG CUỐI${near ? '  •  NHẤN E ĐỂ BẮT ĐẦU' : '  •  ĐẾN GẦN ĐIỂM'}`
+        ? (near ? english ? 'Start the final hold · press E' : 'Bắt đầu giữ điểm · nhấn E'
+          : english ? 'Move to the marked point' : 'Đến điểm được đánh dấu')
         : holdNear
-          ? `GIỮ VỊ TRÍ  •  ${stageObjectiveHoldTime.toFixed(1)}/${holdSeconds}s`
-          : `ĐI VÀO VÙNG SÁNG  •  GIỮ ${holdSeconds} GIÂY`
-      : `${stage.objectiveLabel}  ${stageObjectiveIndex}/${stage.objectiveNodes.length}${near ? '  •  NHẤN E ĐỂ TƯƠNG TÁC' : '  •  THEO DẤU CHỈ HƯỚNG'}`;
+          ? `${english ? 'Hold position' : 'Giữ vị trí'} · ${stageObjectiveHoldTime.toFixed(1)}/${holdSeconds}s`
+          : `${english ? 'Enter the marked zone · hold for' : 'Vào vùng được đánh dấu · giữ'} ${holdSeconds}${english ? 's' : ' giây'}`
+      : `${copy.objectiveLabel} ${stageObjectiveIndex}/${stage.objectiveNodes.length}${near
+        ? (english ? ' · Press E to interact' : ' · Nhấn E để tương tác')
+        : (english ? ' · Follow the marker' : ' · Theo dấu chỉ hướng')}`;
     if (holding) {
       ctx.fillStyle = 'rgba(38,43,41,.95)'; ctx.fillRect(x - panelW*.38, y + 27, panelW*.76, 3);
       ctx.fillStyle = '#a8c08b'; ctx.fillRect(x - panelW*.38, y + 27, panelW*.76 * Math.min(1, stageObjectiveHoldTime / (stage.objectiveHoldSeconds ?? 5)), 3);
@@ -2459,9 +2490,13 @@ function drawStageObjective(): void {
   }
   if (stageExitActive && stage.exitSpawn && !stageExitActivated) {
     const nearExit = Math.hypot(player.x - stage.exitSpawn.x, player.y - stage.exitSpawn.y) <= 88;
-    objectiveText = nearExit ? 'ĐI VÀO VÙNG THOÁT  •  ĐỂ KẾT THÚC' : 'ĐI THEO DẤU CHỈ HƯỚNG  •  ĐẾN ĐIỂM THOÁT';
+    objectiveText = nearExit
+      ? (english ? 'Enter the exit zone to finish' : 'Vào vùng thoát để kết thúc')
+      : (english ? 'Follow the marker to the exit' : 'Theo dấu chỉ hướng đến lối thoát');
   }
-  if (bossWeaponDrop) objectiveText = `NHẶT ${campaignGuns.find(gun => gun.id === bossWeaponDrop!.gunId)?.shortName ?? 'VŨ KHÍ'} BOSS  •  ĐỂ MỞ ĐIỂM THOÁT`;
+  if (bossWeaponDrop) objectiveText = english
+    ? `Recover ${campaignGuns.find(gun => gun.id === bossWeaponDrop!.gunId)?.shortName ?? 'weapon'} · unlock the exit`
+    : `Nhặt ${campaignGuns.find(gun => gun.id === bossWeaponDrop!.gunId)?.shortName ?? 'vũ khí'} của trùm · mở lối thoát`;
   if (campaignActiveWaveZones.has(currentZoneIndex)) {
     const holdingObjective = stage.objectiveHoldAt === stageObjectiveIndex && stage.layout?.zones[currentZoneIndex]?.role === 'hold';
     const holdNode = holdingObjective ? stage.objectiveNodes[stageObjectiveIndex] : undefined;
@@ -2469,10 +2504,11 @@ function drawStageObjective(): void {
     const holdSeconds = stage.objectiveHoldSeconds ?? 5;
     if (holdingObjective) {
       const holdStatus = stage.id === 9 && !stageObjectiveHoldStarted
-        ? atHoldPoint ? 'NHẤN E ĐỂ BẮT ĐẦU' : 'ĐI VÀO VÙNG SÁNG'
-        : atHoldPoint ? `GIỮ VỊ TRÍ ${stageObjectiveHoldTime.toFixed(1)}/${holdSeconds}s` : `ĐI VÀO VÙNG SÁNG • GIỮ ${holdSeconds}s`;
+        ? atHoldPoint ? (english ? 'Press E to begin' : 'Nhấn E để bắt đầu') : (english ? 'Enter the marked zone' : 'Vào vùng được đánh dấu')
+        : atHoldPoint ? `${english ? 'Hold position' : 'Giữ vị trí'} ${stageObjectiveHoldTime.toFixed(1)}/${holdSeconds}s`
+          : `${english ? 'Enter the marked zone · hold for' : 'Vào vùng được đánh dấu · giữ'} ${holdSeconds}s`;
       objectiveText = holdStatus;
-    } else objectiveText = 'GIAO TRANH • HẠ QUÁI';
+    } else objectiveText = english ? 'Combat · clear the area' : 'Giao tranh · hạ quái';
   }
   if (campaignSupplyNoticeTimer > 0) objectiveText = campaignSupplyNotice;
   ctx.fillStyle = stageExitActive ? '#9fc4af' : stageBossSpawned ? '#e47a68' : '#f0eadc';
@@ -2487,11 +2523,13 @@ function drawStageObjective(): void {
     const nearPickup = Math.hypot(player.x - chargeTask.pickupPoint.x, player.y - chargeTask.pickupPoint.y) <= 82;
     const nearTarget = Math.hypot(player.x - chargeTask.targetPoint.x, player.y - chargeTask.targetPoint.y) <= 92;
     const chargeText = chargeTask.status === 'available'
-      ? nearPickup ? 'NHIỆM VỤ PHỤ · NHẤN E ĐỂ NHẶT THUỐC NỔ' : 'NHIỆM VỤ PHỤ · TÌM THUỐC NỔ TRONG PHÒNG BOSS'
+      ? nearPickup ? (english ? 'Side objective · press E to take the charge' : 'Nhiệm vụ phụ · nhấn E để nhặt thuốc nổ')
+        : (english ? 'Side objective · find the charge in the boss room' : 'Nhiệm vụ phụ · tìm thuốc nổ trong phòng trùm')
       : chargeTask.status === 'carried'
-        ? nearTarget ? 'MANG THUỐC NỔ ĐẾN Ổ ĐÁNH DẤU · NHẤN E ĐỂ ĐẶT' : 'MANG THUỐC NỔ ĐẾN Ổ SPAWN ĐÁNH DẤU'
-        : chargeTask.status === 'planted' ? `THUỐC NỔ ĐÃ ĐẶT · LÙI RA ${chargeTask.fuseRemaining.toFixed(1)}s`
-          : 'Ổ SPAWN MỤC TIÊU ĐÃ BỊ PHÁ';
+        ? nearTarget ? (english ? 'Plant the charge at the marked nest · press E' : 'Đặt thuốc nổ tại ổ được đánh dấu · nhấn E')
+          : (english ? 'Carry the charge to the marked spawn nest' : 'Mang thuốc nổ đến ổ sinh quái được đánh dấu')
+        : chargeTask.status === 'planted' ? `${english ? 'Charge planted · move clear' : 'Đã đặt thuốc nổ · lùi ra'} ${chargeTask.fuseRemaining.toFixed(1)}s`
+          : (english ? 'Target spawn nest destroyed' : 'Ổ sinh quái mục tiêu đã bị phá');
     drawTaskLine(objectiveText, y - 7, stageBossSpawned ? '#e47a68' : '#f0eadc');
     drawTaskLine(chargeText, y + 14, chargeTask.status === 'destroyed' ? '#c4d3bd' : '#f0c775');
   } else {
@@ -2529,7 +2567,7 @@ function drawCampaignHoldProgress(stage: typeof STAGES[number]): void {
   ctx.shadowBlur = 0;
   ctx.fillStyle = '#fff0ca';
   ctx.font = `bold 9px 'Segoe UI', Arial, sans-serif`;
-  ctx.fillText(`GIỮ VỊ TRÍ  •  ${remaining.toFixed(1)}s`, x, y - 7);
+  ctx.fillText(`${save.data.language === 'en' ? 'Hold position' : 'Giữ vị trí'} · ${remaining.toFixed(1)}s`, x, y - 7);
   ctx.fillStyle = 'rgba(57, 62, 57, .96)';
   ctx.fillRect(x - 52, y + 3, 104, 5);
   ctx.fillStyle = progress >= 1 ? '#b9f28c' : '#ffd47d';

@@ -1,4 +1,5 @@
 import type { Camera } from '../core/camera';
+import type { GameLanguage } from '../data/localization';
 import type { CampaignAttackDef, CampaignAttackKind, StageDef } from '../data/meta';
 import type { Zombie } from '../entities/zombies';
 import { resolveBuildingCollision, resolveCampaignMovement } from '../entities/map-geometry';
@@ -265,7 +266,7 @@ export class CampaignBossDirector {
     return Math.max(.19, .24 - (stageId - 2) * .005);
   }
 
-  draw(ctx: CanvasRenderingContext2D, camera: Camera, boss: Zombie | undefined, showSkillDirection = true): void {
+  draw(ctx: CanvasRenderingContext2D, camera: Camera, boss: Zombie | undefined, showSkillDirection = true, language: GameLanguage = 'vi'): void {
     if (!showSkillDirection) return;
     if (boss && this.phase === 'transition') {
       const [px, py] = camera.worldToScreen(boss.x, boss.y);
@@ -289,7 +290,7 @@ export class CampaignBossDirector {
         ctx.beginPath();ctx.arc(x,y,move.reach,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.setLineDash([13,10]);ctx.beginPath();ctx.arc(x,y,move.reach*.72,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);
       }else if(move.kind==='ring'){
         ctx.fillStyle='rgba(152,184,83,.15)';ctx.beginPath();ctx.ellipse(hx,hy,move.reach,move.reach*.72,-.2,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#b2c76c';ctx.beginPath();ctx.ellipse(hx,hy,move.reach,move.reach*.72,-.2,0,Math.PI*2);ctx.stroke();
-        ctx.fillStyle='#e4cc8b';ctx.font='bold 12px Segoe UI, Arial';ctx.textAlign='center';ctx.fillText('DỊCH TÍCH TỤ',hx,hy-move.reach*.74);
+        ctx.fillStyle='#e4cc8b';ctx.font='bold 12px Segoe UI, Arial';ctx.textAlign='center';ctx.fillText(language === 'en' ? 'Tissue buildup' : 'Dịch tích tụ',hx,hy-move.reach*.74);
         // Dashed radial spokes warn that the boss will also release a real
         // outward projectile ring from its body when the windup ends.
         ctx.strokeStyle=danger;ctx.globalAlpha=.78;ctx.lineWidth=2;ctx.setLineDash([7,8]);

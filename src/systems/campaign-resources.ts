@@ -3,6 +3,7 @@ import type { StageDef } from '../data/meta';
 import type { Player } from '../entities/player';
 import type { GunLoadout } from './gun-loadout';
 import { isCampaignWalkable, segmentHitsBuilding } from '../entities/map-geometry';
+import type { GameLanguage } from '../data/localization';
 
 type Supply = { x: number; y: number; kind: 'ammo' | 'med' | 'crate'; used: boolean };
 export type CollectedSupply = { x: number; y: number; kind: Supply['kind']; label: string };
@@ -25,7 +26,7 @@ export class CampaignResources {
     add(zones.length - 2, 'crate', 1);
   }
 
-  collectNearby(player: Player, guns: GunLoadout, ammoMultiplier = 1): CollectedSupply[] {
+  collectNearby(player: Player, guns: GunLoadout, ammoMultiplier = 1, language: GameLanguage = 'vi'): CollectedSupply[] {
     const collected: CollectedSupply[] = [];
     for (const supply of this.stations) {
       if (supply.used || Math.hypot(supply.x - player.x, supply.y - player.y) > player.size + 29 ||
@@ -40,14 +41,16 @@ export class CampaignResources {
       if (supply.kind !== 'ammo') player.heal(supply.kind === 'crate' ? 35 : 50);
       supply.used = true; this.used++;
       const healed = Math.round(player.hp - hpBefore);
+      const ammoText = language === 'en' ? 'reserve ammo' : 'đạn dự trữ';
+      const healthText = language === 'en' ? 'health' : 'máu';
       collected.push({ x: supply.x, y: supply.y, kind: supply.kind,
-        label: supply.kind === 'ammo' ? `ĐẠN DỰ TRỮ +${Math.round(magazines * ammoMultiplier)} BĂNG` : supply.kind === 'med' ? `MÁU +${healed}` :
-          `TIẾP TẾ${healed ? ` · MÁU +${healed}` : ''}${canAddAmmo ? ` · ĐẠN +${Math.round(magazines * ammoMultiplier)} BĂNG` : ''}` });
+        label: supply.kind === 'ammo' ? `${ammoText} +${Math.round(magazines * ammoMultiplier)} ${language === 'en' ? 'magazines' : 'băng'}` : supply.kind === 'med' ? `+${healed} ${healthText}` :
+          `${language === 'en' ? 'Supplies' : 'Tiếp tế'}${healed ? ` · +${healed} ${healthText}` : ''}${canAddAmmo ? ` · +${Math.round(magazines * ammoMultiplier)} ${language === 'en' ? 'ammo magazines' : 'băng đạn'}` : ''}` });
     }
     return collected;
   }
 
-  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+  draw(ctx: CanvasRenderingContext2D, camera: Camera, language: GameLanguage = 'vi'): void {
     for (const s of this.stations) {
       if (!camera.isVisible(s.x, s.y, 60)) continue;
       const [x, y] = camera.worldToScreen(s.x, s.y);
@@ -76,7 +79,7 @@ export class CampaignResources {
         ctx.fillStyle = '#e2c77f'; ctx.fillRect(-21, -14, 8, 5);
       }
       ctx.fillStyle = '#f6f0dd'; ctx.font = 'bold 10px Segoe UI, Arial'; ctx.textAlign = 'center';
-      ctx.fillText(med ? 'MÁU' : ammo ? 'ĐẠN' : 'TIẾP TẾ', 0, -27);
+      ctx.fillText(med ? (language === 'en' ? 'Health' : 'Máu') : ammo ? (language === 'en' ? 'Ammo' : 'Đạn') : (language === 'en' ? 'Supplies' : 'Tiếp tế'), 0, -27);
       ctx.restore();
     }
   }

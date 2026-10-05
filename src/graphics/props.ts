@@ -2,6 +2,7 @@ import { Camera } from '../core/camera';
 import { MAP_CONFIG } from '../data/items';
 import { EntityRenderer } from './entity-renderer';
 import { SOLID_BUILDINGS } from '../entities/map-geometry';
+import type { GameLanguage } from '../data/localization';
 
 type PropType = 'barrel' | 'concrete_block' | 'ammo_box' | 'sandbag' | 'wire_fence' | 'computer_terminal' | 'warehouse' | 'ruin';
 
@@ -19,6 +20,7 @@ export class PropRenderer {
   private sprites = new Map<PropType, HTMLCanvasElement>();
   private largeWarehouseFloor: HTMLCanvasElement;
   private largeWarehouseWalls: HTMLCanvasElement;
+  private language: GameLanguage = 'vi';
 
   constructor() {
     this.generateSprites();
@@ -30,7 +32,7 @@ export class PropRenderer {
   private generateSprites() {
     this.sprites.set('barrel', this.renderBarrel());
     this.sprites.set('concrete_block', this.renderConcreteBlock());
-    this.sprites.set('ammo_box', this.renderAmmoBox());
+    this.sprites.set('ammo_box', this.renderAmmoBox(this.language));
     this.sprites.set('sandbag', this.renderSandbag());
     this.sprites.set('wire_fence', this.renderWireFence());
     this.sprites.set('computer_terminal', this.renderTerminal());
@@ -142,7 +144,7 @@ export class PropRenderer {
     return canvas;
   }
 
-  private renderAmmoBox(): HTMLCanvasElement {
+  private renderAmmoBox(language: GameLanguage): HTMLCanvasElement {
     const canvas = document.createElement('canvas');
     canvas.width = 50;
     canvas.height = 50;
@@ -186,7 +188,7 @@ export class PropRenderer {
     ctx.font = '10px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('AMMO', 0, 2);
+    ctx.fillText(language === 'en' ? 'Ammo' : 'Đạn', 0, 2);
 
     return canvas;
   }
@@ -526,7 +528,11 @@ export class PropRenderer {
     }
   }
 
-  draw(ctx: CanvasRenderingContext2D, camera: Camera, layer: 'ground' | 'above', includeLandmarks = true) {
+  draw(ctx: CanvasRenderingContext2D, camera: Camera, layer: 'ground' | 'above', includeLandmarks = true, language: GameLanguage = 'vi') {
+    if (language !== this.language) {
+      this.language = language;
+      this.sprites.set('ammo_box', this.renderAmmoBox(language));
+    }
     for (const prop of this.props) {
       if (!includeLandmarks && (prop.type === 'warehouse' || prop.type === 'ruin')) continue;
       if (prop.large) {

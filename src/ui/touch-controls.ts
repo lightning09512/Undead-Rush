@@ -1,3 +1,5 @@
+import type { GameLanguage } from '../data/localization';
+
 export type TouchAction = 'dash' | 'rage';
 
 export interface TouchActionButton {
@@ -17,7 +19,7 @@ export interface TouchSkillState {
   rageActiveTimer: number;
 }
 
-export function getTouchActionButtons(width: number, height: number): TouchActionButton[] {
+export function getTouchActionButtons(width: number, height: number, language: GameLanguage = 'vi'): TouchActionButton[] {
   const size = Math.max(52, Math.min(72, width * 0.065, height * 0.11));
   const small = size * 0.78;
   const pad = Math.max(14, size * 0.22);
@@ -29,8 +31,8 @@ export function getTouchActionButtons(width: number, height: number): TouchActio
   const dashX = width - pad - small;
   const rageX = dashX - small - 10;
   return [
-    { id: 'rage', x: rageX, y: skillY, size: small, label: 'NỘ' },
-    { id: 'dash', x: dashX, y: skillY, size: small, label: 'LƯỚT' },
+    { id: 'rage', x: rageX, y: skillY, size: small, label: language === 'en' ? 'Rage' : 'Nộ' },
+    { id: 'dash', x: dashX, y: skillY, size: small, label: language === 'en' ? 'Dodge' : 'Lướt' },
   ];
 }
 
@@ -38,16 +40,17 @@ export function drawTouchActionButtons(
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
-  skills?: TouchSkillState
+  skills?: TouchSkillState,
+  language: GameLanguage = 'vi'
 ): void {
-  const buttons = getTouchActionButtons(width, height);
+  const buttons = getTouchActionButtons(width, height, language);
   const styles: Record<TouchAction, { fill: string; stroke: string }> = {
     dash: { fill: 'rgba(35, 77, 84, 0.58)', stroke: 'rgba(118, 180, 193, 0.82)' },
     rage: { fill: 'rgba(91, 42, 37, 0.68)', stroke: 'rgba(202, 104, 78, 0.9)' },
   };
   for (const button of buttons) {
     const style = styles[button.id];
-    drawSkillButton(ctx, button, style, skills);
+    drawSkillButton(ctx, button, style, skills, language);
   }
 }
 
@@ -55,7 +58,8 @@ function drawSkillButton(
   ctx: CanvasRenderingContext2D,
   button: TouchActionButton,
   style: { fill: string; stroke: string },
-  skills?: TouchSkillState
+  skills: TouchSkillState | undefined,
+  language: GameLanguage
 ): void {
   const { x, y, size, id } = button;
   const isRage = id === 'rage';
@@ -131,7 +135,7 @@ function drawSkillButton(
     ctx.fillText(`${Math.ceil(cooldown)}`, cx, cy + size * 0.015);
     ctx.fillStyle = 'rgba(255, 235, 218, 0.86)';
     ctx.font = `800 ${Math.max(7, size * 0.105)}px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText('GIÂY', cx, cy + size * 0.18);
+    ctx.fillText(language === 'en' ? 'sec' : 'giây', cx, cy + size * 0.18);
   } else if (isRage && charge < 1) {
     ctx.fillStyle = '#f1d9bf';
     ctx.textAlign = 'center';
@@ -147,7 +151,7 @@ function drawSkillButton(
   ctx.fillText(button.label, cx, y + size * 0.88);
 
   // Keep the keyboard shortcut visible without covering the ability icon or cooldown.
-  const keyLabel = isRage ? 'F' : 'SHIFT';
+  const keyLabel = isRage ? 'F' : 'Shift';
   const keyWidth = isRage ? 18 : 34;
   const keyHeight = 11;
   const keyX = cx - keyWidth / 2;
@@ -213,3 +217,4 @@ function drawSkillGlyph(ctx: CanvasRenderingContext2D, cx: number, cy: number, s
   }
   ctx.restore();
 }
+

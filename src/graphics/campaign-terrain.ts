@@ -1,5 +1,6 @@
 import type { Camera } from '../core/camera';
 import type { StageDef } from '../data/meta';
+import type { GameLanguage } from '../data/localization';
 import { isCampaignGateClosed } from '../entities/map-geometry';
 import { CampaignGroundDetails } from './campaign-ground-details';
 
@@ -12,7 +13,7 @@ export class CampaignTerrainRenderer {
   private readonly groundDetails = new CampaignGroundDetails();
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera, stage: StageDef, activeNode: number,
-    playerX: number, playerY: number, gameTime: number): void {
+    playerX: number, playerY: number, gameTime: number, language: GameLanguage = 'vi'): void {
     const layout = stage.layout;
     if (!layout) return;
     if (stage.id <= 3) this.drawAmbientBackdrop(ctx, camera, stage);
@@ -26,7 +27,7 @@ export class CampaignTerrainRenderer {
       ctx.fillStyle = floorPaint; ctx.fillRect(x,y,r.w,r.h);
       const zoneIndex = 'floor' in r ? layout.zones.findIndex(zone => zone === r)
         : -1 - layout.corridors.findIndex(corridor => corridor === r);
-      this.staticFloorDetails(ctx, x, y, r.w, r.h, stage, floor, zoneIndex);
+      this.staticFloorDetails(ctx, x, y, r.w, r.h, stage, floor, zoneIndex, language);
       this.groundDetails.drawBugs(ctx, camera, stage, zoneIndex, r, playerX, playerY, gameTime);
       if (stage.id === 1 && floor === 'road') {
         ctx.strokeStyle = 'rgba(209,194,148,.28)'; ctx.lineWidth = 4; ctx.setLineDash([28,24]);
@@ -42,7 +43,7 @@ export class CampaignTerrainRenderer {
     for (const prop of layout.decorations) {
       if (!camera.isVisible(prop.x+prop.w/2,prop.y+prop.h/2,Math.max(prop.w,prop.h))) continue;
       const [x,y] = camera.worldToScreen(prop.x,prop.y);
-      this.prop(ctx,x,y,prop.w,prop.h,prop.kind,stage.id,prop.solid,prop.x,prop.y);
+      this.prop(ctx,x,y,prop.w,prop.h,prop.kind,stage.id,prop.solid,prop.x,prop.y,language);
     }
     layout.gates.forEach((g,i) => {
       if (!camera.isVisible(g.x+g.w/2,g.y+g.h/2,160)) return;
@@ -52,7 +53,7 @@ export class CampaignTerrainRenderer {
       if (closed) { ctx.fillRect(x,y,g.w,g.h); ctx.strokeRect(x,y,g.w,g.h); }
       else { ctx.fillRect(x-5,y-12,g.w+10,12); ctx.fillRect(x-5,y+g.h,g.w+10,12); }
       ctx.fillStyle = closed ? '#e2ae98' : '#b7dfbd'; ctx.font = 'bold 12px Segoe UI, Arial'; ctx.textAlign='center';
-      ctx.fillText(closed ? 'KHÓA' : 'MỞ',x+g.w/2,y-20);
+      ctx.fillText(closed ? (language === 'en' ? 'Locked' : 'Khóa') : (language === 'en' ? 'Open' : 'Mở'),x+g.w/2,y-20);
     });
     // Guidance follows the actual corridor sequence, not a straight line
     // through locked rooms or walls.
@@ -83,15 +84,15 @@ export class CampaignTerrainRenderer {
     ctx.fillRect(0,0,camera.width,camera.height);
   }
 
-  private staticFloorDetails(ctx:CanvasRenderingContext2D,x:number,y:number,w:number,h:number,stage:StageDef,floor:string,zone:number):void {
+  private staticFloorDetails(ctx:CanvasRenderingContext2D,x:number,y:number,w:number,h:number,stage:StageDef,floor:string,zone:number,language:GameLanguage):void {
     const id = stage.id;
-    const key=`${id}:${floor}:${zone}:${Math.ceil(w)}:${Math.ceil(h)}`;
+    const key=`${language}:${id}:${floor}:${zone}:${Math.ceil(w)}:${Math.ceil(h)}`;
     let layer=this.zoneDetails.get(key);
     if(!layer){
       layer=document.createElement('canvas');layer.width=Math.ceil(w);layer.height=Math.ceil(h);
       const paint = layer.getContext('2d')!;
       if (zone >= 0) {
-        if (id <= 3) this.paintFirstThreeFloorDetails(paint,0,0,w,h,id,floor,zone);
+        if (id <= 3) this.paintFirstThreeFloorDetails(paint,0,0,w,h,id,floor,zone,language);
         else { this.zoneMarks(paint,0,0,w,h,id,zone); this.wear(paint,0,0,w,h,id,zone); }
       }
       this.groundDetails.paint(paint, stage, zone, w, h, floor);
@@ -101,7 +102,7 @@ export class CampaignTerrainRenderer {
     ctx.drawImage(layer,x,y,w,h);
   }
 
-  private paintFirstThreeFloorDetails(ctx:CanvasRenderingContext2D,x:number,y:number,w:number,h:number,id:number,floor:string,zone:number):void {
+  private paintFirstThreeFloorDetails(ctx:CanvasRenderingContext2D,x:number,y:number,w:number,h:number,id:number,floor:string,zone:number,language:GameLanguage):void {
     ctx.save();ctx.beginPath();ctx.rect(x,y,w,h);ctx.clip();
     const cx=x+w/2,cy=y+h/2;
     if(id===1){
@@ -188,7 +189,7 @@ export class CampaignTerrainRenderer {
       ctx.strokeStyle='rgba(163,198,185,.46)';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(cx-362,cy-132);ctx.lineTo(cx-222,cy-149);ctx.moveTo(cx-351,cy-82);ctx.lineTo(cx-195,cy-101);ctx.stroke();
       ctx.fillStyle='rgba(111,157,149,.14)';ctx.beginPath();ctx.moveTo(cx+88,cy-36);ctx.lineTo(cx+351,cy-54);ctx.lineTo(cx+373,cy+45);ctx.lineTo(cx+122,cy+68);ctx.closePath();ctx.fill();
       ctx.strokeStyle='rgba(180,205,190,.43)';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(cx+111,cy-29);ctx.lineTo(cx+338,cy-45);ctx.moveTo(cx+126,cy+54);ctx.lineTo(cx+361,cy+35);ctx.stroke();
-      ctx.fillStyle='rgba(221,224,209,.48)';ctx.font='bold 15px Segoe UI, Arial';ctx.textAlign='center';ctx.fillText('TRIAGE  •  BAY 02',cx+230,cy+12);
+      ctx.fillStyle='rgba(221,224,209,.48)';ctx.font='bold 15px Segoe UI, Arial';ctx.textAlign='center';ctx.fillText(language === 'en' ? 'Triage · bay 02' : 'Cấp cứu · khu 02',cx+230,cy+12);
       ctx.strokeStyle='rgba(119,62,57,.58)';ctx.lineWidth=6;ctx.beginPath();ctx.moveTo(cx+194,cy+111);ctx.quadraticCurveTo(cx+245,cy+86,cx+274,cy+104);ctx.lineTo(cx+310,cy+132);ctx.stroke();
       ctx.strokeStyle='rgba(74,86,82,.52)';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(cx-68,cy+130);ctx.lineTo(cx-22,cy+111);ctx.lineTo(cx+32,cy+122);ctx.moveTo(cx+68,cy-127);ctx.lineTo(cx+121,cy-145);ctx.lineTo(cx+156,cy-134);ctx.stroke();
     }else if(id===3&&floor==='canvas'){
@@ -302,7 +303,7 @@ export class CampaignTerrainRenderer {
     ctx.restore();
   }
 
-  private prop(ctx:CanvasRenderingContext2D,x:number,y:number,w:number,h:number,kind:string,id:number,solid:boolean,worldX:number,worldY:number):void {
+  private prop(ctx:CanvasRenderingContext2D,x:number,y:number,w:number,h:number,kind:string,id:number,solid:boolean,worldX:number,worldY:number,language:GameLanguage):void {
     ctx.save(); ctx.fillStyle='rgba(0,0,0,.22)';
     if(solid){ctx.beginPath();ctx.roundRect(x+8,y+9,w,h,Math.min(18,Math.min(w,h)*.16));ctx.fill();}
     if (kind === 'statue') {
@@ -367,7 +368,7 @@ export class CampaignTerrainRenderer {
       }else if(kind==='trash'){
         ctx.fillStyle='#5a574c';ctx.beginPath();ctx.moveTo(x+w*.12,y+h*.75);ctx.lineTo(x+w*.2,y+h*.32);ctx.lineTo(x+w*.79,y+h*.26);ctx.lineTo(x+w*.9,y+h*.7);ctx.closePath();ctx.fill();ctx.strokeRect(x+w*.12,y+h*.34,w*.77,h*.4);ctx.fillStyle='#9a8d69';ctx.fillRect(x+w*.27,y+h*.44,w*.13,h*.2);ctx.fillStyle='#a24f45';ctx.fillRect(x+w*.61,y+h*.46,w*.13,h*.13);
       }else if(kind==='roadSign'){
-        ctx.strokeStyle='#424441';ctx.lineWidth=6;ctx.beginPath();ctx.moveTo(x+w*.5,y+h);ctx.lineTo(x+w*.5,y+h*.25);ctx.stroke();ctx.fillStyle='#6a5744';ctx.fillRect(x+w*.12,y+h*.05,w*.76,h*.43);ctx.strokeRect(x+w*.12,y+h*.05,w*.76,h*.43);ctx.fillStyle='#ddc68c';ctx.font='bold 12px Segoe UI, Arial';ctx.textAlign='center';ctx.fillText('STOP',x+w*.5,y+h*.34);
+        ctx.strokeStyle='#424441';ctx.lineWidth=6;ctx.beginPath();ctx.moveTo(x+w*.5,y+h);ctx.lineTo(x+w*.5,y+h*.25);ctx.stroke();ctx.fillStyle='#6a5744';ctx.fillRect(x+w*.12,y+h*.05,w*.76,h*.43);ctx.strokeRect(x+w*.12,y+h*.05,w*.76,h*.43);ctx.fillStyle='#ddc68c';ctx.font='bold 12px Segoe UI, Arial';ctx.textAlign='center';ctx.fillText(language === 'en' ? 'Stop' : 'Dừng',x+w*.5,y+h*.34);
       }else if(kind==='radio'){
         ctx.fillStyle='#48514e';ctx.fillRect(x+w*.17,y+h*.35,w*.56,h*.55);ctx.strokeRect(x+w*.17,y+h*.35,w*.56,h*.55);ctx.fillStyle='#b7965d';ctx.fillRect(x+w*.25,y+h*.43,w*.39,h*.13);ctx.strokeStyle='#333b39';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(x+w*.56,y+h*.35);ctx.lineTo(x+w*.77,y+4);ctx.moveTo(x+w*.2,y+h*.62);ctx.lineTo(x+w*.69,y+h*.62);ctx.stroke();ctx.fillStyle='#b55748';ctx.beginPath();ctx.arc(x+w*.69,y+h*.77,4,0,Math.PI*2);ctx.fill();
       }else if(kind==='rescuevan'){
@@ -385,7 +386,7 @@ export class CampaignTerrainRenderer {
       if(kind==='canopy'){
         ctx.fillStyle='rgba(21,24,22,.2)';ctx.fillRect(x+10,y+h*.3,w-2,h*.57);ctx.fillStyle='#746b53';ctx.fillRect(x+4,y+12,w-8,h*.37);ctx.strokeStyle='#303632';ctx.lineWidth=5;ctx.strokeRect(x+4,y+12,w-8,h*.37);ctx.fillStyle='#c49249';for(let k=0;k<5;k++)ctx.fillRect(x+12+k*(w-26)/5,y+18,(w-26)/10,h*.25);ctx.fillStyle='#e0c684';ctx.fillRect(x+12,y+h*.31,w-24,8);
         ctx.fillStyle='#3e4440';for(const px of [x+14,x+w*.49,x+w-23]){ctx.fillRect(px,y+h*.39,10,h*.57);ctx.fillStyle='#aa8f59';ctx.fillRect(px-4,y+h*.39,18,7);ctx.fillStyle='#3e4440';}
-        ctx.fillStyle='#c4a35f';ctx.font='bold 12px Segoe UI, Arial';ctx.textAlign='center';ctx.fillText('GAS  /  24',x+w*.5,y+h*.27);
+        ctx.fillStyle='#c4a35f';ctx.font='bold 12px Segoe UI, Arial';ctx.textAlign='center';ctx.fillText(language === 'en' ? 'Gas · 24' : 'Xăng · 24',x+w*.5,y+h*.27);
       }else if(kind==='shopfront'){
         ctx.fillStyle='#554b3d';ctx.fillRect(x+4,y+7,w-8,h-14);ctx.strokeStyle='#282d2a';ctx.lineWidth=4;ctx.strokeRect(x+4,y+7,w-8,h-14);
         ctx.fillStyle='#b97643';ctx.fillRect(x+11,y+11,w-22,h*.2);ctx.fillStyle='#d1a15c';ctx.fillRect(x+13,y+13,w-26,5);ctx.fillStyle='#303a39';ctx.fillRect(x+12,y+h*.27,w-24,h*.44);
@@ -417,7 +418,7 @@ export class CampaignTerrainRenderer {
       }else if(kind==='lightbar'){
         ctx.fillStyle='#353c3a';ctx.fillRect(x+w*.12,y+h*.35,w*.76,h*.31);ctx.strokeRect(x+w*.12,y+h*.35,w*.76,h*.31);ctx.fillStyle='#b95746';ctx.fillRect(x+w*.2,y+h*.4,w*.26,h*.2);ctx.fillStyle='#7b9c9c';ctx.fillRect(x+w*.53,y+h*.4,w*.26,h*.2);
       }else{
-        ctx.fillStyle='#835b39';ctx.fillRect(x+5,y+6,w-10,h*.53);ctx.strokeRect(x+5,y+6,w-10,h*.53);ctx.fillStyle='#dbb767';ctx.font='bold 12px Segoe UI, Arial';ctx.textAlign='center';ctx.fillText('OPEN 24H',x+w/2,y+h*.42);
+        ctx.fillStyle='#835b39';ctx.fillRect(x+5,y+6,w-10,h*.53);ctx.strokeRect(x+5,y+6,w-10,h*.53);ctx.fillStyle='#dbb767';ctx.font='bold 12px Segoe UI, Arial';ctx.textAlign='center';ctx.fillText(language === 'en' ? 'Open 24h' : 'Mở cửa 24h',x+w/2,y+h*.42);
       }
     }else if(id===3&&['generator','medicalSign','lightbar','gurney','curtain','supplyCrate','examLamp','chair','divider','oxygen','wetfloor','medicalCart','cabinet','monitor','instrument','waste','surgery','tent'].includes(kind)){
       if(kind==='tent'){
@@ -463,7 +464,7 @@ export class CampaignTerrainRenderer {
       else {ctx.fillRect(x+10,y+h*.3,w-20,5);ctx.fillRect(x+10,y+h*.7,w-20,5);}
     } else if(kind==='signfuel') {
       ctx.fillStyle='#383735';ctx.fillRect(x+w*.46,y+h*.54,10,h*.46);ctx.fillStyle='#8d4f35';ctx.fillRect(x+10,y,w-20,h*.65);ctx.strokeRect(x+10,y,w-20,h*.65);
-      ctx.fillStyle='#e8bd74';ctx.font='bold 24px Segoe UI, Arial';ctx.textAlign='center';ctx.fillText('FUEL',x+w/2,y+h*.43);
+      ctx.fillStyle='#e8bd74';ctx.font='bold 24px Segoe UI, Arial';ctx.textAlign='center';ctx.fillText(language === 'en' ? 'Fuel' : 'Nhiên liệu',x+w/2,y+h*.43);
     } else if(kind==='drain') {
       ctx.fillStyle='#33413c';ctx.fillRect(x,y,w,h);ctx.strokeRect(x,y,w,h);ctx.strokeStyle='#a7aa8c';ctx.lineWidth=4;
       for(let i=10;i<w-10;i+=16){ctx.beginPath();ctx.moveTo(x+i,y+7);ctx.lineTo(x+i,y+h-7);ctx.stroke();}

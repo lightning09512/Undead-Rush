@@ -1,5 +1,6 @@
 import type { Camera } from '../core/camera';
 import type { StageDef, StageBuildingDef, CampaignZone, Point } from '../data/meta';
+import type { GameLanguage } from '../data/localization';
 
 export interface CampaignSpawnCue {
   zoneIndex: number;
@@ -33,7 +34,7 @@ export interface CampaignObjectiveCue {
 
 /** Small, code-drawn Campaign landmarks and readable objective routes. */
 export class CampaignMapRenderer {
-  draw(ctx: CanvasRenderingContext2D, camera: Camera, stage: StageDef, activeNode: number, bossSpawned: boolean, exitActive = false, exitActivated = false, spawnCue?: CampaignSpawnCue, objectiveCue?: CampaignObjectiveCue): void {
+  draw(ctx: CanvasRenderingContext2D, camera: Camera, stage: StageDef, activeNode: number, bossSpawned: boolean, exitActive = false, exitActivated = false, spawnCue?: CampaignSpawnCue, objectiveCue?: CampaignObjectiveCue, language: GameLanguage = 'vi'): void {
     const route: Point[] = [stage.playerStart, ...stage.objectiveNodes, stage.bossSpawn];
     ctx.save();
     ctx.lineCap = 'round';
@@ -72,12 +73,13 @@ export class CampaignMapRenderer {
       } else if (active) {
         ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.font = 'bold 10px Segoe UI, Arial';
         ctx.fillStyle = '#fff1d3';
-        ctx.fillText(isHold ? `GIỮ VỊ TRÍ ${stage.objectiveHoldSeconds ?? 5} GIÂY` : 'MỤC TIÊU', x, y - 37);
+        ctx.fillText(isHold ? language === 'en' ? `Hold for ${stage.objectiveHoldSeconds ?? 5}s` : `Giữ vị trí ${stage.objectiveHoldSeconds ?? 5} giây`
+          : language === 'en' ? 'Objective' : 'Mục tiêu', x, y - 37);
         if (canInteract && distance <= 82) this.drawInteractKey(ctx, x + 32, y - 30, pulse, distance <= 74);
       }
     }
-    if (spawnCue) this.drawSpawnCue(ctx, camera, spawnCue);
-    if (objectiveCue?.nestCharge) this.drawNestChargeCue(ctx, camera, objectiveCue.nestCharge, objectiveCue);
+    if (spawnCue) this.drawSpawnCue(ctx, camera, spawnCue, language);
+    if (objectiveCue?.nestCharge) this.drawNestChargeCue(ctx, camera, objectiveCue.nestCharge, objectiveCue, language);
     if (bossSpawned) {
       const [x, y] = camera.worldToScreen(stage.bossSpawn.x, stage.bossSpawn.y);
       if (camera.isVisible(stage.bossSpawn.x, stage.bossSpawn.y, 140)) {
@@ -93,7 +95,7 @@ export class CampaignMapRenderer {
         ctx.strokeStyle = exitActivated ? '#90ad9e' : '#86c7bd'; ctx.fillStyle = 'rgba(68,126,117,.18)'; ctx.lineWidth = 2.5;
         ctx.beginPath(); ctx.arc(x, y, 25, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(x-10,y); ctx.lineTo(x+10,y); ctx.moveTo(x,y-10); ctx.lineTo(x,y+10); ctx.stroke();
-        ctx.fillStyle = '#dce7d8'; ctx.font = 'bold 10px Segoe UI, Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText('THOÁT',x,y-30);
+        ctx.fillStyle = '#dce7d8'; ctx.font = 'bold 10px Segoe UI, Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText(language === 'en' ? 'Exit' : 'Thoát',x,y-30);
         if (!exitActivated && objectiveCue?.exitInteractable && distance <= 88) this.drawInteractKey(ctx, x + 31, y - 24, .8, true);
       }
     }
@@ -128,7 +130,7 @@ export class CampaignMapRenderer {
     ctx.restore();
   }
 
-  private drawSpawnCue(ctx: CanvasRenderingContext2D, camera: Camera, cue: CampaignSpawnCue): void {
+  private drawSpawnCue(ctx: CanvasRenderingContext2D, camera: Camera, cue: CampaignSpawnCue, language: GameLanguage): void {
     const warning = cue.warningTimer > 0;
     const pulse = .5 + .5 * Math.sin((cue.gameTime ?? 0) * 5.5);
     let activeIsListed = false;
@@ -182,7 +184,7 @@ export class CampaignMapRenderer {
         ctx.fillStyle = 'rgba(12,14,15,.96)'; ctx.strokeStyle = '#d19c77'; ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.roundRect(-58, -82, 116, 26, 4); ctx.fill(); ctx.stroke();
         ctx.fillStyle = '#f0ddd0'; ctx.font = '900 10px Segoe UI, Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('Ổ SPAWN · BẮN ĐỂ PHÁ', 0, -74, 108);
+        ctx.fillText(language === 'en' ? 'Boss nest · shoot to destroy' : 'Ổ sinh quái · bắn để phá', 0, -74, 108);
         ctx.fillStyle = '#171718'; ctx.fillRect(-51, -63, 102, 10);
         ctx.fillStyle = '#83312f'; ctx.fillRect(-49, -61, 98, 6);
         ctx.fillStyle = '#d44d45'; ctx.fillRect(-49, -61, 98 * hpRatio, 6);
@@ -199,6 +201,7 @@ export class CampaignMapRenderer {
     camera: Camera,
     charge: NonNullable<CampaignObjectiveCue['nestCharge']>,
     objective: CampaignObjectiveCue,
+    language: GameLanguage,
   ): void {
     if (charge.status === 'cancelled') return;
     const pulse = .5 + .5 * Math.sin(objective.gameTime * 6);
@@ -231,9 +234,12 @@ export class CampaignMapRenderer {
       ctx.fillStyle = 'rgba(13,16,16,.92)'; ctx.strokeStyle = '#d6b376'; ctx.lineWidth = 1.2;
       ctx.beginPath(); ctx.roundRect(-62, -66, 124, 20, 4); ctx.fill(); ctx.stroke();
       ctx.fillStyle = '#fff0d0'; ctx.font = '900 9px Segoe UI, Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      const label = charge.status === 'planted' ? `KÍCH NỔ · ${charge.fuseRemaining.toFixed(1)}s`
-        : charge.status === 'carried' ? targetNear ? 'NHẤN E · ĐẶT THUỐC NỔ' : 'Ổ SPAWN MỤC TIÊU'
-          : 'Ổ SPAWN MỤC TIÊU';
+      const label = charge.status === 'planted'
+        ? language === 'en' ? `Detonates in · ${charge.fuseRemaining.toFixed(1)}s` : `Kích nổ sau · ${charge.fuseRemaining.toFixed(1)}s`
+        : charge.status === 'carried' ? targetNear
+          ? language === 'en' ? 'Press E · plant charge' : 'Nhấn E · đặt thuốc nổ'
+          : language === 'en' ? 'Target spawn nest' : 'Ổ sinh quái mục tiêu'
+          : language === 'en' ? 'Target spawn nest' : 'Ổ sinh quái mục tiêu';
       ctx.fillText(label, 0, -56, 118);
       if (charge.status === 'planted') {
         ctx.fillStyle = '#201a19'; ctx.fillRect(-48, -42, 96, 5);
@@ -255,7 +261,8 @@ export class CampaignMapRenderer {
     ctx.fillStyle = 'rgba(13,16,16,.94)'; ctx.strokeStyle = '#d6b376'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.roundRect(-48, -43, 96, 18, 4); ctx.fill(); ctx.stroke();
     ctx.fillStyle = '#fff0d0'; ctx.font = '900 9px Segoe UI, Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(nearPickup ? 'NHẤN E · NHẶT THUỐC NỔ' : 'THUỐC NỔ', 0, -34, 92);
+    ctx.fillText(nearPickup ? language === 'en' ? 'Press E · take charge' : 'Nhấn E · nhặt thuốc nổ'
+      : language === 'en' ? 'Explosive charge' : 'Thuốc nổ', 0, -34, 92);
     ctx.restore();
   }
 

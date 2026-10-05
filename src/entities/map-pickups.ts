@@ -6,6 +6,7 @@ import { MAP_ITEMS, ItemDef, MAP_CONFIG } from '../data/items';
 import { campaignSpawnPosition, getCampaignBounds } from './map-geometry';
 import { LightingRenderer } from '../graphics/lighting';
 import { drawGunArt } from '../graphics/campaign-menu-art';
+import type { GameLanguage } from '../data/localization';
 
 export interface MapPickup {
   x: number;
@@ -313,7 +314,7 @@ export class MapPickupSystem {
     p.isAirdrop = false; p.airdropLanded = true;
   }
 
-  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+  draw(ctx: CanvasRenderingContext2D, camera: Camera, language: GameLanguage = 'vi'): void {
     for (const p of this.pool.getActive()) {
       if (!camera.isVisible(p.x, p.y, 40)) continue;
       const [sx, sy] = camera.worldToScreen(p.x, p.y);
@@ -352,7 +353,7 @@ export class MapPickupSystem {
         ctx.fillStyle = '#ffaa00';
         ctx.font = `bold 10px 'Segoe UI', Arial, sans-serif`;
         ctx.textAlign = 'center';
-        ctx.fillText('AIRDROP', sx, sy - 40);
+        ctx.fillText(language === 'en' ? 'Airdrop' : 'Thả hàng', sx, sy - 40);
         continue;
       }
 
@@ -360,7 +361,9 @@ export class MapPickupSystem {
       if (p.itemId.startsWith('gun_')) {
         const gunId = p.itemId.slice(4);
         const campaignReward = p.life === Infinity;
-        const labelText = `${campaignReward ? 'VŨ KHÍ TRÙM' : 'NHẶT SÚNG'}  ·  ${GUN_PICKUP_NAMES[gunId] ?? gunId.toUpperCase()}`;
+        const labelText = `${campaignReward
+          ? language === 'en' ? 'Boss weapon' : 'Vũ khí trùm'
+          : language === 'en' ? 'Weapon pickup' : 'Nhặt súng'} · ${GUN_PICKUP_NAMES[gunId] ?? gunId.toUpperCase()}`;
         const beaconColor = gunId === 'rpg4' || gunId === 'rail_lance' ? '#d6b375'
           : gunId === 'sg12' || gunId === 'bulldog' ? '#e17143' : '#71a7bc';
         const wobbleY = Math.sin(p.wobble) * 3;
@@ -406,10 +409,7 @@ export class MapPickupSystem {
           ctx.fillRect(bx - 1, -2, 2, 6);
           ctx.beginPath(); ctx.moveTo(bx - 1, -2); ctx.lineTo(bx, -5); ctx.lineTo(bx + 1, -2); ctx.fill();
         }
-        const ammoName: Record<string, string> = {
-          p9: 'P9', ar7: 'AR7', smg9: 'SMG9', sg12: 'SG12', dmr55: 'DMR55',
-          bulldog: 'BULL', lmg6: 'LMG6', flamer8: 'FLAME', rpg4: 'RPG4', rail_lance: 'RAIL',
-        };
+        const ammoName = GUN_PICKUP_NAMES;
         const label = `${ammoName[gunId] ?? gunId.toUpperCase()} +${p.value}`;
         ctx.font = 'bold 7px Segoe UI, Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(12,17,18,.94)'; ctx.strokeText(label, 0, -11);
@@ -438,12 +438,15 @@ export class MapPickupSystem {
       drawLootIcon(ctx, p.itemId, sx, sy + wobbleY, radius, color, p.wobble);
       ctx.globalAlpha = 1;
 
-      const labels: Record<string, string> = {
-        health_pack: `+${p.value}`, magnet: 'NAM CHÂM', xp_chest: 'XP +100',
-        double_xp: 'XP ×2', speed_boost: 'TĂNG TỐC', shield: 'LÁ CHẮN',
-        bomb: 'PHÁ HỦY', weapon_part: 'LINH KIỆN', airdrop: 'TIẾP TẾ',
+      const labels: Record<string, [string, string]> = {
+        magnet: ['Nam châm', 'Magnet'], xp_chest: ['Rương XP +100', 'XP chest +100'],
+        double_xp: ['XP ×2', 'XP ×2'], speed_boost: ['Tăng tốc', 'Speed boost'],
+        shield: ['Lá chắn', 'Shield'], bomb: ['Nổ toàn màn', 'Screen blast'],
+        weapon_part: ['Linh kiện', 'Weapon part'], airdrop: ['Tiếp tế', 'Supplies'],
       };
-      const label = labels[p.itemId] || MAP_ITEMS.find(i => i.id === p.itemId)?.name || p.itemId;
+      const label = p.itemId === 'health_pack' ? `+${p.value}`
+        : labels[p.itemId]?.[language === 'en' ? 1 : 0]
+          || MAP_ITEMS.find(i => i.id === p.itemId)?.name || p.itemId;
       ctx.save();
       ctx.font = `bold 9px 'Segoe UI', Arial, sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';

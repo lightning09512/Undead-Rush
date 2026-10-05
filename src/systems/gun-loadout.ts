@@ -8,6 +8,7 @@ import { Input } from '../core/input';
 import { drawGunArt } from '../graphics/campaign-menu-art';
 import { heldGunShape } from '../graphics/held-gun';
 import { BulletCasings } from '../graphics/bullet-casings';
+import { getUiTerm, type GameLanguage } from '../data/localization';
 
 export interface GunDef {
   id: string;
@@ -772,7 +773,7 @@ export class GunLoadout {
   }
 
   drawHUD(ctx: CanvasRenderingContext2D, canvasW: number, canvasH: number, player: Player,
-    campaignGear?: { armorLevel: number; medKits: number; flashlightLevel: number }): void {
+    campaignGear?: { armorLevel: number; medKits: number; flashlightLevel: number }, language: GameLanguage = 'vi'): void {
     const { x, width, infoY, infoHeight, listTop, rowHeight, visibleCount, first } = this.weaponHudLayout(canvasW, canvasH, !!campaignGear);
     const unlocked = this.unlockedSlots;
     const active = this.activeSlot;
@@ -786,7 +787,7 @@ export class GunLoadout {
       this.roundRect(ctx, x, listTop, width, listHeight, 4); ctx.fill(); ctx.stroke();
       ctx.fillStyle = '#aabbb9'; ctx.font = '700 9px Segoe UI, Arial';
       ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      ctx.fillText('VŨ KHÍ  ·  CUỘN / PHÍM SỐ', x + 9, listTop + 11, width - 58);
+      ctx.fillText(language === 'en' ? 'Weapons · scroll / number keys' : 'Vũ khí · cuộn / phím số', x + 9, listTop + 11, width - 58);
       ctx.textAlign = 'right'; ctx.fillText(`${unlocked.indexOf(active) + 1}/${unlocked.length}`, x + width - 9, listTop + 11);
       for (let visible = 0; visible < visibleCount; visible++) {
         const slot = unlocked[first + visible];
@@ -833,36 +834,37 @@ export class GunLoadout {
     ctx.fillText('/' + active.def.magSize, x + width - 9, infoY + 19);
     ctx.textAlign = 'left'; ctx.font = '600 9px Segoe UI, Arial';
     ctx.fillStyle = active.isReloading ? '#e1ba78' : '#a4b7b6';
-    ctx.fillText(active.isReloading ? 'THAY ĐẠN' : 'R · THAY ĐẠN', x + 11, infoY + 36);
+    ctx.fillText(active.isReloading ? (language === 'en' ? 'Reloading' : 'Đang nạp đạn') : (language === 'en' ? 'R · Reload' : 'R · Nạp đạn'), x + 11, infoY + 36);
     ctx.textAlign = 'right'; ctx.fillStyle = '#b6c3c1';
-    ctx.fillText(`DỰ TRỮ ${active.reserveAmmo < 0 ? '∞' : active.reserveAmmo}`, x + width - 10, infoY + 36);
+    ctx.fillText(`${getUiTerm('reserveAmmo', language)} ${active.reserveAmmo < 0 ? '∞' : active.reserveAmmo}`, x + width - 10, infoY + 36);
     if (active.isReloading) {
       ctx.fillStyle = '#324045'; ctx.fillRect(x + 9, infoY + 47, width - 18, 3);
       ctx.fillStyle = '#d9ae68'; ctx.fillRect(x + 9, infoY + 47, (width - 18) * active.reloadProgress, 3);
     } else { ctx.fillStyle = 'rgba(255,255,255,.1)'; ctx.fillRect(x + 9, infoY + 49, width - 18, 1); }
     const dashReady = player.dashCooldown <= 0;
     ctx.textAlign = 'left'; ctx.font = '700 10px Segoe UI, Arial';
-    ctx.fillStyle = '#dfc289'; ctx.fillText(`G  LỰU  ${this.grenadesCurrent}/${this.maxGrenades}`, x + 11, infoY + 65);
+    ctx.fillStyle = '#dfc289'; ctx.fillText(`G · ${language === 'en' ? 'Grenade' : 'Lựu đạn'} ${this.grenadesCurrent}/${this.maxGrenades}`, x + 11, infoY + 65);
     ctx.fillStyle = dashReady ? '#8ec3c7' : '#9aa7a8';
-    ctx.fillText(dashReady ? 'SHIFT  LƯỚT SẴN' : `SHIFT  LƯỚT ${player.dashCooldown.toFixed(1)}s`, x + 11, infoY + 82);
+    ctx.fillText(dashReady ? (language === 'en' ? 'Shift · Dodge ready' : 'Shift · Lướt sẵn')
+      : `${language === 'en' ? 'Shift · Dodge' : 'Shift · Lướt'} ${player.dashCooldown.toFixed(1)}s`, x + 11, infoY + 82);
     if (infoHeight > 100) {
       ctx.fillStyle = this.ragePercent >= 100 || this.isRageActive ? '#d6a078' : '#aab7b7';
-      const rage = this.isRageActive ? `NỘ ${this.rageActiveTimer.toFixed(1)}s`
-        : this.rageCooldownTimer > 0 ? `NỘ HỒI ${this.rageCooldownTimer.toFixed(1)}s`
-        : this.ragePercent >= 100 ? 'NỘ SẴN' : `NỘ ${Math.floor(this.ragePercent)}%`;
+      const rage = this.isRageActive ? `${language === 'en' ? 'Rage' : 'Nộ'} ${this.rageActiveTimer.toFixed(1)}s`
+        : this.rageCooldownTimer > 0 ? `${language === 'en' ? 'Rage cooldown' : 'Nộ hồi chiêu'} ${this.rageCooldownTimer.toFixed(1)}s`
+        : this.ragePercent >= 100 ? (language === 'en' ? 'Rage ready' : 'Nộ sẵn sàng') : `${language === 'en' ? 'Rage' : 'Nộ'} ${Math.floor(this.ragePercent)}%`;
       ctx.fillText(`F  ${rage}`, x + 11, infoY + 99);
     } else {
       ctx.textAlign = 'right'; ctx.fillStyle = '#b7a092';
-      ctx.fillText(`F NỘ ${Math.floor(this.ragePercent)}%`, x + width - 9, infoY + 65, width * .48);
+      ctx.fillText(`F · ${language === 'en' ? 'Rage' : 'Nộ'} ${Math.floor(this.ragePercent)}%`, x + width - 9, infoY + 65, width * .48);
     }
     if (campaignGear) {
       ctx.textAlign = 'left'; ctx.font = '700 9px Segoe UI, Arial';
       ctx.fillStyle = '#a9d9d2';
-      ctx.fillText(`PIN ${campaignGear.flashlightLevel}/3`, x + 11, infoY + 114);
+      ctx.fillText(`${language === 'en' ? 'Light' : 'Đèn pin'} ${campaignGear.flashlightLevel}/3`, x + 11, infoY + 114);
       ctx.fillStyle = campaignGear.armorLevel ? '#b9d78d' : '#97a29f';
-      ctx.fillText(`GIÁP ${campaignGear.armorLevel}/3`, x + 83, infoY + 114);
+      ctx.fillText(`${language === 'en' ? 'Armor' : 'Giáp'} ${campaignGear.armorLevel}/3`, x + 83, infoY + 114);
       ctx.fillStyle = campaignGear.medKits > 0 ? '#8de6a3' : '#97a29f';
-      ctx.fillText(`TÚI ${campaignGear.medKits}`, x + width - 47, infoY + 114, 39);
+      ctx.fillText(`${language === 'en' ? 'Meds' : 'Túi'} ${campaignGear.medKits}`, x + width - 47, infoY + 114, 39);
     }
     ctx.restore();
   }

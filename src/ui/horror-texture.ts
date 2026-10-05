@@ -1,4 +1,5 @@
 import { UI_PALETTE as C } from './palette';
+import type { GameLanguage } from '../data/localization';
 
 /** Original procedural artwork. No external images; static scene is cached by MenuUI. */
 export function drawBloodHandprint(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number, rotation = 0): void {
@@ -64,7 +65,7 @@ export function drawWornPanel(ctx: CanvasRenderingContext2D, x: number, y: numbe
   ctx.restore();
 }
 
-export function createQuarantineBackdrop(w: number, h: number): HTMLCanvasElement {
+export function createQuarantineBackdrop(w: number, h: number, language: GameLanguage = 'vi'): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = Math.ceil(w);
   canvas.height = Math.ceil(h);
@@ -124,7 +125,7 @@ export function createQuarantineBackdrop(w: number, h: number): HTMLCanvasElemen
   ctx.fillStyle = '#252824';
   for (let i = -130; i < 140; i += 27) { ctx.beginPath(); ctx.moveTo(i, 1); ctx.lineTo(i + 12, 1); ctx.lineTo(i + 2, 14); ctx.lineTo(i - 10, 14); ctx.closePath(); ctx.fill(); }
   ctx.fillStyle = '#344146'; ctx.fillRect(-213, -265, 66, 87); ctx.strokeStyle = '#69736e'; ctx.lineWidth = 1; ctx.strokeRect(-213, -265, 66, 87);
-  ctx.fillStyle = '#b1aa86'; ctx.font = 'bold 10px Arial'; ctx.textAlign = 'center'; ctx.fillText('CÁCH LY', -180, -245);
+  ctx.fillStyle = '#b1aa86'; ctx.font = 'bold 10px Arial'; ctx.textAlign = 'center'; ctx.fillText(language === 'en' ? 'Quarantine' : 'Cách ly', -180, -245);
   ctx.font = 'bold 30px Arial'; ctx.fillText('03', -180, -210);
   drawBloodHandprint(ctx, 166, -201, 0.85, -0.23);
   ctx.restore();

@@ -10,6 +10,7 @@ import { Camera } from '../core/camera';
 import { SOLID_BUILDINGS } from '../entities/map-geometry';
 import { UI_PALETTE as C } from './palette';
 import type { StageDef } from '../data/meta';
+import { getUiTerm, sentenceCaseDisplay, type GameLanguage } from '../data/localization';
 
 export class HUD {
   draw(
@@ -23,7 +24,8 @@ export class HUD {
     mapPickups: MapPickupSystem,
     camera: Camera,
     campaign?: { stage: StageDef; activeNode: number; bossSpawned: boolean; bossName?: string; bossHpRatio?: number; exitActive: boolean; exitActivated: boolean; credits: number; creditGain: number },
-    survival?: { wave: number; phase: 'intermission' | 'regular' | 'boss-warning' | 'boss'; bossName?: string; bossHpRatio?: number }
+    survival?: { wave: number; phase: 'intermission' | 'regular' | 'boss-warning' | 'boss'; bossName?: string; bossHpRatio?: number },
+    language: GameLanguage = 'vi'
   ): void {
     const pad = w < 700 ? 9 : 12;
     const compact = w < 700;
@@ -39,10 +41,10 @@ export class HUD {
     if (campaign) {
       ctx.fillStyle = '#c7a875'; ctx.fillRect(0, xpBarH - 2, w, 2);
       ctx.fillStyle = '#f1e9d5'; ctx.font = 'bold 12px Segoe UI, Arial'; ctx.textBaseline = 'middle';
-      ctx.textAlign = 'left'; ctx.fillText(`CHIẾN DỊCH ${campaign.stage.id}/10`, 12, 10);
+      ctx.textAlign = 'left'; ctx.fillText(`${getUiTerm('campaign', language)} ${campaign.stage.id}/10`, 12, 10);
       ctx.textAlign = 'right';
       ctx.fillStyle = '#e5c684';
-      ctx.fillText(`${campaign.credits} TÍN DỤNG${campaign.creditGain ? `   +${campaign.creditGain}` : ''}`, w - 14, 10);
+      ctx.fillText(`${campaign.credits} ${getUiTerm('credits', language)}${campaign.creditGain ? `   +${campaign.creditGain}` : ''}`, w - 14, 10);
     } else {
 
     const xpRatio = Math.min(1, Math.max(0, player.xp / player.xpToNext));
@@ -136,15 +138,15 @@ export class HUD {
       ctx.lineWidth = 1;
       this.roundRect(ctx, panelX, panelY, panelW, panelH, 5); ctx.fill(); ctx.stroke();
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      const stateText = survival.phase === 'intermission' ? 'KHU VỰC ĐANG LẮNG' :
-        survival.phase === 'boss-warning' ? 'CÓ THỨ ĐANG TIẾN ĐẾN' :
-        survival.phase === 'boss' ? 'BOSS ĐANG SĂN LÙNG' : 'TIÊU DIỆT ĐỢT QUÁI';
+      const stateText = language === 'en'
+        ? survival.phase === 'intermission' ? 'Area quiet' : survival.phase === 'boss-warning' ? 'Something is approaching' : survival.phase === 'boss' ? 'Boss on the hunt' : 'Clear the wave'
+        : survival.phase === 'intermission' ? 'Khu vực tạm lắng' : survival.phase === 'boss-warning' ? 'Có thứ đang tới' : survival.phase === 'boss' ? 'Trùm đang săn lùng' : 'Đang giao tranh';
       ctx.fillStyle = survival.phase === 'boss' || survival.phase === 'boss-warning' ? '#e3b37e' : '#b9cbc3';
       ctx.font = `800 ${compact ? 11 : 12}px Segoe UI, Arial`;
-      ctx.fillText(`WAVE ${survival.wave}  ·  ${stateText}`, w / 2, panelY + 13, panelW - 14);
+      ctx.fillText(`${getUiTerm('wave', language)} ${survival.wave} · ${stateText}`, w / 2, panelY + 13, panelW - 14);
       if (survival.bossName) {
         ctx.fillStyle = '#f0e5d9'; ctx.font = `700 ${compact ? 10 : 11}px Segoe UI, Arial`;
-        ctx.fillText(survival.bossName.toLocaleUpperCase('vi-VN'), w / 2, panelY + 29, panelW - 14);
+        ctx.fillText(sentenceCaseDisplay(survival.bossName, language), w / 2, panelY + 29, panelW - 14);
       }
       ctx.restore();
     }
@@ -153,7 +155,7 @@ export class HUD {
       const bossName = campaignBossActive ? campaign!.bossName! : survival!.bossName!;
       const bossHp = campaignBossActive ? campaign!.bossHpRatio : survival!.bossHpRatio;
       const bossBarY = campaignBossActive ? xpBarH + 5 : compact ? clockY + clockH + 8 : w < 1240 ? 141 : clockY + clockH + 7;
-      this.drawBossHealthBar(ctx, w, pad, bossBarY, compact, bossName, bossHp ?? 1);
+      this.drawBossHealthBar(ctx, w, pad, bossBarY, compact, bossName, bossHp ?? 1, language);
     }
 
     // ─── 3. Top-Left: Equipment Slots (6 Weapons + 6 Passives) ───
@@ -184,14 +186,14 @@ export class HUD {
     ctx.font = `bold 9px 'Segoe UI', Arial, sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(hpRatio <= 0.25 ? 'NGUY KỊCH' : 'SINH LỰC', hpX + 6, hpY + 9);
+    ctx.fillText(hpRatio <= 0.25 ? (language === 'en' ? 'Critical' : 'Nguy kịch') : (language === 'en' ? 'Health' : 'Sinh lực'), hpX + 6, hpY + 9);
     ctx.fillStyle = C.text; ctx.font = `bold 10px 'Segoe UI', Arial, sans-serif`;
     ctx.textAlign = 'right';
     ctx.fillText(`${Math.ceil(player.hp)} / ${player.maxHp}`, hpX + hpBarW - 6, hpY + 9);
     ctx.restore();
 
     // ─── 5. Top-Right: Minimap ───
-    if (!campaign) this.drawMinimap(ctx, w, h, pad, xpBarH + 8, player, zombies, mapPickups, camera);
+    if (!campaign) this.drawMinimap(ctx, w, h, pad, xpBarH + 8, player, zombies, mapPickups, camera, undefined, language);
 
     // ─── 6. Mobile Touch Joystick ───
     if (input.isJoystickVisible) {
@@ -212,7 +214,7 @@ export class HUD {
     }
   }
 
-  private drawBossHealthBar(ctx: CanvasRenderingContext2D, w: number, pad: number, y: number, compact: boolean, name: string, hpRatio: number): void {
+  private drawBossHealthBar(ctx: CanvasRenderingContext2D, w: number, pad: number, y: number, compact: boolean, name: string, hpRatio: number, language: GameLanguage): void {
     const barW = Math.min(compact ? 420 : 800, w - pad * 2);
     const barH = compact ? 51 : 57;
     const x = (w - barW) / 2;
@@ -227,9 +229,10 @@ export class HUD {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.font = `900 ${compact ? 11 : 14}px Segoe UI, Arial`;
     ctx.lineWidth = 3; ctx.strokeStyle = '#120f10';
-    ctx.strokeText(name.toLocaleUpperCase(), w / 2, y + (compact ? 13 : 14), barW - 30);
+    const displayName = sentenceCaseDisplay(name, language);
+    ctx.strokeText(displayName, w / 2, y + (compact ? 13 : 14), barW - 30);
     ctx.fillStyle = '#eee1d2';
-    ctx.fillText(name.toLocaleUpperCase(), w / 2, y + (compact ? 13 : 14), barW - 30);
+    ctx.fillText(displayName, w / 2, y + (compact ? 13 : 14), barW - 30);
 
     ctx.fillStyle = '#1b1718'; ctx.fillRect(trackX, trackY, trackW, trackH);
     ctx.strokeStyle = '#796a59'; ctx.lineWidth = 1; ctx.strokeRect(trackX, trackY, trackW, trackH);
@@ -339,7 +342,8 @@ export class HUD {
     zombies: ZombieSystem,
     mapPickups: MapPickupSystem,
     camera: Camera,
-    campaign?: { stage: StageDef; activeNode: number; bossSpawned: boolean; exitActive: boolean; exitActivated: boolean }
+    campaign?: { stage: StageDef; activeNode: number; bossSpawned: boolean; exitActive: boolean; exitActivated: boolean },
+    language: GameLanguage = 'vi'
   ): void {
     const size = w < 700 ? Math.min(124, Math.max(94, w * 0.26)) : Math.min(168, Math.max(112, w * 0.28));
     const frame = size + 12;
@@ -452,7 +456,7 @@ export class HUD {
     ctx.font = 'bold 9px Segoe UI, Arial, sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('BẢN ĐỒ', mx + 8, my - 2);
+    ctx.fillText(language === 'en' ? 'Map' : 'Bản đồ', mx + 8, my - 2);
   }
 
   drawDamageFeedback(ctx: CanvasRenderingContext2D, w: number, h: number, hpRatio: number, flashTimer: number): void {
