@@ -2,7 +2,7 @@ import { CHARACTERS, STAGES } from '../data/meta';
 import { SaveSystem } from '../systems/save';
 import { UPGRADES } from '../data/upgrades';
 import { createCampaignGunDefs } from '../systems/gun-loadout';
-import { drawGunArt, drawHunterPortrait, type GunArtView } from '../graphics/campaign-menu-art';
+import { drawGunArt, drawHunterPortrait } from '../graphics/campaign-menu-art';
 import { UI_PALETTE as C } from './palette';
 import { createQuarantineBackdrop } from './horror-texture';
 import { getStageCopy, getUiTerm, localizeZombieName, sentenceCaseDisplay } from '../data/localization';
@@ -48,7 +48,6 @@ export class CampaignUI {
   armoryTab: 'guns' | 'drone' = 'guns';
   gunPage = 0;
   selectedGunId = '';
-  selectedGunView: GunArtView = 'side';
   private gunListNeedsSync = true;
   focusedCharacter = 'survivor';
   canWatchRevive = true;
@@ -105,12 +104,13 @@ export class CampaignUI {
       this.page = 'briefing'; return null;
     }
     if (b.action.startsWith('page:')) { this.stagePage = Number(b.action.slice(5)); return null; }
-    if (b.action.startsWith('focusgun:')) { this.selectedGunId = b.action.slice(9); return null; }
-    if (b.action.startsWith('gunview:')) {
-      const view = b.action.slice(8);
-      if (view === 'side' || view === 'muzzle' || view === 'stock') this.selectedGunView = view;
+    if (b.action.startsWith('focusgun:')) {
+      this.armoryTab = 'guns';
+      this.selectedGunId = b.action.slice(9);
+      this.gunListNeedsSync = true;
       return null;
     }
+    if (b.action === 'focusdrone') { this.armoryTab = 'drone'; this.gunListNeedsSync = true; return null; }
     if (b.action.startsWith('stage:')) {
       const index = Number(b.action.slice(6));
       if (index + 1 <= p.unlockedStage) { this.selectedStage = index; this.page = 'briefing'; }
@@ -208,7 +208,6 @@ export class CampaignUI {
 
   private prepareGunShowcase(gunId: string): void {
     this.selectedGunId = GUNS.some(gun => gun.id === gunId) ? gunId : GUNS[0].id;
-    this.selectedGunView = 'side';
     this.gunPage = 0;
     this.gunListNeedsSync = true;
   }
@@ -296,11 +295,7 @@ export class CampaignUI {
   private armory(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, p: SaveSystem['data']['campaign'], narrow: boolean): void {
     const english = this.language === 'en';
     this.title(ctx, english ? 'Staging area' : 'Trạm chuẩn bị', x + 22, y + 77);
-    const tabW = (w - 54) / 2;
-    this.add(x + 22, y + 87, tabW, 31, english ? 'Weapons' : 'Vũ khí', 'tab:guns', this.armoryTab === 'guns');
-    this.add(x + 32 + tabW, y + 87, tabW, 31, english ? 'Support drone' : 'Drone hộ vệ', 'tab:drone', this.armoryTab === 'drone');
-    if (this.armoryTab === 'guns') this.drawGuns(ctx, x, y, w, h, p, narrow);
-    else this.drawDrone(ctx, x, y, w, h, p, narrow);
+    this.drawGuns(ctx, x, y, w, h, p, narrow);
     this.drawGear(ctx, x, y, w, h, p, narrow);
     this.add(x + 22, y + h - 52, narrow ? 105 : 145, 34, english ? '← Character' : '← Nhân vật', 'back');
     this.add(x + w - (narrow ? 155 : 195) - 22, y + h - 52, narrow ? 155 : 195, 34, english ? 'Choose mission →' : 'Chọn màn →', 'stages');
@@ -308,7 +303,7 @@ export class CampaignUI {
 
   private drawGuns(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, p: SaveSystem['data']['campaign'], narrow: boolean): void {
     const english = this.language === 'en';
-    const contentX = x + 22, contentY = y + 128, contentW = w - 44;
+    const contentX = x + 22, contentY = y + 97, contentW = w - 44;
     const contentBottom = y + h - 151;
     const areaH = Math.max(90, contentBottom - contentY);
     const compact = narrow || areaH < 360;
@@ -316,7 +311,8 @@ export class CampaignUI {
       this.selectedGunId = GUNS.some(gun => gun.id === p.equippedGun) ? p.equippedGun : GUNS[0].id;
       this.gunListNeedsSync = true;
     }
-    const selectedIndex = Math.max(0, GUNS.findIndex(gun => gun.id === this.selectedGunId));
+    const droneIndex = GUNS.length;
+    const selectedIndex = this.armoryTab === 'drone' ? droneIndex : Math.max(0, GUNS.findIndex(gun => gun.id === this.selectedGunId));
     const selected = GUNS[selectedIndex] ?? GUNS.find(gun => gun.id === p.equippedGun) ?? GUNS[0];
     const selectedOwned = selected.id === 'p9' || p.ownedGuns.includes(selected.id);
     const upgradeLevel = Math.min(3, p.gunLevels[selected.id] ?? 0);
@@ -327,7 +323,8 @@ export class CampaignUI {
     const contentGap = 8;
     let previewX = contentX, previewY = contentY, previewW = contentW, previewH = areaH;
     let listX = contentX, listY = contentY, listW = contentW, listH = 0;
-    let visibleRows = GUNS.length, rowH = 0, pageCount = 1;
+    const railCount = GUNS.length + 1;
+    let visibleRows = railCount, rowH = 0, pageCount = 1;
 
     if (!compact) {
       previewW = Math.round((contentW - contentGap) * .46);
@@ -335,7 +332,7 @@ export class CampaignUI {
       listW = contentW - previewW - contentGap;
       listY = contentY + 19;
       listH = Math.max(60, areaH - 19);
-      rowH = listH / GUNS.length;
+      rowH = listH / railCount;
       this.gunPage = 0;
       this.gunListNeedsSync = false;
     } else {
@@ -344,7 +341,7 @@ export class CampaignUI {
       listY = contentY + previewH + contentGap;
       listH = Math.max(38, contentBottom - listY);
       visibleRows = Math.max(1, Math.floor((listH - 27) / 40));
-      pageCount = Math.ceil(GUNS.length / visibleRows);
+      pageCount = Math.ceil(railCount / visibleRows);
       if (this.gunListNeedsSync) this.gunPage = Math.floor(selectedIndex / visibleRows);
       this.gunPage = Math.max(0, Math.min(pageCount - 1, this.gunPage));
       rowH = Math.min(46, (listH - (pageCount > 1 ? 26 : 0)) / visibleRows);
@@ -352,14 +349,39 @@ export class CampaignUI {
       this.gunListNeedsSync = false;
     }
 
-    this.drawGunShowcase(ctx, previewX, previewY, previewW, previewH, selected, selectedOwned,
-      p, upgradeLevel, upgradeCost, damage, ammo.currentAmmo, reserveText, compact, english);
+    if (this.armoryTab === 'drone') {
+      this.drawDroneShowcase(ctx, previewX, previewY, previewW, previewH, p, compact, english);
+    } else {
+      this.drawGunShowcase(ctx, previewX, previewY, previewW, previewH, selected, selectedOwned,
+        p, upgradeLevel, upgradeCost, damage, ammo.currentAmmo, reserveText, compact, english);
+    }
 
-    // The armory rail uses the same cached, detailed gun art as the player HUD and world pickups.
+    // Keep every firearm and the hand-drawn support drone together in one equipment rail.
     const first = compact ? this.gunPage * visibleRows : 0;
-    const shown = compact ? GUNS.slice(first, first + visibleRows) : GUNS;
+    const shown = compact ? [...GUNS, null].slice(first, first + visibleRows) : [...GUNS, null];
     shown.forEach((gun, index) => {
       const by = compact ? listY + index * rowH : listY + index * rowH;
+      if (!gun) {
+        const isSelected = this.armoryTab === 'drone';
+        this.panel(ctx, listX, by, listW, rowH - 2, isSelected ? C.cyanBright : C.borderSoft);
+        ctx.fillStyle = isSelected ? 'rgba(79, 139, 145, .28)' : 'rgba(27, 37, 39, .78)';
+        ctx.fillRect(listX + 1, by + 1, listW - 2, rowH - 3);
+        if (isSelected) { ctx.fillStyle = C.cyanBright; ctx.fillRect(listX + 1, by + 2, 3, rowH - 5); }
+        this.drawDroneIcon(ctx, listX + Math.min(43, listW * .12), by + rowH / 2, Math.min(.48, rowH / 96));
+        const textX = listX + Math.min(78, listW * .23);
+        ctx.fillStyle = C.text; ctx.font = `800 ${compact ? 10 : 12}px Segoe UI, Arial`;
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText(english ? 'Support drone' : 'Drone hộ vệ', textX, by + rowH * .39, Math.max(20, listW - (textX - listX) - 78));
+        ctx.fillStyle = C.textSoft; ctx.font = `600 ${compact ? 8 : 9}px Segoe UI, Arial`;
+        const droneLevel = Math.min(DRONE_UPGRADE.maxLevel, p.cardLevels.drone ?? 0);
+        ctx.fillText(english ? `Level ${droneLevel}/${DRONE_UPGRADE.maxLevel} · automatic fire` : `Cấp ${droneLevel}/${DRONE_UPGRADE.maxLevel} · tự động khai hỏa`, textX, by + rowH * .72,
+          Math.max(20, listW - (textX - listX) - 78));
+        ctx.textAlign = 'right'; ctx.fillStyle = isSelected ? C.cyanBright : C.textMuted;
+        ctx.font = `800 ${compact ? 7 : 8}px Segoe UI, Arial`;
+        ctx.fillText(english ? 'Support' : 'Hỗ trợ', listX + listW - 8, by + rowH / 2, 64);
+        this.add(listX + 1, by + 1, listW - 2, rowH - 3, '', 'focusdrone');
+        return;
+      }
       const sidearm = gun.id === 'p9', owned = sidearm || p.ownedGuns.includes(gun.id);
       const equipped = p.equippedGun === gun.id;
       const isSelected = selected.id === gun.id;
@@ -429,32 +451,10 @@ export class CampaignUI {
     const artX = x + (w - artW) / 2;
     const artY = y + 31 + Math.max(0, (maxArtH - artH) / 2);
     ctx.save(); ctx.globalAlpha = owned ? 1 : .58;
-    drawGunArt(ctx, artX, artY, artW, artH, gun.id, this.selectedGunView);
+    drawGunArt(ctx, artX, artY, artW, artH, gun.id, 'side');
     ctx.restore();
 
-    const viewY = y + 31 + maxArtH + 4;
-    const rearLabel = gun.id === 'p9' || gun.id === 'rpg4';
-    const viewLabels: Array<{ view: GunArtView; vi: string; en: string }> = [
-      { view: 'side', vi: 'Ngang', en: 'Side' },
-      { view: 'muzzle', vi: 'Đầu nòng', en: 'Muzzle' },
-      { view: 'stock', vi: rearLabel ? 'Phía sau' : 'Báng', en: rearLabel ? 'Rear' : 'Stock' },
-    ];
-    const viewGap = 4, viewW = (w - 24 - viewGap * 2) / 3;
-    const viewH = tinyCompact ? 17 : compact ? 21 : 25;
-    viewLabels.forEach((view, i) => {
-      const vx = x + 12 + i * (viewW + viewGap);
-      const selected = this.selectedGunView === view.view;
-      ctx.fillStyle = selected ? 'rgba(86, 147, 150, .20)' : 'rgba(30, 42, 43, .72)';
-      ctx.fillRect(vx, viewY, viewW, viewH);
-      ctx.strokeStyle = selected ? C.cyanBright : C.borderSoft; ctx.lineWidth = 1;
-      ctx.strokeRect(vx + .5, viewY + .5, viewW - 1, viewH - 1);
-      ctx.fillStyle = selected ? C.cyanBright : C.textSoft; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.font = `800 ${compact ? 7 : 8}px Segoe UI, Arial`;
-      ctx.fillText(english ? view.en : view.vi, vx + viewW / 2, viewY + viewH / 2);
-      this.add(vx, viewY, viewW, viewH, '', `gunview:${view.view}`);
-    });
-
-    const infoY = viewY + viewH + (compact ? 5 : 8);
+    const infoY = y + 31 + maxArtH + (compact ? 5 : 8);
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     if (tinyCompact) {
       ctx.fillStyle = owned ? C.amberBright : C.textMuted; ctx.font = '800 8px Segoe UI, Arial';
@@ -551,17 +551,19 @@ export class CampaignUI {
     const english = this.language === 'en';
     const gearY = y + h - 143, gearH = 62, gap = 6, cellW = (w - 44 - gap * 2) / 3;
     const items = [
-      { title: english ? `Flashlight · level ${p.flashlightLevel}/3` : `Đèn pin · cấp ${p.flashlightLevel}/3`, detail: p.flashlightLevel >= 3 ? (english ? 'Maximum brightness' : 'Độ sáng tối đa') : (english ? 'Longer beam' : 'Chiếu xa hơn'), action: 'flashlight', cost: 95 + p.flashlightLevel * 75, disabled: p.flashlightLevel >= 3 },
-      { title: english ? `Armor · level ${p.armorLevel}/3` : `Áo giáp · cấp ${p.armorLevel}/3`, detail: p.armorLevel ? (english ? `Reduces damage by ${[0, 10, 18, 25][p.armorLevel]}%` : `Giảm ${[0, 10, 18, 25][p.armorLevel]}% sát thương`) : (english ? 'Reduces incoming damage' : 'Giảm sát thương nhận vào'), action: 'armor', cost: [150, 260, 390][p.armorLevel] ?? 390, disabled: p.armorLevel >= 3 },
-      { title: english ? `Medical kit · ${p.medKits}/5` : `Túi cứu thương · ${p.medKits}/5`, detail: english ? 'Auto-use · restores 50% HP' : 'Tự dùng · hồi 50% máu', action: 'med', cost: 70, disabled: p.medKits >= 5 },
+      { icon: 'flashlight' as const, title: english ? `Flashlight · level ${p.flashlightLevel}/3` : `Đèn pin · cấp ${p.flashlightLevel}/3`, detail: p.flashlightLevel >= 3 ? (english ? 'Maximum brightness' : 'Độ sáng tối đa') : (english ? 'Longer beam' : 'Chiếu xa hơn'), action: 'flashlight', cost: 95 + p.flashlightLevel * 75, disabled: p.flashlightLevel >= 3 },
+      { icon: 'armor' as const, title: english ? `Armor · level ${p.armorLevel}/3` : `Áo giáp · cấp ${p.armorLevel}/3`, detail: p.armorLevel ? (english ? `Reduces damage by ${[0, 10, 18, 25][p.armorLevel]}%` : `Giảm ${[0, 10, 18, 25][p.armorLevel]}% sát thương`) : (english ? 'Reduces incoming damage' : 'Giảm sát thương nhận vào'), action: 'armor', cost: [150, 260, 390][p.armorLevel] ?? 390, disabled: p.armorLevel >= 3 },
+      { icon: 'medical' as const, title: english ? `Medical kit · ${p.medKits}/5` : `Túi cứu thương · ${p.medKits}/5`, detail: english ? 'Auto-use · restores 50% HP' : 'Tự dùng · hồi 50% máu', action: 'med', cost: 70, disabled: p.medKits >= 5 },
     ];
     items.forEach((item, i) => {
       const bx = x + 22 + i * (cellW + gap);
       this.panel(ctx, bx, gearY, cellW, gearH, i === 1 ? '#a7c888' : i === 2 ? '#77b78e' : C.cyanBright);
       ctx.fillStyle = C.text; ctx.textAlign = 'left'; ctx.font = `bold ${narrow ? 8 : 10}px Segoe UI, Arial`;
-      ctx.fillText(item.title, bx + 6, gearY + 13, cellW - 12);
+      const textX = bx + (narrow ? 31 : 42);
+      this.drawGearIcon(ctx, bx + (narrow ? 17 : 23), gearY + 18, item.icon, narrow ? .34 : .46);
+      ctx.fillText(item.title, textX, gearY + 13, cellW - (textX - bx) - 5);
       ctx.fillStyle = C.textSoft; ctx.font = `${narrow ? 7 : 9}px Segoe UI, Arial`;
-      ctx.fillText(item.detail, bx + 6, gearY + 26, cellW - 12);
+      ctx.fillText(item.detail, textX, gearY + 26, cellW - (textX - bx) - 5);
       const label = item.disabled ? (item.action === 'med' ? (english ? 'Full' : 'Đầy túi') : (english ? 'Max level' : 'Tối đa')) : `${english ? 'Buy' : 'Mua'} · ${item.cost}`;
       this.add(bx + 5, gearY + 33, cellW - 10, 23, label, item.action,
         item.disabled || p.credits < item.cost);
@@ -574,41 +576,44 @@ export class CampaignUI {
     return GUN_UPGRADE_COSTS[Math.max(0, Math.min(GUN_UPGRADE_COSTS.length - 1, level))];
   }
 
-  private drawDrone(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number,
-    p: SaveSystem['data']['campaign'], narrow: boolean): void {
-    const english = this.language === 'en';
+  private drawDroneShowcase(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number,
+    p: SaveSystem['data']['campaign'], compact: boolean, english: boolean): void {
     const level = Math.min(DRONE_UPGRADE.maxLevel, p.cardLevels.drone ?? 0);
     const maxed = level >= DRONE_UPGRADE.maxLevel;
     const cost = this.dronePrice(level);
-    const panelX = x + 22, panelY = y + 128, panelW = w - 44, panelH = Math.max(200, h - 348);
-    this.panel(ctx, panelX, panelY, panelW, panelH, C.cyanBright);
-    const compactPanel = panelH < 270;
-    ctx.textAlign = 'center'; ctx.fillStyle = C.cyanBright;
-    ctx.font = `bold ${narrow ? 12 : 15}px Segoe UI, Arial`;
-    ctx.fillText(english ? 'Automatic fire support' : 'Hỗ trợ hỏa lực tự động', x + w / 2, panelY + 25);
-    this.drawDroneIcon(ctx, x + w / 2, panelY + (compactPanel ? 60 : 80), narrow ? 1.1 : 1.5);
-    ctx.fillStyle = C.text; ctx.font = `bold ${narrow ? 16 : 20}px Segoe UI, Arial`;
-    ctx.fillText(english ? 'Support drone' : 'Drone hộ vệ', x + w / 2, panelY + (compactPanel ? 110 : 145));
-    ctx.fillStyle = C.textSoft; ctx.font = `${narrow ? 11 : 13}px Segoe UI, Arial`;
-    if (compactPanel) {
-      ctx.fillText(english ? 'Orbits the player and fires at the nearest target.' : 'Bay quanh người chơi và tự bắn mục tiêu gần nhất.', x + 40, panelY + 129, w - 80);
+    const buttonH = compact ? 23 : 28, buttonY = y + h - buttonH - 8;
+    this.panel(ctx, x, y, w, h, C.cyanBright);
+    ctx.fillStyle = 'rgba(6, 12, 14, .93)'; ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillStyle = C.cyanBright;
+    ctx.font = `900 ${compact ? 12 : 16}px Segoe UI, Arial`;
+    ctx.fillText(english ? 'SUPPORT DRONE' : 'DRONE HỘ VỆ', x + 14, y + 20, w - 28);
+
+    const iconScale = Math.min(compact ? .92 : 1.5, w / 105, Math.max(.45, (buttonY - y - 74) / 54));
+    this.drawDroneIcon(ctx, x + w / 2, y + Math.min(compact ? 58 : 86, Math.max(48, h * .25)), iconScale);
+    ctx.textAlign = 'center'; ctx.fillStyle = C.text; ctx.font = `800 ${compact ? 12 : 18}px Segoe UI, Arial`;
+    ctx.fillText(english ? 'Automatic fire support' : 'Hỗ trợ hỏa lực tự động', x + w / 2, y + h * (compact ? .48 : .47), w - 20);
+    ctx.fillStyle = C.textSoft; ctx.font = `${compact ? 8 : 11}px Segoe UI, Arial`;
+    if (compact) {
+      ctx.fillText(english ? 'Orbits and attacks nearby targets.' : 'Bay quanh, tự bắn mục tiêu gần.', x + w / 2, y + h * .60, w - 18);
     } else {
-      this.wrap(ctx, english ? 'The drone circles the player and fires at the nearest target. Each level adds another drone.' : 'Drone bay quanh nhân vật và tự động bắn mục tiêu gần nhất. Mỗi cấp thêm một drone.',
-        x + 40, panelY + 171, w - 80, 17, 2);
+      this.wrap(ctx, english ? 'The drone circles the player and fires at the nearest target. Each level adds another drone.'
+        : 'Drone bay quanh nhân vật và tự động bắn mục tiêu gần nhất. Mỗi cấp thêm một drone.',
+      x + 18, y + h * .57, w - 36, 15, 3);
     }
-    const pipGap = 20, pipStart = x + w / 2 - (DRONE_UPGRADE.maxLevel - 1) * pipGap / 2;
+
+    const pipGap = 18, pipStart = x + w / 2 - (DRONE_UPGRADE.maxLevel - 1) * pipGap / 2;
+    const pipY = buttonY - (compact ? 20 : 26);
     for (let i = 0; i < DRONE_UPGRADE.maxLevel; i++) {
-      ctx.beginPath(); ctx.arc(pipStart + i * pipGap, panelY + panelH - 48, 6, 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(pipStart + i * pipGap, pipY, compact ? 4 : 5, 0, Math.PI * 2);
       ctx.fillStyle = i < level ? C.cyanBright : C.borderSoft; ctx.fill();
     }
-    ctx.fillStyle = C.textSoft; ctx.font = 'bold 11px Segoe UI, Arial';
-    ctx.fillText(english ? `Level ${level}/${DRONE_UPGRADE.maxLevel} · ${level} drones active` : `Cấp ${level}/${DRONE_UPGRADE.maxLevel} · ${level} drone đang hoạt động`, x + w / 2, panelY + panelH - 27);
-      const label = maxed ? (english ? 'Maximum level reached' : 'Đã đạt cấp tối đa') : english ? `Upgrade to level ${level + 1} · ${cost} credits` : `Nâng drone lên cấp ${level + 1} · ${cost} tín dụng`;
-    this.add(x + 42, y + h - 194, w - 84, 30, label, 'drone', maxed || p.credits < cost);
-    if (!maxed && p.credits < cost) {
-      ctx.fillStyle = C.textMuted; ctx.font = '11px Segoe UI, Arial';
-      ctx.fillText(english ? `${cost - p.credits} more credits needed` : `Còn thiếu ${cost - p.credits} tín dụng`, x + w / 2, y + h - 200);
-    }
+    ctx.fillStyle = C.textSoft; ctx.font = `bold ${compact ? 8 : 10}px Segoe UI, Arial`;
+    ctx.textAlign = 'center';
+    ctx.fillText(english ? `Level ${level}/${DRONE_UPGRADE.maxLevel} · ${level} active`
+      : `Cấp ${level}/${DRONE_UPGRADE.maxLevel} · ${level} đang hoạt động`, x + w / 2, pipY - 11);
+    const label = maxed ? (english ? 'Maximum level reached' : 'Đã đạt cấp tối đa')
+      : english ? `Upgrade · ${cost} credits` : `Nâng cấp · ${cost} tín dụng`;
+    this.add(x + 9, buttonY, w - 18, buttonH, label, 'drone', maxed || p.credits < cost);
   }
 
   /** Original Canvas line art; keep the drone consistent with the game's flat military UI. */
@@ -628,6 +633,43 @@ export class CampaignUI {
     ctx.fillStyle = '#63d8dc'; ctx.beginPath(); ctx.roundRect(-6, -9, 12, 18, 4); ctx.fill();
     ctx.fillStyle = '#d2c496'; ctx.fillRect(-16, -3, 5, 6); ctx.fillRect(11, -3, 5, 6);
     ctx.fillStyle = '#374847'; ctx.fillRect(-11, 17, 22, 5);
+    ctx.restore();
+  }
+
+  /** Small original line-art supply icons, drawn in Canvas to stay sharp at every UI scale. */
+  private drawGearIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number,
+    kind: 'flashlight' | 'armor' | 'medical', scale: number): void {
+    ctx.save(); ctx.translate(cx, cy); ctx.scale(scale, scale);
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    if (kind === 'flashlight') {
+      ctx.save(); ctx.rotate(-.34);
+      ctx.fillStyle = '#293638'; ctx.strokeStyle = '#a9c2b6'; ctx.lineWidth = 2.4;
+      ctx.beginPath(); ctx.moveTo(-19, -5); ctx.lineTo(10, -5); ctx.lineTo(15, -8);
+      ctx.lineTo(21, -6); ctx.lineTo(21, 6); ctx.lineTo(15, 8); ctx.lineTo(10, 5); ctx.lineTo(-19, 5); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#53cbd0'; ctx.beginPath(); ctx.moveTo(17, -4); ctx.lineTo(25, -7); ctx.lineTo(25, 7); ctx.lineTo(17, 4); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#e4d2a3'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(-7, -5); ctx.lineTo(-9, 5); ctx.moveTo(-13, -4); ctx.lineTo(-15, 4); ctx.stroke();
+      ctx.fillStyle = '#bd7653'; ctx.fillRect(1, -8, 5, 3);
+      ctx.restore();
+    } else if (kind === 'armor') {
+      ctx.fillStyle = '#334442'; ctx.strokeStyle = '#b0c49b'; ctx.lineWidth = 2.4;
+      ctx.beginPath(); ctx.moveTo(-12, -19); ctx.lineTo(-4, -16); ctx.lineTo(0, -19); ctx.lineTo(5, -16);
+      ctx.lineTo(13, -19); ctx.lineTo(18, -10); ctx.lineTo(14, -4); ctx.lineTo(13, 15);
+      ctx.lineTo(7, 19); ctx.lineTo(0, 15); ctx.lineTo(-7, 19); ctx.lineTo(-14, 15);
+      ctx.lineTo(-14, -4); ctx.lineTo(-18, -10); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = '#718d77'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(-8, -15); ctx.lineTo(-6, -5); ctx.lineTo(-10, 5); ctx.moveTo(8, -15); ctx.lineTo(6, -5); ctx.lineTo(10, 5); ctx.stroke();
+      ctx.fillStyle = '#718d77'; ctx.fillRect(-5, -2, 10, 10);
+      ctx.strokeStyle = '#d5c99e'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(-4, 11); ctx.lineTo(4, 11); ctx.stroke();
+    } else {
+      ctx.fillStyle = '#263b3b'; ctx.strokeStyle = '#83c39a'; ctx.lineWidth = 2.4;
+      ctx.beginPath(); ctx.roundRect(-17, -12, 34, 27, 4); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-8, -12); ctx.lineTo(-8, -18); ctx.quadraticCurveTo(0, -24, 8, -18); ctx.lineTo(8, -12); ctx.stroke();
+      ctx.fillStyle = '#d7e3d0'; ctx.fillRect(-3, -7, 6, 17); ctx.fillRect(-9, -1, 18, 6);
+      ctx.strokeStyle = '#b2805a'; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(-13, 11); ctx.lineTo(-8, 11); ctx.moveTo(8, 11); ctx.lineTo(13, 11); ctx.stroke();
+    }
     ctx.restore();
   }
 

@@ -2300,6 +2300,7 @@ function drawGame(): void {
   const campaignStage = gameMode === 'stage' ? STAGES[currentStageIndex] : undefined;
   if (campaignStage) {
     campaignTerrainRenderer.draw(ctx, camera, campaignStage, stageObjectiveIndex, player.x, player.y, gameTime, save.data.language);
+    if (campaignStage.layout) campaignMapRenderer.drawArchitecture(ctx, camera, campaignStage);
     bloodStains.draw(ctx, camera);
     LightingRenderer.get().drawCampaignLighting(ctx, camera, campaignStage, player.x, player.y, player.aimAngle,
       viewportWidth, viewportHeight, save.data.campaign.flashlightLevel);

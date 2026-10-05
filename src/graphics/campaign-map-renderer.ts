@@ -49,7 +49,9 @@ export class CampaignMapRenderer {
       ctx.strokeStyle = 'rgba(198, 185, 142, 0.12)'; ctx.lineWidth = 2;
       ctx.setLineDash([14, 22]); ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]);
     }
-    for (const building of stage.buildings) this.drawBuilding(ctx, camera, building, stage.accentColor);
+    // Older layouts without Campaign zones still draw architecture in this pass,
+    // after their route underlay and before objective/encounter markers.
+    if (!stage.layout) this.drawArchitecture(ctx, camera, stage);
     const holdZone = stage.layout?.zones.find(zone => zone.role === 'hold');
     if (holdZone && activeNode === stage.objectiveHoldAt && !bossSpawned) {
       const pulse = .5 + .5 * Math.sin((objectiveCue?.gameTime ?? 0) * 5.5);
@@ -99,6 +101,13 @@ export class CampaignMapRenderer {
         if (!exitActivated && objectiveCue?.exitInteractable && distance <= 88) this.drawInteractKey(ctx, x + 31, y - 24, .8, true);
       }
     }
+    ctx.restore();
+  }
+
+  /** Draw static buildings before Campaign lighting so the flashlight shades their walls. */
+  drawArchitecture(ctx: CanvasRenderingContext2D, camera: Camera, stage: StageDef): void {
+    ctx.save();
+    for (const building of stage.buildings) this.drawBuilding(ctx, camera, building, stage.accentColor, stage.id);
     ctx.restore();
   }
 
@@ -324,7 +333,7 @@ export class CampaignMapRenderer {
     ctx.restore();
   }
 
-  private drawBuilding(ctx: CanvasRenderingContext2D, camera: Camera, b: StageBuildingDef, accent: string): void {
+  private drawBuilding(ctx: CanvasRenderingContext2D, camera: Camera, b: StageBuildingDef, accent: string, stageId: number): void {
     if (!camera.isVisible(b.x, b.y, Math.max(b.halfWidth, b.halfHeight) + 40)) return;
     const [x, y] = camera.worldToScreen(b.x, b.y);
     const w = b.halfWidth * 2, h = b.halfHeight * 2;
@@ -352,7 +361,7 @@ export class CampaignMapRenderer {
       ctx.beginPath(); ctx.ellipse(w*.24,-h*.18,w*.14,h*.09,.18,0,Math.PI*2); ctx.fill();
       ctx.restore();
     }
-    this.drawBuildingWalls(ctx, b, w, h, accent);
+    this.drawBuildingWalls(ctx, b, w, h, accent, stageId);
     if (b.variant === 'suburb') {
       // Distinct boarded windows sit above the wall band, fixed to the building.
       ctx.fillStyle = '#1b292b';
@@ -398,7 +407,7 @@ export class CampaignMapRenderer {
   }
 
   /** Heavy, beveled wall bands use the same 28px footprint as collision. */
-  private drawBuildingWalls(ctx: CanvasRenderingContext2D, b: StageBuildingDef, w: number, h: number, accent: string): void {
+  private drawBuildingWalls(ctx: CanvasRenderingContext2D, b: StageBuildingDef, w: number, h: number, accent: string, stageId: number): void {
     const left = -w / 2, right = w / 2, top = -h / 2, bottom = h / 2;
     const x0 = left + 14, x1 = right - 14;
     const y0 = -h / 2 + 14, y1 = h / 2 - 14;
@@ -414,41 +423,91 @@ export class CampaignMapRenderer {
         path.moveTo(126, y1); path.lineTo(right, y1);
       } else path.rect(-w / 2 + 14, -h / 2 + 14, w - 28, h - 28);
     };
-    const face = b.variant === 'fuel' ? '#927348' : b.variant === 'medical' ? '#74857d' : b.variant === 'suburb' ? '#687161' : '#626a65';
-    const rim = b.variant === 'fuel' ? '#d4ad68' : b.variant === 'medical' ? '#b5c7b9' : '#bbc09e';
-    const seam = b.variant === 'fuel' ? 'rgba(37,29,20,.72)' : 'rgba(22,28,27,.76)';
+    const palettes: Record<number, { face: string; shade: string; rim: string; seam: string }> = {
+      1: { face: '#737b6b', shade: '#3b433e', rim: '#d5cba5', seam: 'rgba(28,34,29,.82)' },
+      2: { face: '#95794f', shade: '#493b2b', rim: '#e2bd73', seam: 'rgba(39,29,19,.82)' },
+      3: { face: '#81928a', shade: '#394944', rim: '#d0e0cb', seam: 'rgba(25,36,33,.82)' },
+      4: { face: '#526b5f', shade: '#25352e', rim: '#a5c19a', seam: 'rgba(15,28,23,.86)' },
+      5: { face: '#737766', shade: '#353b32', rim: '#d3be78', seam: 'rgba(24,29,24,.86)' },
+      6: { face: '#7b7479', shade: '#403b42', rim: '#d3babe', seam: 'rgba(31,27,32,.84)' },
+      7: { face: '#6c7a7e', shade: '#30383b', rim: '#c1d0cc', seam: 'rgba(23,29,31,.86)' },
+      8: { face: '#5c8281', shade: '#293f40', rim: '#a5e0d8', seam: 'rgba(21,39,39,.86)' },
+      9: { face: '#806967', shade: '#443335', rim: '#d39687', seam: 'rgba(36,24,26,.86)' },
+      10: { face: '#754c4c', shade: '#3a272a', rim: '#ce8179', seam: 'rgba(36,22,24,.88)' },
+    };
+    const palette = b.variant === 'fuel' ? palettes[2] : b.variant === 'medical' ? palettes[3]
+      : b.variant === 'suburb' ? palettes[1] : palettes[stageId] ?? palettes[1];
+    const { face, shade, rim, seam } = palette;
 
     ctx.save(); ctx.lineJoin = 'bevel'; ctx.lineCap = 'butt';
-    wallPath(ctx); ctx.strokeStyle = 'rgba(5,9,10,.72)'; ctx.lineWidth = 30; ctx.stroke();
-    wallPath(ctx); ctx.strokeStyle = face; ctx.lineWidth = 28; ctx.stroke();
-    wallPath(ctx); ctx.strokeStyle = seam; ctx.lineWidth = 2; ctx.stroke();
+    // A short cast extrusion makes the wall visibly rise off the floor. It is
+    // a painted shadow only; its footprint stays aligned with existing collision.
+    ctx.save(); ctx.translate(9, 12);
+    wallPath(ctx); ctx.strokeStyle = 'rgba(0,0,0,.64)'; ctx.lineWidth = 35; ctx.stroke();
+    wallPath(ctx); ctx.strokeStyle = shade; ctx.lineWidth = 31; ctx.stroke();
+    ctx.restore();
 
-    // A fixed, soft rim light catches the raised edge without lighting the room flat.
-    ctx.save(); ctx.shadowColor = accent; ctx.shadowBlur = 8;
-    ctx.strokeStyle = rim; ctx.globalAlpha = .88; ctx.lineWidth = 2;
+    wallPath(ctx); ctx.strokeStyle = 'rgba(9,13,13,.92)'; ctx.lineWidth = 32; ctx.stroke();
+    const faceGradient = ctx.createLinearGradient(left, top, right, bottom);
+    faceGradient.addColorStop(0, rim);
+    faceGradient.addColorStop(.18, face);
+    faceGradient.addColorStop(.72, face);
+    faceGradient.addColorStop(1, shade);
+    wallPath(ctx); ctx.strokeStyle = faceGradient; ctx.lineWidth = 27; ctx.stroke();
+    wallPath(ctx); ctx.strokeStyle = seam; ctx.lineWidth = 1.5; ctx.stroke();
+
+    // Top and left bevel catches a steady overhead light; the inner edge is
+    // darker, so walls read as raised geometry instead of another floor patch.
+    ctx.strokeStyle = rim; ctx.globalAlpha = .92; ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.moveTo(left + 7, y0 + 7); ctx.lineTo(right - 7, y0 + 7);
-    ctx.moveTo(x0 + 7, top + 7); ctx.lineTo(x0 + 7, bottom - 7);
-    ctx.moveTo(x1 - 7, top + 7); ctx.lineTo(x1 - 7, bottom - 7);
-    ctx.moveTo(left + 7, y1 - 7); ctx.lineTo(-142, y1 - 7);
-    ctx.moveTo(142, y1 - 7); ctx.lineTo(right - 7, y1 - 7);
-    ctx.stroke(); ctx.restore();
+    ctx.moveTo(left + 7, y0 - 7); ctx.lineTo(right - 7, y0 - 7);
+    ctx.moveTo(x0 - 7, top + 7); ctx.lineTo(x0 - 7, bottom - 7);
+    ctx.moveTo(x1 + 7, top + 7); ctx.lineTo(x1 + 7, bottom - 7);
+    ctx.moveTo(left + 7, y1 + 7); ctx.lineTo(-142, y1 + 7);
+    ctx.moveTo(142, y1 + 7); ctx.lineTo(right - 7, y1 + 7);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(13,18,18,.7)'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(left + 12, y0 + 8); ctx.lineTo(right - 12, y0 + 8);
+    ctx.moveTo(x0 + 8, top + 12); ctx.lineTo(x0 + 8, bottom - 12);
+    ctx.moveTo(x1 - 8, top + 12); ctx.lineTo(x1 - 8, bottom - 12);
+    ctx.stroke();
 
-    // Mortar joints, panel seams and small impact scars make each wall readable
-    // at combat zoom while staying anchored to the building's local coordinates.
+    // Staggered joints and inset plates add readable surface relief at normal zoom.
     ctx.strokeStyle = seam; ctx.lineWidth = 2;
-    for (let px = x0 + 46; px < x1 - 24; px += 48) {
-      ctx.beginPath(); ctx.moveTo(px, y0 - 9); ctx.lineTo(px, y0 + 9); ctx.stroke();
-      if (px < -146 || px > 146) { ctx.beginPath(); ctx.moveTo(px, y1 - 9); ctx.lineTo(px, y1 + 9); ctx.stroke(); }
+    for (let px = x0 + 42; px < x1 - 24; px += 48) {
+      ctx.beginPath(); ctx.moveTo(px, y0 - 10); ctx.lineTo(px, y0 + 10); ctx.stroke();
+      if (px < -146 || px > 146) { ctx.beginPath(); ctx.moveTo(px, y1 - 10); ctx.lineTo(px, y1 + 10); ctx.stroke(); }
+      ctx.fillStyle = 'rgba(220,222,199,.23)'; ctx.fillRect(px - 1, y0 - 8, 2, 5);
     }
-    for (let py = y0 + 46; py < y1 - 25; py += 48) {
-      ctx.beginPath(); ctx.moveTo(x0 - 9, py); ctx.lineTo(x0 + 9, py); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(x1 - 9, py); ctx.lineTo(x1 + 9, py); ctx.stroke();
+    for (let py = y0 + 42; py < y1 - 25; py += 48) {
+      ctx.beginPath(); ctx.moveTo(x0 - 10, py); ctx.lineTo(x0 + 10, py); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x1 - 10, py); ctx.lineTo(x1 + 10, py); ctx.stroke();
     }
-    ctx.strokeStyle = b.variant === 'fuel' ? 'rgba(36,28,19,.68)' : 'rgba(19,24,23,.7)';
-    ctx.lineWidth = 3;
-    for (const [cx, cy] of [[x0 + 34, y0 + 4], [x1 - 42, y0 + 5], [x0 + 7, y1 - 64]] as const) {
+
+    const plateSize = b.large ? 22 : 15;
+    const corners: Array<[number, number]> = b.large
+      ? [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]
+      : [[left + 14, top + 14], [right - 14, top + 14], [left + 14, bottom - 14], [right - 14, bottom - 14]];
+    for (const [cx, cy] of corners) {
+      ctx.fillStyle = shade; ctx.strokeStyle = seam; ctx.lineWidth = 1.5;
+      ctx.fillRect(cx - plateSize / 2, cy - plateSize / 2, plateSize, plateSize);
+      ctx.strokeRect(cx - plateSize / 2 + .5, cy - plateSize / 2 + .5, plateSize - 1, plateSize - 1);
+      ctx.fillStyle = rim; ctx.globalAlpha = .75;
+      for (const boltX of [-1, 1]) for (const boltY of [-1, 1]) {
+        ctx.beginPath(); ctx.arc(cx + boltX * (plateSize * .31), cy + boltY * (plateSize * .31), b.large ? 1.7 : 1.2, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // Deterministic chipped concrete / scorched seams, fixed in building space.
+    ctx.strokeStyle = b.variant === 'hive' ? 'rgba(35,12,15,.78)' : 'rgba(23,27,25,.76)';
+    ctx.lineWidth = 2.5;
+    for (const [cx, cy] of [[x0 + 35, y0 + 4], [x1 - 42, y0 + 5], [x0 + 7, y1 - 62]] as const) {
       ctx.beginPath(); ctx.moveTo(cx - 5, cy - 5); ctx.lineTo(cx + 1, cy); ctx.lineTo(cx - 3, cy + 6); ctx.lineTo(cx + 7, cy + 12); ctx.stroke();
+      ctx.strokeStyle = 'rgba(231,223,194,.42)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(cx - 4, cy - 4); ctx.lineTo(cx, cy - 1); ctx.stroke();
+      ctx.strokeStyle = b.variant === 'hive' ? 'rgba(35,12,15,.78)' : 'rgba(23,27,25,.76)'; ctx.lineWidth = 2.5;
     }
     ctx.restore();
   }
