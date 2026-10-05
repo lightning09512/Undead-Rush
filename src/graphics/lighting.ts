@@ -1,12 +1,14 @@
 import type { Camera } from '../core/camera';
-import type { StageDef } from '../data/meta';
+import { CAMPAIGN_VISUAL_PROFILES, type CampaignLampTone, type StageDef } from '../data/meta';
 
 type CampaignLamp = {
   x: number;
   y: number;
   radius: number;
-  tone: 'warm' | 'medical' | 'red' | 'cyan';
+  tone: CampaignLampTone;
 };
+
+type CampaignLampSource = CampaignLamp & { x: number; y: number };
 
 export class LightingRenderer {
   private static instance: LightingRenderer;
@@ -15,8 +17,11 @@ export class LightingRenderer {
   private campaignDarknessCanvas: HTMLCanvasElement;
   private campaignDarknessCtx: CanvasRenderingContext2D;
   private lightMaskCanvas: HTMLCanvasElement;
-  private lampGlowCanvases: Record<CampaignLamp['tone'], HTMLCanvasElement>;
+  private lampGlowCanvases: Record<CampaignLampTone, HTMLCanvasElement>;
+  private flashlightGlowCanvas: HTMLCanvasElement;
   private campaignLamps: CampaignLamp[] = [];
+  private readonly lampSourcesByLayout = new WeakMap<object, CampaignLampSource[]>();
+  private visibleCampaignLampCount = 0;
 
   private constructor() {
     this.vignetteCanvas = document.createElement('canvas');
@@ -24,6 +29,7 @@ export class LightingRenderer {
     this.campaignDarknessCanvas = document.createElement('canvas');
     this.campaignDarknessCtx = this.campaignDarknessCanvas.getContext('2d')!;
     this.lightMaskCanvas = document.createElement('canvas');
+    this.flashlightGlowCanvas = document.createElement('canvas');
     this.lampGlowCanvases = {
       warm: document.createElement('canvas'),
       medical: document.createElement('canvas'),
@@ -81,19 +87,30 @@ export class LightingRenderer {
     this.lightMaskCanvas.height = size;
     const mask = this.lightMaskCanvas.getContext('2d')!;
     const maskGradient = mask.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-    maskGradient.addColorStop(0, 'rgba(255,255,255,.96)');
-    maskGradient.addColorStop(.54, 'rgba(255,255,255,.82)');
+    maskGradient.addColorStop(0, 'rgba(255,255,255,.98)');
+    maskGradient.addColorStop(.34, 'rgba(255,255,255,.88)');
+    maskGradient.addColorStop(.66, 'rgba(255,255,255,.56)');
     maskGradient.addColorStop(1, 'rgba(255,255,255,0)');
     mask.fillStyle = maskGradient;
     mask.fillRect(0, 0, size, size);
 
-    const colors: Record<CampaignLamp['tone'], [string, string]> = {
-      warm: ['rgba(255,211,145,.30)', 'rgba(255,180,103,.09)'],
-      medical: ['rgba(216,237,222,.25)', 'rgba(182,216,206,.07)'],
-      red: ['rgba(255,112,86,.20)', 'rgba(222,71,61,.055)'],
-      cyan: ['rgba(145,225,223,.22)', 'rgba(95,177,190,.06)'],
+    this.flashlightGlowCanvas.width = size;
+    this.flashlightGlowCanvas.height = size;
+    const flashlightGlow = this.flashlightGlowCanvas.getContext('2d')!;
+    const flashlightGradient = flashlightGlow.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    flashlightGradient.addColorStop(0, 'rgba(255,239,204,.28)');
+    flashlightGradient.addColorStop(.48, 'rgba(255,226,184,.13)');
+    flashlightGradient.addColorStop(1, 'rgba(255,220,175,0)');
+    flashlightGlow.fillStyle = flashlightGradient;
+    flashlightGlow.fillRect(0, 0, size, size);
+
+    const colors: Record<CampaignLampTone, [string, string]> = {
+      warm: ['rgba(255,220,164,.42)', 'rgba(255,183,104,.15)'],
+      medical: ['rgba(226,246,224,.38)', 'rgba(174,222,203,.14)'],
+      red: ['rgba(255,126,96,.31)', 'rgba(225,72,62,.10)'],
+      cyan: ['rgba(157,236,233,.38)', 'rgba(91,181,195,.13)'],
     };
-    for (const [tone, [center, mid]] of Object.entries(colors) as Array<[CampaignLamp['tone'], [string, string]]>) {
+    for (const [tone, [center, mid]] of Object.entries(colors) as Array<[CampaignLampTone, [string, string]]>) {
       const canvas = this.lampGlowCanvases[tone];
       canvas.width = size;
       canvas.height = size;
@@ -130,33 +147,20 @@ export class LightingRenderer {
 
     const mask = this.campaignDarknessCtx;
     mask.clearRect(0, 0, overlay.width, overlay.height);
-    mask.fillStyle = 'rgba(3,5,9,.13)';
+    const profile = CAMPAIGN_VISUAL_PROFILES[stage.id] ?? CAMPAIGN_VISUAL_PROFILES[1];
+    mask.fillStyle = `rgba(3,5,9,${profile.darkness})`;
     mask.fillRect(0, 0, overlay.width, overlay.height);
 
     const lamps = this.campaignLamps;
     let lampCount = 0;
-    for (const prop of layout.decorations) {
-      if (!['streetlight', 'gardenlamp', 'examLamp', 'lightbar'].includes(prop.kind)) continue;
-      const poleLamp = prop.kind === 'streetlight' || prop.kind === 'gardenlamp' || prop.kind === 'examLamp';
-      const sourceX = prop.x + prop.w * (poleLamp ? .82 : .5);
-      const sourceY = prop.y + prop.h * (poleLamp ? .22 : .5);
-      if (!camera.isVisible(sourceX, sourceY, 260)) continue;
-      const [sx, sy] = camera.worldToScreen(sourceX, sourceY);
-      const radius = prop.kind === 'streetlight' ? 225 : prop.kind === 'gardenlamp' ? 175 : prop.kind === 'examLamp' ? 155 : 118;
-      if (prop.kind === 'lightbar') {
-        const redLamp = lamps[lampCount] ?? (lamps[lampCount] = { x: 0, y: 0, radius: 0, tone: 'red' });
-        redLamp.x = sx - prop.w * .09; redLamp.y = sy; redLamp.radius = radius; redLamp.tone = 'red';
-        lampCount++;
-        const cyanLamp = lamps[lampCount] ?? (lamps[lampCount] = { x: 0, y: 0, radius: 0, tone: 'cyan' });
-        cyanLamp.x = sx + prop.w * .09; cyanLamp.y = sy; cyanLamp.radius = radius; cyanLamp.tone = 'cyan';
-        lampCount++;
-      } else {
-        const lamp = lamps[lampCount] ?? (lamps[lampCount] = { x: 0, y: 0, radius: 0, tone: 'warm' });
-        lamp.x = sx; lamp.y = sy; lamp.radius = radius;
-        lamp.tone = prop.kind === 'examLamp' ? 'medical' : 'warm';
-        lampCount++;
-      }
+    for (const source of this.getCampaignLampSources(layout, stage.id)) {
+      if (!camera.isVisible(source.x, source.y, 260)) continue;
+      const [sx, sy] = camera.worldToScreen(source.x, source.y);
+      const lamp = lamps[lampCount] ?? (lamps[lampCount] = { x: 0, y: 0, radius: 0, tone: source.tone });
+      lamp.x = sx; lamp.y = sy; lamp.radius = source.radius; lamp.tone = source.tone;
+      lampCount++;
     }
+    this.visibleCampaignLampCount = lampCount;
 
     mask.save();
     mask.globalCompositeOperation = 'destination-out';
@@ -173,27 +177,87 @@ export class LightingRenderer {
       const level = Math.max(1, Math.min(3, flashlightLevel));
       const beamLength = 360 + (level - 1) * 90;
       const beamHalfAngle = .36 + (level - 1) * .045;
-      mask.globalAlpha = .80 + (level - 1) * .06;
+      mask.globalAlpha = 1;
       mask.translate(beamX, beamY);
       mask.rotate(aimAngle);
-      mask.beginPath();
-      mask.moveTo(0, 0);
-      mask.arc(0, 0, beamLength, -beamHalfAngle, beamHalfAngle);
-      mask.closePath();
-      mask.clip();
-      mask.drawImage(this.lightMaskCanvas, -beamLength, -beamLength, beamLength * 2, beamLength * 2);
+      const featheredCones = [
+        { spread: .10, alpha: .23 },
+        { spread: .045, alpha: .34 },
+        { spread: 0, alpha: .48 + (level - 1) * .035 },
+      ];
+      for (const cone of featheredCones) {
+        mask.save();
+        mask.globalAlpha = cone.alpha;
+        mask.beginPath();
+        mask.moveTo(0, 0);
+        mask.arc(0, 0, beamLength, -beamHalfAngle - cone.spread, beamHalfAngle + cone.spread);
+        mask.closePath();
+        mask.clip();
+        mask.drawImage(this.lightMaskCanvas, -beamLength, -beamLength, beamLength * 2, beamLength * 2);
+        mask.restore();
+      }
+      mask.restore();
     }
     mask.restore();
 
     ctx.drawImage(overlay, 0, 0);
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
+    if (flashlightLevel > 0) {
+      const [px, py] = camera.worldToScreen(playerX, playerY);
+      const level = Math.max(1, Math.min(3, flashlightLevel));
+      const beamLength = 360 + (level - 1) * 90;
+      const beamHalfAngle = .36 + (level - 1) * .045;
+      const beamX = px + Math.cos(aimAngle) * 28;
+      const beamY = py + Math.sin(aimAngle) * 28;
+      ctx.globalAlpha = .52;
+      ctx.translate(beamX, beamY);
+      ctx.rotate(aimAngle);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, beamLength, -beamHalfAngle - .1, beamHalfAngle + .1);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(this.flashlightGlowCanvas, -beamLength, -beamLength, beamLength * 2, beamLength * 2);
+      ctx.restore();
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+    }
     for (let i = 0; i < lampCount; i++) {
       const lamp = lamps[i];
-      ctx.globalAlpha = lamp.tone === 'red' || lamp.tone === 'cyan' ? .70 : .82;
+      ctx.globalAlpha = lamp.tone === 'red' || lamp.tone === 'cyan' ? .78 : .84;
       ctx.drawImage(this.lampGlowCanvases[lamp.tone], lamp.x - lamp.radius, lamp.y - lamp.radius, lamp.radius * 2, lamp.radius * 2);
     }
     ctx.restore();
+  }
+
+  get performanceStats(): { visibleCampaignLamps: number } {
+    return { visibleCampaignLamps: this.visibleCampaignLampCount };
+  }
+
+  private getCampaignLampSources(layout: NonNullable<StageDef['layout']>, stageId: number): CampaignLampSource[] {
+    let sources = this.lampSourcesByLayout.get(layout);
+    if (sources) return sources;
+
+    const profile = CAMPAIGN_VISUAL_PROFILES[stageId] ?? CAMPAIGN_VISUAL_PROFILES[1];
+    sources = [];
+    for (const prop of layout.decorations) {
+      if (!['streetlight', 'gardenlamp', 'examLamp', 'lightbar', 'wallLamp'].includes(prop.kind)) continue;
+      const poleLamp = prop.kind === 'streetlight' || prop.kind === 'gardenlamp' || prop.kind === 'examLamp';
+      const sourceX = prop.x + prop.w * (poleLamp ? .82 : .5);
+      const sourceY = prop.y + prop.h * (poleLamp ? .22 : .5);
+      const radius = prop.kind === 'streetlight' ? 225 : prop.kind === 'gardenlamp' ? 175
+        : prop.kind === 'examLamp' ? 155 : prop.kind === 'wallLamp' ? profile.lampRadius : 118;
+      if (prop.kind === 'lightbar') {
+        sources.push({ x: sourceX - prop.w * .09, y: sourceY, radius, tone: 'red' });
+        sources.push({ x: sourceX + prop.w * .09, y: sourceY, radius, tone: 'cyan' });
+      } else {
+        const tone = prop.kind === 'examLamp' ? 'medical' : prop.kind === 'wallLamp' ? profile.lampTone : 'warm';
+        sources.push({ x: sourceX, y: sourceY, radius, tone });
+      }
+    }
+    this.lampSourcesByLayout.set(layout, sources);
+    return sources;
   }
 
   drawVignette(ctx: CanvasRenderingContext2D, opacity = 1) {

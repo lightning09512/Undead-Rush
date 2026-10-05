@@ -216,6 +216,20 @@ export function applyCampaignLayouts(stages: StageDef[]): void {
       decorations.push({ ...room(plaza.x - 310, plaza.y + 180, 94, 94), kind: 'statue', solid: true });
       decorations.push({ ...room(plaza.x + 310, plaza.y - 180, 94, 94), kind: 'statue', solid: true });
     }
+    if (stage.id >= 4) {
+      const lampZones: Record<number, number[]> = {
+        4: [1, 3, 4], 5: [1, 3, 4], 6: [1, 3, 4], 7: [1, 3, 4],
+        8: [1, 3, 4], 9: [2, 4, 5], 10: [1, 4, 5],
+      };
+      for (const zoneIndex of lampZones[stage.id] ?? []) {
+        const zone = zones[zoneIndex];
+        if (!zone) continue;
+        const side = (stage.id + zoneIndex) % 2 === 0 ? 1 : 0;
+        const lampX = zone.x + zone.w * (side ? .16 : .84);
+        const lampY = zone.y + zone.h * (side ? .2 : .8);
+        decorations.push({ ...room(lampX, lampY, 50, 38), kind: 'wallLamp', solid: false });
+      }
+    }
     stage.layout = { bounds: { x: 0, y: 0, w: centers.at(-1)!.x + 740, h: 2500 }, zones, corridors, gates, decorations };
     stage.playerStart = { x: centers[0].x - 180, y: centers[0].y };
     stage.objectiveNodes = chapter.objectiveZones.map((zoneIndex, i) => ({ x: centers[zoneIndex].x + (i % 2 ? 70 : -45), y: centers[zoneIndex].y + (i % 2 ? -60 : 55) }));

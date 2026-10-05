@@ -192,6 +192,29 @@ export interface StageDef {
   buildings: StageBuildingDef[];
   layout?: CampaignLayout;
 }
+
+export type CampaignLampTone = 'warm' | 'medical' | 'red' | 'cyan';
+
+/** Visual-only atmosphere controls consumed by the Campaign terrain and light renderers. */
+export interface CampaignVisualProfile {
+  darkness: number;
+  lampTone: CampaignLampTone;
+  lampRadius: number;
+}
+
+export const CAMPAIGN_VISUAL_PROFILES: Record<number, CampaignVisualProfile> = {
+  1: { darkness: .055, lampTone: 'warm', lampRadius: 205 },
+  2: { darkness: .18, lampTone: 'warm', lampRadius: 220 },
+  3: { darkness: .26, lampTone: 'medical', lampRadius: 180 },
+  4: { darkness: .38, lampTone: 'cyan', lampRadius: 190 },
+  5: { darkness: .14, lampTone: 'warm', lampRadius: 205 },
+  6: { darkness: .30, lampTone: 'red', lampRadius: 180 },
+  7: { darkness: .24, lampTone: 'warm', lampRadius: 210 },
+  8: { darkness: .34, lampTone: 'cyan', lampRadius: 185 },
+  9: { darkness: .31, lampTone: 'red', lampRadius: 175 },
+  10: { darkness: .40, lampTone: 'red', lampRadius: 190 },
+};
+
 export interface CampaignRect { x: number; y: number; w: number; h: number; }
 export interface CampaignZone extends CampaignRect {
   name: string;

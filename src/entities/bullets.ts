@@ -27,6 +27,11 @@ export interface Bullet {
   weaponType: string;
 }
 
+interface BulletVisual {
+  canvas: HTMLCanvasElement;
+  originX: number;
+}
+
 function createBullet(): Bullet {
   return {
     x: 0, y: 0, vx: 0, vy: 0,
@@ -48,6 +53,8 @@ function resetBullet(b: Bullet): void {
 
 export class BulletSystem {
   pool: Pool<Bullet>;
+  private readonly visuals = new Map<string, BulletVisual>();
+  private static readonly MAX_CACHED_VISUALS = 48;
 
   constructor() {
     this.pool = new Pool(createBullet, resetBullet, 120);
@@ -108,49 +115,85 @@ export class BulletSystem {
       const isShotgun = b.weaponType === 'shotgun';
       const bulletLen = isShotgun ? 13 : Math.max(16, b.size * 3.8);
       const bulletThick = isShotgun ? 2.2 : Math.max(2.5, b.size * 0.7);
+      const visual = this.getVisual(b, bulletLen, bulletThick);
 
       ctx.save();
       ctx.translate(sx, sy);
       ctx.rotate(angle);
-
-      // ─── 1. High-Velocity Luminous Tracer Streak ───
-      const tailLen = bulletLen * 2.2;
-      const tailGrad = ctx.createLinearGradient(-tailLen, 0, 0, 0);
-      tailGrad.addColorStop(0, 'rgba(255, 220, 50, 0)');
-      tailGrad.addColorStop(0.5, b.color);
-      tailGrad.addColorStop(1, '#ffffff');
-
-      ctx.strokeStyle = tailGrad;
-      ctx.lineWidth = bulletThick * 1.4;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(-tailLen, 0);
-      ctx.lineTo(0, 0);
-      ctx.stroke();
-
-      // ─── 2. Elongated Aerodynamic Bullet Slug Body ───
-      ctx.shadowColor = b.color;
-      ctx.shadowBlur = 8;
-      ctx.fillStyle = b.color;
-      ctx.beginPath();
-      ctx.moveTo(-bulletLen * 0.45, -bulletThick);
-      ctx.lineTo(bulletLen * 0.35, -bulletThick);
-      ctx.quadraticCurveTo(bulletLen * 0.75, 0, bulletLen * 0.35, bulletThick);
-      ctx.lineTo(-bulletLen * 0.45, bulletThick);
-      ctx.closePath();
-      ctx.fill();
-
-      // ─── 3. White-Hot Incandescent Core ───
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.moveTo(-bulletLen * 0.25, -bulletThick * 0.45);
-      ctx.lineTo(bulletLen * 0.25, -bulletThick * 0.45);
-      ctx.quadraticCurveTo(bulletLen * 0.55, 0, bulletLen * 0.25, bulletThick * 0.45);
-      ctx.lineTo(-bulletLen * 0.25, bulletThick * 0.45);
-      ctx.closePath();
-      ctx.fill();
+      ctx.drawImage(visual.canvas, -visual.originX, -visual.canvas.height / 2);
 
       ctx.restore();
     }
+  }
+
+  get performanceStats(): { activeBullets: number; cachedBulletVisuals: number } {
+    return { activeBullets: this.pool.activeCount, cachedBulletVisuals: this.visuals.size };
+  }
+
+  private getVisual(bullet: Bullet, bulletLen: number, bulletThick: number): BulletVisual {
+    const len = Math.round(bulletLen * 2) / 2;
+    const thick = Math.round(bulletThick * 2) / 2;
+    const key = `${bullet.weaponType}|${bullet.color}|${len}|${thick}`;
+    const cached = this.visuals.get(key);
+    if (cached) {
+      this.visuals.delete(key);
+      this.visuals.set(key, cached);
+      return cached;
+    }
+
+    const tailLen = len * 2.2;
+    const padding = 10;
+    const width = Math.ceil(tailLen + len * .75 + padding * 2);
+    const height = Math.ceil(thick * 2 + 12);
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const spriteCtx = canvas.getContext('2d')!;
+    const originX = tailLen + padding;
+    spriteCtx.save();
+    spriteCtx.translate(originX, height / 2);
+
+    const tailGrad = spriteCtx.createLinearGradient(-tailLen, 0, 0, 0);
+    tailGrad.addColorStop(0, 'rgba(255, 220, 50, 0)');
+    tailGrad.addColorStop(.5, bullet.color);
+    tailGrad.addColorStop(1, '#ffffff');
+    spriteCtx.strokeStyle = tailGrad;
+    spriteCtx.lineWidth = thick * 1.4;
+    spriteCtx.lineCap = 'round';
+    spriteCtx.beginPath();
+    spriteCtx.moveTo(-tailLen, 0);
+    spriteCtx.lineTo(0, 0);
+    spriteCtx.stroke();
+
+    spriteCtx.shadowColor = bullet.color;
+    spriteCtx.shadowBlur = 8;
+    spriteCtx.fillStyle = bullet.color;
+    spriteCtx.beginPath();
+    spriteCtx.moveTo(-len * .45, -thick);
+    spriteCtx.lineTo(len * .35, -thick);
+    spriteCtx.quadraticCurveTo(len * .75, 0, len * .35, thick);
+    spriteCtx.lineTo(-len * .45, thick);
+    spriteCtx.closePath();
+    spriteCtx.fill();
+
+    spriteCtx.shadowBlur = 0;
+    spriteCtx.fillStyle = '#ffffff';
+    spriteCtx.beginPath();
+    spriteCtx.moveTo(-len * .25, -thick * .45);
+    spriteCtx.lineTo(len * .25, -thick * .45);
+    spriteCtx.quadraticCurveTo(len * .55, 0, len * .25, thick * .45);
+    spriteCtx.lineTo(-len * .25, thick * .45);
+    spriteCtx.closePath();
+    spriteCtx.fill();
+    spriteCtx.restore();
+
+    const visual = { canvas, originX };
+    this.visuals.set(key, visual);
+    while (this.visuals.size > BulletSystem.MAX_CACHED_VISUALS) {
+      const oldest = this.visuals.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.visuals.delete(oldest);
+    }
+    return visual;
   }
 }

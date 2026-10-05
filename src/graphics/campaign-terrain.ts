@@ -1,5 +1,5 @@
 import type { Camera } from '../core/camera';
-import type { StageDef } from '../data/meta';
+import { CAMPAIGN_VISUAL_PROFILES, type StageDef } from '../data/meta';
 import type { GameLanguage } from '../data/localization';
 import { isCampaignGateClosed } from '../entities/map-geometry';
 import { CampaignGroundDetails } from './campaign-ground-details';
@@ -324,7 +324,18 @@ export class CampaignTerrainRenderer {
     }
     const metal=['#4a5556','#6d5946','#8b9185','#526c61','#676b55','#777078','#6a6e70','#687d7c','#6d5b56','#684344'][id-1];
     ctx.fillStyle=metal;ctx.strokeStyle='#15191a';ctx.lineWidth=4;
-    if(id===1&&['streetlight','gardenlamp','trafficcone','mailbox','tree','shrub','roadSign','roadcrack','wire','radio','rescuevan','barrier','debris','yarddebris','ambush','bloodstain','brokenFence','porchsteps','gardenpatch','trash'].includes(kind)){
+    if(kind==='wallLamp'){
+      const tone=CAMPAIGN_VISUAL_PROFILES[id]?.lampTone??'warm';
+      const lensColor=tone==='red'?'#fa7969':tone==='cyan'?'#8fe0df':tone==='medical'?'#d0edcf':'#f4d08b';
+      ctx.fillStyle='rgba(0,0,0,.25)';ctx.beginPath();ctx.ellipse(x+w*.53,y+h*.84,w*.48,h*.22,0,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#252d2d';ctx.strokeStyle='#141a1b';ctx.lineWidth=3;
+      ctx.beginPath();ctx.roundRect(x+w*.12,y+h*.2,w*.76,h*.58,6);ctx.fill();ctx.stroke();
+      ctx.fillStyle='#485452';ctx.fillRect(x+w*.2,y+h*.28,w*.6,h*.42);
+      ctx.fillStyle=lensColor;ctx.beginPath();ctx.roundRect(x+w*.27,y+h*.34,w*.46,h*.22,4);ctx.fill();
+      ctx.fillStyle='rgba(255,255,255,.54)';ctx.fillRect(x+w*.32,y+h*.37,w*.3,h*.045);
+      ctx.strokeStyle='#69736d';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(x+w*.5,y+h*.78);ctx.lineTo(x+w*.5,y+h*.98);ctx.stroke();
+      ctx.fillStyle='#121819';ctx.fillRect(x+w*.38,y+h*.74,w*.24,h*.09);
+    }else if(id===1&&['streetlight','gardenlamp','trafficcone','mailbox','tree','shrub','roadSign','roadcrack','wire','radio','rescuevan','barrier','debris','yarddebris','ambush','bloodstain','brokenFence','porchsteps','gardenpatch','trash'].includes(kind)){
       if(kind==='streetlight'||kind==='gardenlamp'){
         ctx.strokeStyle='#343837';ctx.lineWidth=7;ctx.beginPath();ctx.moveTo(x+w*.52,y+h);ctx.lineTo(x+w*.48,y+h*.28);ctx.lineTo(x+w*.82,y+h*.2);ctx.stroke();
         ctx.fillStyle='#d6ad61';ctx.beginPath();ctx.arc(x+w*.82,y+h*.2,8,0,Math.PI*2);ctx.fill();ctx.fillStyle='rgba(224,178,91,.18)';ctx.beginPath();ctx.ellipse(x+w*.76,y+h*.26,24,13,-.2,0,Math.PI*2);ctx.fill();

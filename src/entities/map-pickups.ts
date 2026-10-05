@@ -24,6 +24,8 @@ export interface MapPickup {
   airdropTimer: number;
   airdropLanded: boolean;
   warningY: number;
+  /** Weapon pickups can only be collected in Survival when earned from a boss. */
+  isBossReward: boolean;
 }
 
 const GUN_PICKUP_NAMES: Record<string, string> = {
@@ -35,7 +37,7 @@ function createPickup(): MapPickup {
   return {
     x: 0, y: 0, size: 12, color: '#ffffff', glowColor: '#cccccc',
     itemId: '', duration: 0, value: 0, life: 0, wobble: 0,
-    isAirdrop: false, airdropTimer: 0, airdropLanded: false, warningY: 0,
+    isAirdrop: false, airdropTimer: 0, airdropLanded: false, warningY: 0, isBossReward: false,
   };
 }
 
@@ -43,6 +45,7 @@ function resetPickup(p: MapPickup): void {
   p.life = 0;
   p.isAirdrop = false;
   p.airdropLanded = false;
+  p.isBossReward = false;
 }
 
 function drawLootFrame(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, color: string, wobble: number): void {
@@ -279,20 +282,21 @@ export class MapPickupSystem {
     p.warningY = y - 200;
   }
 
-  spawnWeaponPickup(x: number, y: number, gunId: string, campaignReward = false): void {
+  spawnWeaponPickup(x: number, y: number, gunId: string, bossReward = false): void {
     const p = this.pool.acquire();
     p.x = x;
     p.y = y;
     p.size = 20;
-    p.color = campaignReward ? '#d6b375' : gunId === 'sg12' ? '#ff9933' : '#00e5ff';
-    p.glowColor = campaignReward ? '#ae8650' : gunId === 'sg12' ? '#ff7700' : '#00b4d8';
+    p.color = bossReward ? '#d6b375' : gunId === 'sg12' ? '#ff9933' : '#00e5ff';
+    p.glowColor = bossReward ? '#ae8650' : gunId === 'sg12' ? '#ff7700' : '#00b4d8';
     p.itemId = `gun_${gunId}`;
     p.duration = 0;
     p.value = 0;
-    p.life = campaignReward ? Infinity : 180;
+    p.life = bossReward ? Infinity : 180;
     p.wobble = Math.random() * Math.PI * 2;
     p.isAirdrop = false;
     p.airdropLanded = true;
+    p.isBossReward = bossReward;
   }
 
   spawnAmmoPickup(x: number, y: number, gunId: string, rounds: number): void {
@@ -360,8 +364,8 @@ export class MapPickupSystem {
       // ── Distinct weapon recovery cases ──
       if (p.itemId.startsWith('gun_')) {
         const gunId = p.itemId.slice(4);
-        const campaignReward = p.life === Infinity;
-        const labelText = `${campaignReward
+        const bossReward = p.isBossReward;
+        const labelText = `${bossReward
           ? language === 'en' ? 'Boss weapon' : 'Vũ khí trùm'
           : language === 'en' ? 'Weapon pickup' : 'Nhặt súng'} · ${GUN_PICKUP_NAMES[gunId] ?? gunId.toUpperCase()}`;
         const beaconColor = gunId === 'rpg4' || gunId === 'rail_lance' ? '#d6b375'
@@ -371,11 +375,11 @@ export class MapPickupSystem {
         ctx.save();
         // Restrained beacon keeps the weapon findable without flooding the screen.
         const beamGrad = ctx.createLinearGradient(sx, sy, sx, sy - 105);
-        beamGrad.addColorStop(0, `${campaignReward ? 'rgba(214, 179, 117, .32)' : beaconColor === '#e17143' ? 'rgba(225, 113, 67, 0.26)' : 'rgba(113, 167, 188, 0.24)'}`);
+        beamGrad.addColorStop(0, `${bossReward ? 'rgba(214, 179, 117, .32)' : beaconColor === '#e17143' ? 'rgba(225, 113, 67, 0.26)' : 'rgba(113, 167, 188, 0.24)'}`);
         beamGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
         ctx.fillStyle = beamGrad;
         ctx.fillRect(sx - 7, sy - 85, 14, 85);
-        ctx.strokeStyle = campaignReward ? 'rgba(241, 205, 142, .8)' : beaconColor === '#e17143' ? 'rgba(240, 139, 78, 0.6)' : 'rgba(155, 210, 220, 0.6)';
+        ctx.strokeStyle = bossReward ? 'rgba(241, 205, 142, .8)' : beaconColor === '#e17143' ? 'rgba(240, 139, 78, 0.6)' : 'rgba(155, 210, 220, 0.6)';
         ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.ellipse(sx, sy + wobbleY + 7, 19, 7, 0, 0, Math.PI * 2); ctx.stroke();
         drawLootIcon(ctx, 'weapon_part', sx, sy + wobbleY, 17, beaconColor, p.wobble);

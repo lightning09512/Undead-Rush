@@ -9,25 +9,22 @@ interface BloodStain {
   variant: number;
 }
 
-interface BloodCell {
-  stains: BloodStain[];
-  canvas?: HTMLCanvasElement;
-  drawnCount: number;
-}
-
 /** Permanent cached floor pools left at each defeated mob's death position. */
 export class BloodStains {
   private static readonly CELL_SIZE = 512;
   private static readonly STAIN_PADDING = 196;
-  private static readonly TILE_SIZE = BloodStains.CELL_SIZE + BloodStains.STAIN_PADDING * 2;
-  private static readonly CACHE_SCALE = .5;
-  private static readonly MAX_CACHED_CELLS = 24;
+  private static readonly CACHE_SCALE = .4;
+  private static readonly MAX_WORLD_WIDTH = 8000;
+  private static readonly MAX_WORLD_HEIGHT = 4000;
   private readonly variants: HTMLCanvasElement[] = [];
-  private readonly cells = new Map<string, BloodCell>();
-  /** Insertion order is the LRU order; only the current area stays raster-cached. */
-  private readonly cachedCells = new Map<string, BloodCell>();
+  private readonly canvas = document.createElement('canvas');
+  private readonly touchedRegions = new Set<string>();
+  private worldWidth = 4000;
+  private worldHeight = 4000;
+  private hasBlood = false;
 
   constructor() {
+    this.canvas.width = this.canvas.height = 1;
     // Reuse a small atlas of irregular pool shapes so permanent stains do not
     // allocate one large canvas each time a mob dies.
     for (let i = 0; i < 24; i++) {
@@ -36,6 +33,22 @@ export class BloodStains {
       this.paint(canvas, (i + 1) * 0x45d9f3b);
       this.variants.push(canvas);
     }
+  }
+
+  /** Allocate one exact, bounded floor raster for the active authored map. */
+  setWorldBounds(width: number, height: number): void {
+    this.worldWidth = Math.max(1, Math.min(BloodStains.MAX_WORLD_WIDTH, width));
+    this.worldHeight = Math.max(1, Math.min(BloodStains.MAX_WORLD_HEIGHT, height));
+    const canvasWidth = Math.ceil((this.worldWidth + BloodStains.STAIN_PADDING * 2) * BloodStains.CACHE_SCALE);
+    const canvasHeight = Math.ceil((this.worldHeight + BloodStains.STAIN_PADDING * 2) * BloodStains.CACHE_SCALE);
+    if (this.canvas.width !== canvasWidth || this.canvas.height !== canvasHeight) {
+      this.canvas.width = canvasWidth;
+      this.canvas.height = canvasHeight;
+    } else {
+      this.canvas.getContext('2d')!.clearRect(0, 0, canvasWidth, canvasHeight);
+    }
+    this.touchedRegions.clear();
+    this.hasBlood = false;
   }
 
   add(x: number, y: number, creatureSize: number, boss = false, bodyAngle = 0): void {
@@ -51,77 +64,64 @@ export class BloodStains {
       rotation: bodyAngle + (Math.random() - .5) * .7,
       variant: Math.floor(Math.random() * this.variants.length),
     };
+    if (x < 0 || y < 0 || x >= this.worldWidth || y >= this.worldHeight) return;
     const cellX = Math.floor(x / BloodStains.CELL_SIZE);
     const cellY = Math.floor(y / BloodStains.CELL_SIZE);
-    const key = `${cellX}:${cellY}`;
-    let cell = this.cells.get(key);
-    if (!cell) this.cells.set(key, cell = { stains: [], drawnCount: 0 });
-    cell.stains.push(stain);
+    this.touchedRegions.add(`${cellX}:${cellY}`);
+    this.rasterizeStain(stain);
+    this.hasBlood = true;
   }
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    if (!this.hasBlood) return;
     const centerX = camera.x + camera.width / 2;
     const centerY = camera.y + camera.height / 2;
     const halfW = camera.width / (camera.zoom * 2);
     const halfH = camera.height / (camera.zoom * 2);
-    const maxCellX = Math.floor((centerX + halfW + BloodStains.STAIN_PADDING) / BloodStains.CELL_SIZE);
-    const maxCellY = Math.floor((centerY + halfH + BloodStains.STAIN_PADDING) / BloodStains.CELL_SIZE);
-    const paddedMinCellX = Math.floor((centerX - halfW - BloodStains.STAIN_PADDING) / BloodStains.CELL_SIZE);
-    const paddedMinCellY = Math.floor((centerY - halfH - BloodStains.STAIN_PADDING) / BloodStains.CELL_SIZE);
-
-    ctx.save();
-    for (let cellY = paddedMinCellY; cellY <= maxCellY; cellY++) {
-      for (let cellX = paddedMinCellX; cellX <= maxCellX; cellX++) {
-        const key = `${cellX}:${cellY}`;
-        const cell = this.cells.get(key);
-        if (!cell) continue;
-        const canvas = this.getCellCanvas(key, cell, cellX, cellY);
-        const [sx, sy] = camera.worldToScreen(cellX * BloodStains.CELL_SIZE - BloodStains.STAIN_PADDING,
-          cellY * BloodStains.CELL_SIZE - BloodStains.STAIN_PADDING);
-        ctx.drawImage(canvas, sx, sy, BloodStains.TILE_SIZE, BloodStains.TILE_SIZE);
-      }
-    }
-    ctx.restore();
-    while (this.cachedCells.size > BloodStains.MAX_CACHED_CELLS) {
-      const oldest = this.cachedCells.keys().next().value as string | undefined;
-      if (oldest === undefined) break;
-      const cell = this.cachedCells.get(oldest);
-      if (cell) { cell.canvas = undefined; cell.drawnCount = 0; }
-      this.cachedCells.delete(oldest);
-    }
+    const sourceX = Math.max(0, Math.floor((centerX - halfW) * BloodStains.CACHE_SCALE));
+    const sourceY = Math.max(0, Math.floor((centerY - halfH) * BloodStains.CACHE_SCALE));
+    const sourceRight = Math.min(this.canvas.width, Math.ceil((centerX + halfW + BloodStains.STAIN_PADDING * 2) * BloodStains.CACHE_SCALE));
+    const sourceBottom = Math.min(this.canvas.height, Math.ceil((centerY + halfH + BloodStains.STAIN_PADDING * 2) * BloodStains.CACHE_SCALE));
+    const sourceWidth = sourceRight - sourceX;
+    const sourceHeight = sourceBottom - sourceY;
+    if (sourceWidth <= 0 || sourceHeight <= 0) return;
+    const worldX = sourceX / BloodStains.CACHE_SCALE - BloodStains.STAIN_PADDING;
+    const worldY = sourceY / BloodStains.CACHE_SCALE - BloodStains.STAIN_PADDING;
+    const [screenX, screenY] = camera.worldToScreen(worldX, worldY);
+    ctx.drawImage(this.canvas, sourceX, sourceY, sourceWidth, sourceHeight,
+      screenX, screenY, sourceWidth / BloodStains.CACHE_SCALE, sourceHeight / BloodStains.CACHE_SCALE);
   }
 
   clear(): void {
-    this.cells.clear();
-    this.cachedCells.clear();
+    // Drop the previous map's backing store between runs instead of retaining
+    // its full raster while the player is back in the menus.
+    this.canvas.width = this.canvas.height = 1;
+    this.touchedRegions.clear();
+    this.hasBlood = false;
   }
 
-  private getCellCanvas(key: string, cell: BloodCell, cellX: number, cellY: number): HTMLCanvasElement {
-    let canvas = cell.canvas;
-    if (!canvas) {
-      canvas = document.createElement('canvas');
-      canvas.width = canvas.height = Math.ceil(BloodStains.TILE_SIZE * BloodStains.CACHE_SCALE);
-      cell.canvas = canvas;
-      cell.drawnCount = 0;
-    }
-    const cacheCtx = canvas.getContext('2d')!;
+  get performanceStats(): { cells: number; canvasCount: number; estimatedCanvasBytes: number; stainRecords: number } {
+    const variantBytes = this.variants.length * 256 * 256 * 4;
+    const mapBytes = this.canvas.width * this.canvas.height * 4;
+    return {
+      cells: this.touchedRegions.size,
+      canvasCount: this.variants.length + 1,
+      estimatedCanvasBytes: variantBytes + mapBytes,
+      stainRecords: 0,
+    };
+  }
+
+  private rasterizeStain(stain: BloodStain): void {
+    const cacheCtx = this.canvas.getContext('2d')!;
+    cacheCtx.imageSmoothingEnabled = true;
+    cacheCtx.imageSmoothingQuality = 'high';
     cacheCtx.save();
     cacheCtx.scale(BloodStains.CACHE_SCALE, BloodStains.CACHE_SCALE);
-    for (let i = cell.drawnCount; i < cell.stains.length; i++) {
-      const stain = cell.stains[i];
-      cacheCtx.save();
-      cacheCtx.globalAlpha = .92;
-      cacheCtx.translate(BloodStains.STAIN_PADDING + stain.x - cellX * BloodStains.CELL_SIZE,
-        BloodStains.STAIN_PADDING + stain.y - cellY * BloodStains.CELL_SIZE);
-      cacheCtx.rotate(stain.rotation);
-      cacheCtx.drawImage(this.variants[stain.variant], -stain.width / 2, -stain.height / 2, stain.width, stain.height);
-      cacheCtx.restore();
-    }
-    cell.drawnCount = cell.stains.length;
+    cacheCtx.globalAlpha = .92;
+    cacheCtx.translate(stain.x + BloodStains.STAIN_PADDING, stain.y + BloodStains.STAIN_PADDING);
+    cacheCtx.rotate(stain.rotation);
+    cacheCtx.drawImage(this.variants[stain.variant], -stain.width / 2, -stain.height / 2, stain.width, stain.height);
     cacheCtx.restore();
-    this.cachedCells.delete(key);
-    this.cachedCells.set(key, cell);
-    return canvas;
   }
 
   private paint(canvas: HTMLCanvasElement, seed: number): void {

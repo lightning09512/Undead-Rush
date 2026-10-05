@@ -43,7 +43,15 @@ export class Audio {
   private playerFootstepTimer = 0;
   private resumeFailureLogged = false;
   private recordedBuffers = new Map<string, AudioBuffer>();
-  private recordedBuffersPromise: Promise<void> | null = null;
+  private readonly recordedLoadQueue: Array<{ key: string; url: string; priority: number; order: number }> = [];
+  private readonly requestedRecordedAudio = new Set<string>();
+  private readonly failedRecordedAudio = new Set<string>();
+  private readonly activeRecordedVoices = new Map<AudioBufferSourceNode, number>();
+  private recordedAudioLoading = false;
+  private recordedRequestOrder = 0;
+  private readonly maxCachedRecordedClips = 8;
+  private readonly maxRecordedVoices = 16;
+  private readonly maxCriticalRecordedVoices = 20;
   private activeZombieVoices = 0;
   private musicDecks: MusicDeck[] = [];
   private activeMusicDeck = -1;
@@ -130,7 +138,6 @@ export class Audio {
       this.init();
     }
     this.resumeFromGesture();
-    this.preloadRecordedAudio();
     return !!(this.ctx && this.sfxGain);
   }
 
@@ -138,7 +145,9 @@ export class Audio {
   unlock(): void {
     this.init();
     this.resumeFromGesture();
-    this.preloadRecordedAudio();
+    // Warm only the likely first weapon sound. All other clips are requested
+    // by their real gameplay event and decoded one at a time in priority order.
+    this.requestRecordedAudio('gun-pistol', 2);
     this.syncMusicScene();
   }
 
@@ -253,31 +262,101 @@ export class Audio {
     console.warn('[Undead Rush] Background music playback was blocked by the browser. Click or press a key to enable audio.');
   }
 
-  private preloadRecordedAudio(): void {
-    if (!this.ctx || this.recordedBuffersPromise) return;
+  private requestRecordedAudio(key: string, priority = 0): void {
+    if (!this.ctx || this.recordedBuffers.has(key) || this.failedRecordedAudio.has(key)) return;
+    const queued = this.recordedLoadQueue.find((entry) => entry.key === key);
+    if (queued) {
+      queued.priority = Math.max(queued.priority, priority);
+      this.recordedLoadQueue.sort((a, b) => b.priority - a.priority || a.order - b.order);
+      return;
+    }
+    if (this.requestedRecordedAudio.has(key)) return;
+    const file = this.recordedAudioFiles.find(([fileKey]) => fileKey === key);
+    if (!file) return;
+    this.requestedRecordedAudio.add(key);
+    this.recordedLoadQueue.push({ key, url: file[1], priority, order: this.recordedRequestOrder++ });
+    this.recordedLoadQueue.sort((a, b) => b.priority - a.priority || a.order - b.order);
+    this.loadNextRecordedAudio();
+  }
+
+  private loadNextRecordedAudio(): void {
+    if (!this.ctx || this.recordedAudioLoading) return;
+    const job = this.recordedLoadQueue.shift();
+    if (!job) return;
     const context = this.ctx;
-    this.recordedBuffersPromise = Promise.all(this.recordedAudioFiles.map(async ([key, url]) => {
+    this.recordedAudioLoading = true;
+    void (async () => {
       try {
-        const response = await fetch(url);
+        const response = await fetch(job.url);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const encoded = await response.arrayBuffer();
         const decoded = await context.decodeAudioData(encoded);
-        this.recordedBuffers.set(key, decoded);
+        if (this.ctx === context) {
+          this.recordedBuffers.set(job.key, decoded);
+          while (this.recordedBuffers.size > this.maxCachedRecordedClips) {
+            const oldest = this.recordedBuffers.keys().next().value as string | undefined;
+            if (!oldest) break;
+            this.recordedBuffers.delete(oldest);
+          }
+        }
       } catch (error) {
-        console.warn(`[Undead Rush] Could not load sound asset ${url}; using procedural fallback.`, error);
+        this.failedRecordedAudio.add(job.key);
+        console.warn(`[Undead Rush] Could not load sound asset ${job.url}; using procedural fallback.`, error);
+      } finally {
+        this.requestedRecordedAudio.delete(job.key);
+        this.recordedAudioLoading = false;
+        this.loadNextRecordedAudio();
       }
-    })).then(() => {
-      console.info(`[Undead Rush] Audio ready: ${this.recordedBuffers.size}/${this.recordedAudioFiles.length} recorded clips.`);
-    });
+    })();
+  }
+
+  get performanceStats(): { loadedRecordedClips: number; queuedRecordedClips: number; decodedAudioBytes: number; activeRecordedVoices: number } {
+    let decodedAudioBytes = 0;
+    for (const buffer of this.recordedBuffers.values()) {
+      decodedAudioBytes += buffer.length * buffer.numberOfChannels * Float32Array.BYTES_PER_ELEMENT;
+    }
+    return {
+      loadedRecordedClips: this.recordedBuffers.size,
+      queuedRecordedClips: this.recordedLoadQueue.length + Number(this.recordedAudioLoading),
+      decodedAudioBytes,
+      activeRecordedVoices: this.activeRecordedVoices.size,
+    };
   }
 
   private playRecorded(
     key: string,
-    options: { volume?: number; pan?: number; rate?: number; offset?: number; duration?: number; lowpass?: number; onEnded?: () => void } = {},
+    options: { volume?: number; pan?: number; rate?: number; offset?: number; duration?: number; lowpass?: number; priority?: number; onEnded?: () => void } = {},
   ): boolean {
     if (!this.ctx || !this.sfxGain) return false;
+    const priority = options.priority ?? 1;
     const buffer = this.recordedBuffers.get(key);
-    if (!buffer) return false;
+    if (!buffer) {
+      this.requestRecordedAudio(key, priority);
+      return false;
+    }
+
+    // Refresh LRU order while retaining at most eight decoded clips in memory.
+    this.recordedBuffers.delete(key);
+    this.recordedBuffers.set(key, buffer);
+    if (this.activeRecordedVoices.size >= this.maxRecordedVoices) {
+      let lowestVoice: AudioBufferSourceNode | undefined;
+      let lowestPriority = Infinity;
+      for (const [voice, voicePriority] of this.activeRecordedVoices) {
+        if (voicePriority < lowestPriority) {
+          lowestVoice = voice;
+          lowestPriority = voicePriority;
+        }
+      }
+      if (lowestVoice && lowestPriority < priority) {
+        this.activeRecordedVoices.delete(lowestVoice);
+        try { lowestVoice.stop(); } catch { /* it may have ended between scheduling and stopping */ }
+      } else if (priority < 3 || this.activeRecordedVoices.size >= this.maxCriticalRecordedVoices) {
+        // Suppress a low-priority recorded voice without falling through to a
+        // second procedural voice. Critical player and boss cues get headroom.
+        if (options.onEnded) window.setTimeout(options.onEnded, Math.max(0, options.duration ?? .5) * 1000);
+        return true;
+      }
+    }
     const offset = Math.max(0, Math.min(options.offset ?? 0, buffer.duration - 0.01));
     const duration = Math.min(options.duration ?? buffer.duration - offset, buffer.duration - offset);
     if (duration <= 0.01) return false;
@@ -308,9 +387,11 @@ export class Audio {
     }
     last.connect(this.sfxGain);
     source.onended = () => {
+      this.activeRecordedVoices.delete(source);
       for (const node of nodes) node.disconnect();
       options.onEnded?.();
     };
+    this.activeRecordedVoices.set(source, priority);
     source.start(this.ctx.currentTime, offset, duration);
     return true;
   }
@@ -387,7 +468,7 @@ export class Audio {
       smg: { key: 'gun-rifle', offset: 6.0, volume: 0.66, rate: 1.08 + Math.random() * 0.06 },
     };
     const shot = shotAssets[weaponType];
-    if (this.playRecorded(shot.key, { offset: shot.offset, duration: weaponType === 'pistol' ? 0.36 : 0.34, volume: shot.volume, rate: shot.rate })) return;
+    if (this.playRecorded(shot.key, { offset: shot.offset, duration: weaponType === 'pistol' ? 0.36 : 0.34, volume: shot.volume, rate: shot.rate, priority: 3 })) return;
 
     const ctx = this.ctx;
     const t = ctx.currentTime;
@@ -541,7 +622,7 @@ export class Audio {
   shotgun(): void {
     if (!this.ensureContext() || !this.ctx || !this.sfxGain) return;
 
-    if (this.playRecorded('gun-shotgun', { volume: 0.82, rate: 0.99 + Math.random() * 0.02 })) return;
+    if (this.playRecorded('gun-shotgun', { volume: 0.82, rate: 0.99 + Math.random() * 0.02, priority: 3 })) return;
 
     const ctx = this.ctx;
     const t = ctx.currentTime;
@@ -642,6 +723,7 @@ export class Audio {
       volume: 0.68,
       rate: 1.04 + Math.random() * 0.04,
       pan,
+      priority: 2,
     })) return;
 
     const ctx = this.ctx;
@@ -814,7 +896,7 @@ export class Audio {
   reloadStart(weaponType: 'rifle' | 'shotgun' | 'smg' = 'rifle'): void {
     if (!this.ensureContext()) return;
     const isShotgun = weaponType === 'shotgun';
-    if (isShotgun && this.playRecorded('reload-shotgun-first-shell', { volume: 0.48, rate: 0.98 + Math.random() * 0.04 })) return;
+    if (isShotgun && this.playRecorded('reload-shotgun-first-shell', { volume: 0.48, rate: 0.98 + Math.random() * 0.04, priority: 2 })) return;
     const brightness = weaponType === 'smg' ? 1450 : isShotgun ? 720 : 980;
     this.reloadClack(0, isShotgun ? 180 : 225, brightness, 0.46);
     this.reloadSlide(0.035, isShotgun ? 0.15 : 0.105, 720, 260, brightness * 0.92);
@@ -825,7 +907,7 @@ export class Audio {
   reloadInsert(weaponType: 'rifle' | 'shotgun' | 'smg' = 'rifle'): void {
     if (!this.ensureContext()) return;
     if (weaponType === 'shotgun') {
-      if (this.playRecorded('reload-shotgun-shells', { volume: 0.42, rate: 0.96 + Math.random() * 0.08 })) return;
+      if (this.playRecorded('reload-shotgun-shells', { volume: 0.42, rate: 0.96 + Math.random() * 0.08, priority: 2 })) return;
       this.reloadClack(0, 300, 1150, 0.42);
       this.reloadClack(0.045, 870, 1900, 0.24);
       return;
@@ -836,6 +918,7 @@ export class Audio {
       duration: 0.55,
       volume: isSmg ? 0.4 : 0.48,
       rate: isSmg ? 1.08 : 1,
+      priority: 2,
     })) return;
     this.reloadClack(0, isSmg ? 285 : 245, isSmg ? 1550 : 1150, 0.56);
     this.reloadClack(0.035, isSmg ? 1050 : 760, isSmg ? 2100 : 1650, 0.3);
@@ -1169,6 +1252,7 @@ export class Audio {
       rate: recordedRate,
       pan,
       lowpass: isHeavy ? 1150 : isSpitter ? 5200 : undefined,
+      priority: event === 'attack' ? 2 : event === 'death' ? 1 : 0,
       onEnded: () => { this.activeZombieVoices = Math.max(0, this.activeZombieVoices - 1); },
     })) {
       this.activeZombieVoices++;

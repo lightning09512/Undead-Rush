@@ -109,6 +109,60 @@ const campaignTerrainRenderer = new CampaignTerrainRenderer();
 const campaignBossDirector = new CampaignBossDirector();
 const campaignResources = new CampaignResources();
 
+type DevPerformanceOverlay = import('./dev/performance-overlay').PerformanceOverlay;
+let devPerformanceOverlay: DevPerformanceOverlay | null = null;
+let performanceUpdateMs = 0;
+let performanceZombieUpdateMs = 0;
+let performanceRenderMs = 0;
+let lastIdleUiRenderAt = -Infinity;
+let lastIdleUiScreen = '';
+
+if (import.meta.env.DEV) {
+  void import('./dev/performance-overlay').then(({ PerformanceOverlay }) => {
+    devPerformanceOverlay = new PerformanceOverlay();
+  });
+}
+
+function shouldRenderIdleUi(timestamp: number, forced: boolean): boolean {
+  const screen = menuUI.currentScreen;
+  const screenChanged = screen !== lastIdleUiScreen;
+  const intervalElapsed = timestamp - lastIdleUiRenderAt >= 1000 / 30;
+  if (!forced && !screenChanged && !intervalElapsed) return false;
+  lastIdleUiRenderAt = timestamp;
+  lastIdleUiScreen = screen;
+  return true;
+}
+
+function renderMeasured(timestamp: number, render: () => void): void {
+  const start = performance.now();
+  render();
+  performanceRenderMs = performance.now() - start;
+  const overlay = devPerformanceOverlay;
+  if (!overlay?.isEnabled) return;
+  const blood = bloodStains.performanceStats;
+  const sound = audio.performanceStats;
+  const bullet = bullets.performanceStats;
+  const lighting = LightingRenderer.get().performanceStats;
+  overlay.draw(ctx, timestamp, {
+    updateMs: performanceUpdateMs,
+    zombieUpdateMs: performanceZombieUpdateMs,
+    renderMs: performanceRenderMs,
+    zombies: zombies.pool.activeCount,
+    playerBullets: bullet.activeBullets,
+    enemyBullets: enemyProjectiles.pool.activeCount,
+    particles: particles.pool.activeCount,
+    bloodCells: blood.cells,
+    bloodCanvases: blood.canvasCount,
+    bloodCanvasBytes: blood.estimatedCanvasBytes,
+    bloodStainRecords: blood.stainRecords,
+    visibleLamps: lighting.visibleCampaignLamps,
+    audioClips: sound.loadedRecordedClips,
+    queuedAudioClips: sound.queuedRecordedClips,
+    audioVoices: sound.activeRecordedVoices,
+    audioBytes: sound.decodedAudioBytes,
+  });
+}
+
 // ─── UI ───
 const hud = new HUD();
 const menuUI = new MenuUI();
@@ -318,6 +372,8 @@ function gameLoop(timestamp: number): void {
   const rawDt = (timestamp - lastTimestamp) / 1000;
   const dt = Math.min(rawDt, 0.1);
   lastTimestamp = timestamp;
+  const updateStartedAt = performance.now();
+  performanceZombieUpdateMs = 0;
   syncMusicForThreat();
   input.touchButtonsEnabled = menuUI.currentScreen === 'playing' && !paused;
 
@@ -359,26 +415,42 @@ function gameLoop(timestamp: number): void {
       }
     }
 
-    // Draw appropriate screen
+  }
+
+  if (menuUI.currentScreen !== 'playing') {
+    performanceUpdateMs = performance.now() - updateStartedAt;
+    if (!shouldRenderIdleUi(timestamp, !!click)) return;
+
+    // Draw appropriate screen at up to 30 FPS while keeping input and game
+    // timing on the regular animation-frame loop.
     canvas.style.cursor = 'default';
-    if (menuUI.currentScreen === 'campaign') { campaignUI.draw(ctx, viewportWidth, viewportHeight, save); return; }
+    if (menuUI.currentScreen === 'campaign') {
+      renderMeasured(timestamp, () => campaignUI.draw(ctx, viewportWidth, viewportHeight, save));
+      return;
+    }
     if (menuUI.currentScreen === 'main' || menuUI.currentScreen === 'newgame' || menuUI.currentScreen === 'savegame' || menuUI.currentScreen === 'settings' || menuUI.currentScreen === 'hunter_profile' || menuUI.currentScreen === 'tutorial') {
-      menuUI.draw(ctx, viewportWidth, viewportHeight, save);
+      renderMeasured(timestamp, () => menuUI.draw(ctx, viewportWidth, viewportHeight, save));
       return;
     }
     if (menuUI.currentScreen === 'paused') {
-      drawGame();
-      menuUI.draw(ctx, viewportWidth, viewportHeight, save);
+      renderMeasured(timestamp, () => {
+        drawGame();
+        menuUI.draw(ctx, viewportWidth, viewportHeight, save);
+      });
       return;
     }
     if (menuUI.currentScreen === 'gameover') {
-      drawGame();
-      menuUI.draw(ctx, viewportWidth, viewportHeight, save);
+      renderMeasured(timestamp, () => {
+        drawGame();
+        menuUI.draw(ctx, viewportWidth, viewportHeight, save);
+      });
       return;
     }
     if (menuUI.currentScreen === 'stage_complete' as any) {
-      drawGame();
-      menuUI.draw(ctx, viewportWidth, viewportHeight, save);
+      renderMeasured(timestamp, () => {
+        drawGame();
+        menuUI.draw(ctx, viewportWidth, viewportHeight, save);
+      });
       return;
     }
   }
@@ -392,13 +464,18 @@ function gameLoop(timestamp: number): void {
   }
 
   if (paused) {
-    drawGame();
-    menuUI.draw(ctx, viewportWidth, viewportHeight, save);
+    performanceUpdateMs = performance.now() - updateStartedAt;
+    if (!shouldRenderIdleUi(timestamp, false)) return;
+    renderMeasured(timestamp, () => {
+      drawGame();
+      menuUI.draw(ctx, viewportWidth, viewportHeight, save);
+    });
     return;
   }
 
   updateGame(dt);
-  drawGame();
+  performanceUpdateMs = performance.now() - updateStartedAt;
+  renderMeasured(timestamp, drawGame);
 }
 
 function handleMenuAction(action: string | null): void {
@@ -590,6 +667,7 @@ function updateGame(dt: number): void {
   bullets.update(dt, true);
 
   // ─── Zombies ───
+  const zombieUpdateStartedAt = performance.now();
   zombies.update(dt, player.x, player.y, true, z => {
     const distance = Math.hypot(z.x - player.x, z.y - player.y);
     const kind = getCampaignVariantAttack(z.typeId)?.burstCount ? 'projectile'
@@ -597,6 +675,7 @@ function updateGame(dt: number): void {
         : z.typeId === 'mutant' || z.typeId === 'multihead' ? 'slam' : 'thrust';
     audio.creatureTelegraph(z.typeId, kind, Math.max(-1, Math.min(1, (z.x - player.x) / 600)), distance);
   });
+  performanceZombieUpdateMs = performance.now() - zombieUpdateStartedAt;
   if (stage) {
     const boss = zombies.pool.getActive().find((z) => z.campaignBossId === stage.id);
     const bossDamage = updateBossEncounter(dt, stage, boss);
@@ -992,6 +1071,7 @@ function updateGame(dt: number): void {
         ? weapons.loadout.canAddCampaignAmmoForGun(item.itemId.slice(5))
         : weapons.loadout.canAddAmmoForGun(item.itemId.slice(5));
       if (gameMode === 'endless' && item.itemId.startsWith('gun_')) {
+        if (!item.isBossReward) return false;
         const gunId = item.itemId.slice(4);
         return !weapons.loadout.hasGun(gunId) || weapons.loadout.canAddAmmoForGun(gunId);
       }
@@ -1117,18 +1197,6 @@ function handlePickup(itemId: string, value: number, duration: number): void {
       // Apply weapon part effect
       handleWeaponPart();
       break;
-    case 'gun_sg12':
-      weapons.loadout.unlockGun('sg12', audio);
-      damageNumbers.spawn(player.x, player.y - 35, 0, '#a3e635');
-      particles.emit(player.x, player.y, 25, '#ff9933', 140, 0.7, 5);
-      audio.levelUp();
-      break;
-    case 'gun_smg9':
-      weapons.loadout.unlockGun('smg9', audio);
-      damageNumbers.spawn(player.x, player.y - 35, 0, '#a3e635');
-      particles.emit(player.x, player.y, 25, '#00e5ff', 140, 0.7, 5);
-      audio.levelUp();
-      break;
   }
 }
 
@@ -1136,16 +1204,6 @@ function handleCrateDestruction(crate: any): void {
   audio.explosion();
   camera.shake(5, 0.2);
   particles.emit(crate.x, crate.y, 15, '#ffaa00', 100, 0.5, 4);
-
-  // Chance to drop an unowned weapon from crate!
-  if (!weapons.loadout.hasGun('sg12') && Math.random() < 0.45) {
-    mapPickups.spawnWeaponPickup(crate.x, crate.y, 'sg12');
-    return;
-  }
-  if (!weapons.loadout.hasGun('smg9') && Math.random() < 0.45) {
-    mapPickups.spawnWeaponPickup(crate.x, crate.y, 'smg9');
-    return;
-  }
 
   // Get drop type from crate
   const dropType = supplyCrates.getDropType(crate);
@@ -1983,21 +2041,24 @@ function handleZombieDeath(z: Zombie): void {
     }
   }
 
-  // Elite and Boss zombies drop unowned weapons!
-  if (gameMode === 'endless' && (z.isBoss || z.isElite)) {
-    if (z.isBoss) {
-      const reward = campaignGuns.find(gun => !['p9', 'ar7'].includes(gun.id) && !weapons.loadout.hasGun(gun.id));
-      if (reward) mapPickups.spawnWeaponPickup(z.x, z.y, reward.id, true);
-      const finiteAmmoSlot = weapons.loadout.canAddAmmoForGun(weapons.loadout.activeSlot.def.id)
-        ? weapons.loadout.activeSlot : weapons.loadout.unlockedSlots.find(slot => weapons.loadout.canAddAmmoForGun(slot.def.id));
-      if (finiteAmmoSlot) {
-        mapPickups.spawnAmmoPickup(z.x + (reward ? 28 : 0), z.y + (reward ? 10 : 0), finiteAmmoSlot.def.id,
-          finiteAmmoSlot.def.magSize * (reward ? 2 : 3));
-      }
-    } else if (!weapons.loadout.hasGun('sg12')) {
-      mapPickups.spawnWeaponPickup(z.x, z.y, 'sg12');
-    } else if (!weapons.loadout.hasGun('smg9')) {
-      mapPickups.spawnWeaponPickup(z.x, z.y, 'smg9');
+  // Survival weapon unlocks are boss rewards, ordered like the Campaign's
+  // chapter rewards. Once owned, that boss drops ammo for its associated gun.
+  if (gameMode === 'endless' && z.isBoss) {
+    const bossStageId = z.campaignBossId ?? survivalBossStageId;
+    const finalUnlockStage = Math.max(1, ...campaignGuns.map(gun => gun.unlockStage ?? 1));
+    const rewardStage = Math.min(bossStageId + 1, finalUnlockStage);
+    const reward = campaignGuns.find(gun => gun.unlockStage === rewardStage && gun.id !== 'p9');
+    const canCollectBossGun = reward && (!weapons.loadout.hasGun(reward.id)
+      || weapons.loadout.canAddAmmoForGun(reward.id));
+    if (reward && canCollectBossGun) {
+      mapPickups.spawnWeaponPickup(z.x, z.y, reward.id, true);
+    }
+
+    const finiteAmmoSlot = weapons.loadout.canAddAmmoForGun(weapons.loadout.activeSlot.def.id)
+      ? weapons.loadout.activeSlot : weapons.loadout.unlockedSlots.find(slot => weapons.loadout.canAddAmmoForGun(slot.def.id));
+    if (finiteAmmoSlot) {
+      mapPickups.spawnAmmoPickup(z.x + (canCollectBossGun ? 28 : 0), z.y + (canCollectBossGun ? 10 : 0), finiteAmmoSlot.def.id,
+        finiteAmmoSlot.def.magSize * (canCollectBossGun ? 2 : 3));
     }
   }
 
@@ -2745,6 +2806,8 @@ function startGame(): void {
   campaignSessionEnded = false;
   input.clearUiFire();
   const stage = gameMode === 'stage' ? STAGES[currentStageIndex] : undefined;
+  bloodStains.setWorldBounds(stage?.layout?.bounds.w ?? MAP_CONFIG.width,
+    stage?.layout?.bounds.h ?? MAP_CONFIG.height);
   if (stage) {
     setCampaignGeometry(stage.buildings, stage.layout);
     camera.zoom = viewportWidth < 700 ? 0.95 : 1.42;
@@ -2788,8 +2851,6 @@ function startGame(): void {
   bossKilledThisRun = false;
   bossWeaponDrop = null;
 
-  // Spawn initial discoverable weapon drop (SG-12) 220px from player!
-  if (gameMode === 'endless') mapPickups.spawnWeaponPickup(player.x + 220, player.y + 45, 'sg12');
 }
 
 function resetGame(): void {

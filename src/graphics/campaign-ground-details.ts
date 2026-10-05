@@ -183,6 +183,7 @@ export class CampaignGroundDetails {
 
   private materialMark(ctx: CanvasRenderingContext2D, id: number, floor: string, zone: number,
     x: number, y: number, random: Random): void {
+    if (id >= 4 && this.floorMaterialMark(ctx, floor, x, y, random)) return;
     const variant = random();
     if (id === 1) {
       if (variant < .37) crack(ctx,x,y,22+random()*38,random()*6.28,random);
@@ -238,6 +239,67 @@ export class CampaignGroundDetails {
     }
     // Material hints are local to each authored floor; no same tile across chapters.
     if (floor === 'rail' && zone >= 0 && variant > .92) trace(ctx,x,y,25,0,'rgba(121,76,49,.28)');
+  }
+
+  private floorMaterialMark(ctx: CanvasRenderingContext2D, floor: string, x: number, y: number,
+    random: Random): boolean {
+    const variant = random();
+    if (floor === 'water') {
+      patch(ctx,x,y,18+random()*29,7+random()*11,'rgba(20,34,31,.31)',random);
+      ctx.strokeStyle='rgba(136,166,151,.28)';ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.ellipse(x+random()*8,y+random()*4,14+random()*16,4+random()*4,-.08,Math.PI*1.05,Math.PI*1.95);ctx.stroke();
+    } else if (floor === 'brick') {
+      if (variant < .62) crack(ctx,x,y,24+random()*36,random()*6.28,random,'rgba(13,22,21,.42)');
+      else { patch(ctx,x,y,13+random()*17,5+random()*8,'rgba(20,32,29,.32)',random); this.scrap(ctx,x+9,y+3,random,'#70786b'); }
+    } else if (floor === 'valve') {
+      if (variant < .54) trace(ctx,x,y,18+random()*27,Math.PI/2,'rgba(43,65,54,.36)');
+      else crack(ctx,x,y,18+random()*27,random()*6.28,random,'rgba(25,36,33,.38)');
+      if (variant > .68) patch(ctx,x+9,y+5,10,5,'rgba(121,74,45,.32)',random);
+    } else if (floor === 'nest') {
+      ctx.strokeStyle='rgba(115,64,56,.38)';ctx.lineWidth=2+random()*2;ctx.lineCap='round';
+      ctx.beginPath();ctx.moveTo(x,y);ctx.bezierCurveTo(x+8,y-8,x+13,y+7,x+28,y+random()*5-2);ctx.moveTo(x+10,y+1);ctx.lineTo(x+7,y-8);ctx.moveTo(x+18,y+2);ctx.lineTo(x+22,y+10);ctx.stroke();
+      if (variant > .57) patch(ctx,x+11,y+4,12,7,'rgba(84,36,38,.34)',random);
+    } else if (floor === 'concrete' || floor === 'parking' || floor === 'arena') {
+      if (variant < .48) crack(ctx,x,y,24+random()*44,random()*6.28,random,'rgba(14,20,20,.42)');
+      else if (variant < .76) this.footprints(ctx,x,y,random,'rgba(19,24,24,.31)',.72);
+      else { patch(ctx,x,y,18+random()*24,5+random()*8,'rgba(24,27,26,.28)',random); trace(ctx,x+5,y+2,18+random()*24,.04,'rgba(193,162,103,.30)'); }
+    } else if (floor === 'glass' || floor === 'shop' || floor === 'food' || floor === 'atrium' || floor === 'stage') {
+      if (floor === 'glass' || variant < .35) this.shards(ctx,x,y,random,'rgba(169,201,202,.42)');
+      else if (floor === 'food' && variant < .68) patch(ctx,x,y,23+random()*22,9+random()*8,'rgba(30,28,27,.32)',random);
+      else if (variant < .72) this.leaflet(ctx,x,y,random);
+      else trace(ctx,x,y,20+random()*34,random()*.25,'rgba(93,78,76,.30)');
+    } else if (floor === 'gravel' || floor === 'container' || floor === 'rail' || floor === 'control') {
+      if (floor === 'gravel' && variant < .52) {
+        for (let i=0;i<3;i++) this.scrap(ctx,x+(random()-.5)*25,y+(random()-.5)*15,random,i%2?'#817d6e':'#5e625d');
+      } else if (floor === 'rail' && variant < .5) {
+        trace(ctx,x,y,30+random()*48,.02,'rgba(120,88,60,.36)');
+        if (variant < .2) grass(ctx,x+24,y+4,random);
+      } else if (floor === 'control' && variant < .52) {
+        ctx.strokeStyle='rgba(113,113,91,.36)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,y);ctx.bezierCurveTo(x+9,y-8,x+18,y+8,x+31,y-2);ctx.stroke();
+      } else if (variant < .76) crack(ctx,x,y,21+random()*36,random()*6.28,random,'rgba(17,24,25,.39)');
+      else this.casing(ctx,x,y,random);
+    } else if (floor === 'clean' || floor === 'culture' || floor === 'test') {
+      if (floor === 'clean' && variant < .36) this.footprints(ctx,x,y,random,'rgba(42,60,58,.29)',.65);
+      else if (floor === 'test' && variant < .58) patch(ctx,x,y,16+random()*20,7+random()*10,'rgba(69,114,108,.31)',random);
+      else if (variant < .64) this.shards(ctx,x,y,random,'rgba(151,194,192,.40)');
+      else trace(ctx,x,y,18+random()*28,random()*.3,'rgba(49,76,75,.31)');
+    } else if (floor === 'rubble' || floor === 'ash' || floor === 'web') {
+      if (floor === 'web' && variant < .45) {
+        ctx.strokeStyle='rgba(175,160,153,.34)';ctx.lineWidth=1.4;ctx.beginPath();
+        ctx.moveTo(x,y);ctx.lineTo(x+19,y-9);ctx.lineTo(x+34,y+5);ctx.moveTo(x+8,y+7);ctx.lineTo(x+19,y-9);ctx.lineTo(x+23,y+11);ctx.stroke();
+      } else if (floor === 'rubble' && variant < .66) this.scrap(ctx,x,y,random,'#776957');
+      else if (floor === 'ash' && variant < .62) patch(ctx,x,y,20+random()*22,8+random()*11,'rgba(27,27,27,.32)',random);
+      else crack(ctx,x,y,23+random()*40,random()*6.28,random,'rgba(24,26,26,.38)');
+    } else if (floor === 'flesh' || floor === 'rib' || floor === 'heart') {
+      ctx.strokeStyle=floor==='heart'?'rgba(139,44,48,.45)':'rgba(123,51,57,.38)';
+      ctx.lineWidth=2+random()*2;ctx.lineCap='round';ctx.beginPath();
+      ctx.moveTo(x,y);ctx.bezierCurveTo(x+10,y-9,x+18,y+9,x+31,y+random()*7-3);
+      if (variant < .55) { ctx.moveTo(x+10,y);ctx.lineTo(x+7,y-10);ctx.moveTo(x+21,y+2);ctx.lineTo(x+25,y+11); }
+      ctx.stroke();
+      if (floor === 'rib' && variant > .6) this.bone(ctx,x+7,y+5,random);
+      else if (floor === 'heart' && variant > .65) patch(ctx,x+14,y+4,17,8,'rgba(79,23,30,.35)',random);
+    } else return false;
+    return true;
   }
 
   private scrap(ctx: CanvasRenderingContext2D, x: number, y: number, random: Random, color: string): void {
