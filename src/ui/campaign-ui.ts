@@ -222,9 +222,9 @@ export class CampaignUI {
       const locked = s.id > p.unlockedStage, done = p.completedStages.includes(s.id);
       this.panel(ctx, bx, by, bw, rowH, done ? '#789b88' : locked ? '#39474b' : '#bf9468');
       ctx.fillStyle = locked ? C.textMuted : C.text; ctx.textAlign = 'left'; ctx.font = `bold ${narrow ? 12 : 15}px Segoe UI, Arial`;
-      ctx.fillText(`${String(s.id).padStart(2, '0')}  ${s.name}`, bx + 12, by + 25, bw - 24);
+      ctx.fillText(`${String(s.id).padStart(2, '0')}  ${s.name.toLocaleUpperCase('vi-VN')}`, bx + 12, by + 25, bw - 24);
       ctx.fillStyle = C.textSoft; ctx.font = '11px Segoe UI, Arial';
-      ctx.fillText(locked ? 'KHÓA' : done ? 'ĐÃ HOÀN THÀNH' : `ĐÃ MỞ · ${s.reward} tín dụng`, bx + 12, by + Math.min(rowH - 10, 46));
+      ctx.fillText((locked ? 'KHÓA' : done ? 'ĐÃ HOÀN THÀNH' : `ĐÃ MỞ · ${s.reward} TÍN DỤNG`).toLocaleUpperCase('vi-VN'), bx + 12, by + Math.min(rowH - 10, 46));
       this.add(bx, by, bw, rowH, '', `stage:${s.id - 1}`, locked);
     });
     if (narrow) { this.add(x + 22, y + h - 95, 100, 28, '01–05', 'page:0', this.stagePage === 0); this.add(x + 130, y + h - 95, 100, 28, '06–10', 'page:1', this.stagePage === 1); }
@@ -415,18 +415,18 @@ export class CampaignUI {
     const formatScore = (value: number) => Math.max(0, value).toLocaleString('vi-VN');
     const rows = [
       `TỔNG ĐIỂM CHIẾN DỊCH: ${formatScore(countedTotal)}  (+${formatScore(this.result.scoreAdded)})`,
-      `Điểm màn này: ${formatScore(this.result.score)}`,
-      `Thời gian: ${Math.floor(this.result.time / 60)}:${String(Math.floor(this.result.time % 60)).padStart(2, '0')}  ·  Quái hạ: ${this.result.kills}`,
-      `Boss: ${s.bossName} đã bị hạ  ·  Điểm tiếp tế: ${this.result.optional}`,
-      `Thưởng lần đầu: +${this.result.reward} tín dụng`,
-      this.result.newStage ? `ĐÃ MỞ MÀN ${this.result.newStage}` : 'Không có màn mới',
+      `ĐIỂM MÀN NÀY: ${formatScore(this.result.score)}`,
+      `THỜI GIAN: ${Math.floor(this.result.time / 60)}:${String(Math.floor(this.result.time % 60)).padStart(2, '0')}  ·  QUÁI HẠ: ${this.result.kills}`,
+      `BOSS: ${s.bossName} ĐÃ BỊ HẠ  ·  ĐIỂM TIẾP TẾ: ${this.result.optional}`,
+      `THƯỞNG LẦN ĐẦU: +${this.result.reward} TÍN DỤNG`,
+      this.result.newStage ? `ĐÃ MỞ MÀN ${this.result.newStage}` : 'KHÔNG CÓ MÀN MỚI',
     ];
     ctx.textAlign = 'left'; ctx.font = '15px Segoe UI, Arial';
     rows.forEach((line, i) => {
       ctx.fillStyle = i === 0 ? C.amberBright : i === 5 ? C.text : C.textSoft;
       if (i === 0) ctx.font = 'bold 17px Segoe UI, Arial';
       else ctx.font = '15px Segoe UI, Arial';
-      ctx.fillText(line, x + 26, y + 125 + i * Math.min(49, (h - 225) / rows.length), w - 50);
+      ctx.fillText(line.toLocaleUpperCase('vi-VN'), x + 26, y + 125 + i * Math.min(49, (h - 225) / rows.length), w - 50);
     });
     if (w < 600) {
       this.add(x + 22, y + h - 96, w - 44, 34, 'KHO VŨ KHÍ + DRONE', 'post_stage_armory');
@@ -459,7 +459,7 @@ export class CampaignUI {
     this.add(x + w - bw - 22, y + h - 54, bw, 36, 'THỬ LẠI', 'retry');
   }
 
-  private title(ctx: CanvasRenderingContext2D, text: string, x: number, y: number): void { ctx.textAlign = 'left'; ctx.fillStyle = C.text; ctx.font = 'bold 22px Segoe UI, Arial'; ctx.fillText(text, x, y); }
+  private title(ctx: CanvasRenderingContext2D, text: string, x: number, y: number): void { ctx.textAlign = 'left'; ctx.fillStyle = C.text; ctx.font = 'bold 22px Segoe UI, Arial'; ctx.fillText(text.toLocaleUpperCase('vi-VN'), x, y); }
   private copy(ctx: CanvasRenderingContext2D, label: string, body: string, x: number, y: number, width: number): void {
     ctx.textAlign = 'left'; ctx.fillStyle = C.amberBright; ctx.font = 'bold 12px Segoe UI, Arial'; ctx.fillText(label, x, y);
     ctx.fillStyle = C.textSoft; ctx.font = '13px Segoe UI, Arial'; this.wrap(ctx, body, x, y + 23, width, 18, 2);
@@ -483,6 +483,6 @@ export class CampaignUI {
     ctx.fillStyle = selected ? C.selected : b.disabled ? '#30383c' : '#49675c'; ctx.fillRect(b.x, b.y, b.w, b.h);
     ctx.strokeStyle = selected ? C.selectedBorder : b.disabled ? C.borderSoft : C.health; ctx.strokeRect(b.x, b.y, b.w, b.h);
     ctx.fillStyle = b.disabled && !selected ? C.textMuted : C.text; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.font = `bold ${b.w < 140 ? 10 : 12}px Segoe UI, Arial`; ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2, b.w - 8); ctx.textBaseline = 'alphabetic';
+    ctx.font = `bold ${b.w < 140 ? 10 : 12}px Segoe UI, Arial`; ctx.fillText(b.label.toLocaleUpperCase('vi-VN'), b.x + b.w / 2, b.y + b.h / 2, b.w - 8); ctx.textBaseline = 'alphabetic';
   }
 }

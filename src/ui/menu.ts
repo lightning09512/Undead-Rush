@@ -365,7 +365,7 @@ export class MenuUI {
       case 'settings': this.drawSettings(ctx, w, h, save); break;
       case 'paused': this.drawPause(ctx, w, h); break;
       case 'gameover': this.drawGameOver(ctx, w, h); break;
-      case 'stage_complete': this.drawStageComplete(ctx, w, h); break;
+      case 'stage_complete': this.drawStageComplete(ctx, w, h, save); break;
       case 'hunter_profile': this.drawHunterProfile(ctx, w, h, save); break;
       case 'tutorial': this.drawTutorial(ctx, w, h); break;
     }
@@ -672,7 +672,8 @@ export class MenuUI {
       this.reviveAdPending ? 'CHỜ' : this.canWatchRevive ? 'XEM QUẢNG CÁO' : 'ĐÃ DÙNG',
       !this.canWatchRevive || this.reviveAdPending);
   }
-  private drawStageComplete(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+  private drawStageComplete(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
+    const english = save?.data.language === 'en';
     this.drawStaticBackdrop(ctx, w, h, 0.35);
     const panelW = Math.min(520, w - 32);
     const panelH = Math.min(400, h * 0.58);
@@ -684,20 +685,20 @@ export class MenuUI {
 
     ctx.fillStyle = C.text;
     ctx.font = `900 ${Math.min(38, panelW * 0.085)}px 'Arial Black', Impact, sans-serif`;
-    ctx.fillText('MÀN ĐÃ HOÀN THÀNH', w / 2, h * 0.15, panelW - 42);
+    ctx.fillText(english ? 'RUN COMPLETE' : 'MÀN ĐÃ HOÀN THÀNH', w / 2, h * 0.15, panelW - 42);
 
     const minutes = Math.floor(this.finalTime / 60);
     const seconds = Math.floor(this.finalTime % 60);
 
     ctx.fillStyle = C.textSoft;
     ctx.font = `${Math.min(17, Math.max(13, w * 0.04))}px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText(`⏱ Time: ${minutes}m ${seconds}s`, w / 2, h * 0.30);
-    ctx.fillText(`💀 Kills: ${this.finalKills}`, w / 2, h * 0.36);
-    ctx.fillText(`⭐ Level: ${this.finalLevel}`, w / 2, h * 0.42);
+    ctx.fillText(english ? `⏱ TIME: ${minutes}M ${seconds}S` : `⏱ THỜI GIAN: ${minutes} PHÚT ${seconds} GIÂY`, w / 2, h * 0.30, panelW - 42);
+    ctx.fillText(english ? `💀 KILLS: ${this.finalKills}` : `💀 HẠ GỤC: ${this.finalKills}`, w / 2, h * 0.36, panelW - 42);
+    ctx.fillText(english ? `⭐ LEVEL: ${this.finalLevel}` : `⭐ CẤP ĐỘ: ${this.finalLevel}`, w / 2, h * 0.42, panelW - 42);
 
     ctx.fillStyle = C.amberBright;
     ctx.font = `bold ${Math.min(20, Math.max(14, w * 0.045))}px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText(`💰 +${this.finalGold} Gold`, w / 2, h * 0.52);
+    ctx.fillText(english ? `💰 +${this.finalGold} GOLD` : `💰 +${this.finalGold} VÀNG`, w / 2, h * 0.52, panelW - 42);
 
     const btnW = 200;
     const btnH = 45;
@@ -797,11 +798,11 @@ export class MenuUI {
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.fillStyle = disabled ? '#6d797d' : primary ? '#102024' : C.text;
     ctx.font = `bold ${w < 230 ? 12 : 13}px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText(text, x + 20, y + h / 2);
+    ctx.fillText(text.toLocaleUpperCase('vi-VN'), x + 20, y + h / 2);
     if (note && w >= 150) {
       ctx.textAlign = 'right'; ctx.font = "bold 9px 'Segoe UI', Arial, sans-serif";
       ctx.fillStyle = disabled ? '#657074' : primary ? '#29474c' : C.textMuted;
-      ctx.fillText(note, x + w - 17, y + h / 2);
+      ctx.fillText(note.toLocaleUpperCase('vi-VN'), x + w - 17, y + h / 2);
     } else if (!disabled) {
       ctx.strokeStyle = primary ? '#29474c' : accent; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(x + w - 20, y + h / 2 - 4); ctx.lineTo(x + w - 16, y + h / 2); ctx.lineTo(x + w - 20, y + h / 2 + 4); ctx.stroke();

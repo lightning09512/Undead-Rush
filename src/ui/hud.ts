@@ -144,7 +144,7 @@ export class HUD {
       ctx.fillText(`WAVE ${survival.wave}  ·  ${stateText}`, w / 2, panelY + 13, panelW - 14);
       if (survival.bossName) {
         ctx.fillStyle = '#f0e5d9'; ctx.font = `700 ${compact ? 10 : 11}px Segoe UI, Arial`;
-        ctx.fillText(survival.bossName, w / 2, panelY + 29, panelW - 14);
+        ctx.fillText(survival.bossName.toLocaleUpperCase('vi-VN'), w / 2, panelY + 29, panelW - 14);
       }
       ctx.restore();
     }

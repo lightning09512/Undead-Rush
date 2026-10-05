@@ -326,7 +326,7 @@ function gameLoop(timestamp: number): void {
     ctx.fillStyle = '#ffffff';
     ctx.font = '24px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('Loading Assets...', viewportWidth / 2, viewportHeight / 2);
+    ctx.fillText('LOADING ASSETS...', viewportWidth / 2, viewportHeight / 2);
     return;
   }
 
