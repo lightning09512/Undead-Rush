@@ -1,5 +1,6 @@
 // ─── Save System: localStorage persistence ───
 import { UPGRADES } from '../data/upgrades';
+import { ALL_CHARACTER_IDS } from '../data/meta';
 
 export interface SaveData {
   // Best scores
@@ -26,10 +27,13 @@ export interface SaveData {
 
   // Settings
   soundEnabled: boolean;
+  language: 'vi' | 'en';
+  musicEnabled: boolean;
   campaign: CampaignProgress;
 }
 
 export interface CampaignProgress {
+  difficulty: CampaignDifficulty;
   credits: number;
   selectedCharacter: string;
   unlockedCharacters: string[];
@@ -41,17 +45,28 @@ export interface CampaignProgress {
   ownedGuns: string[];
   equippedGun: string;
   gunLevels: Record<string, number>;
+  /** Per-weapon loaded and reserve ammo, retained between Campaign missions. */
+  gunAmmo: Record<string, { currentAmmo: number; reserveAmmo: number }>;
   ammoPacks: number;
   medKits: number;
+  armorLevel: number;
+  flashlightLevel: number;
   cardLevels: Record<string, number>;
   /** Bumped when Campaign's purchasable upgrade set changes. */
   upgradeSystemVersion: number;
+  /** Best Campaign score recorded per stage; total is the sum of these records. */
+  stageScores: Record<string, number>;
+  totalScore: number;
 }
 
-const newCampaign = (): CampaignProgress => ({
-  credits: 160, selectedCharacter: 'survivor', unlockedCharacters: ['survivor'],
+export type CampaignDifficulty = 'normal' | 'hard' | 'impossible';
+
+const newCampaign = (difficulty: CampaignDifficulty = 'normal'): CampaignProgress => ({
+  difficulty,
+  credits: 160, selectedCharacter: 'survivor', unlockedCharacters: [...ALL_CHARACTER_IDS],
   unlockedStage: 1, lastStage: 1, hasCheckpoint: false, completedStages: [], ownedGuns: ['p9'], equippedGun: 'p9',
-  gunLevels: {}, ammoPacks: 0, medKits: 0, cardLevels: {}, upgradeSystemVersion: 1,
+  gunLevels: {}, gunAmmo: {}, ammoPacks: 0, medKits: 0, armorLevel: 0, flashlightLevel: 1,
+  cardLevels: {}, upgradeSystemVersion: 1, stageScores: {}, totalScore: 0,
 });
 
 const SAVE_KEY = 'undead_rush_save';
@@ -65,11 +80,13 @@ const DEFAULT_SAVE: SaveData = {
   gold: 0,
   totalGoldEarned: 0,
   permUpgrades: {},
-  unlockedCharacters: ['survivor'],
+  unlockedCharacters: [...ALL_CHARACTER_IDS],
   selectedCharacter: 'survivor',
   stagesCompleted: 0,
   completedStages: [],
   soundEnabled: true,
+  language: 'vi',
+  musicEnabled: true,
   campaign: newCampaign(),
 };
 
@@ -80,7 +97,7 @@ export class SaveSystem {
 
   constructor(persistent = true) {
     this.persistent = persistent;
-    this.data = { ...DEFAULT_SAVE, permUpgrades: {}, unlockedCharacters: ['survivor'], completedStages: [], campaign: newCampaign() };
+    this.data = { ...DEFAULT_SAVE, permUpgrades: {}, unlockedCharacters: [...ALL_CHARACTER_IDS], completedStages: [], campaign: newCampaign() };
     if (persistent) this.load();
   }
 
@@ -93,16 +110,26 @@ export class SaveSystem {
         const completedCampaignStages = parsed.campaign?.completedStages ?? legacyStages;
         const unlockedStage = parsed.campaign?.unlockedStage ?? Math.min(10, Math.max(1, (parsed.stagesCompleted ?? 0) + 1));
         const savedCampaign = parsed.campaign;
+        const difficulty: CampaignDifficulty = savedCampaign?.difficulty === 'hard' || savedCampaign?.difficulty === 'impossible'
+          ? savedCampaign.difficulty : 'normal';
         const needsUpgradeMigration = (savedCampaign?.upgradeSystemVersion ?? 0) < 1;
+        const stageScores = Object.fromEntries(Object.entries(savedCampaign?.stageScores ?? {})
+          .map(([stage, score]) => [stage, Math.max(0, Math.floor(Number(score) || 0))]));
         const campaign = { ...newCampaign(), ...(savedCampaign ?? {}),
+          difficulty,
           gunLevels: { ...(savedCampaign?.gunLevels ?? {}) },
+          gunAmmo: { ...(savedCampaign?.gunAmmo ?? {}) },
           cardLevels: { ...(savedCampaign?.cardLevels ?? {}) },
           ownedGuns: [...new Set([...(savedCampaign?.ownedGuns ?? []), 'p9'])],
           completedStages: [...completedCampaignStages],
           unlockedStage,
+          armorLevel: Math.max(0, Math.min(3, Math.floor(savedCampaign?.armorLevel ?? 0))),
+          flashlightLevel: Math.max(1, Math.min(3, Math.floor(savedCampaign?.flashlightLevel ?? 1))),
           lastStage: savedCampaign?.lastStage ?? unlockedStage,
           hasCheckpoint: savedCampaign?.hasCheckpoint ?? (unlockedStage > 1 || completedCampaignStages.length > 0),
-          unlockedCharacters: [...(savedCampaign?.unlockedCharacters ?? ['survivor'])] };
+          stageScores,
+          totalScore: Object.values(stageScores).reduce((sum, score) => sum + score, 0),
+          unlockedCharacters: [...new Set([...ALL_CHARACTER_IDS, ...(savedCampaign?.unlockedCharacters ?? [])])] };
         if (needsUpgradeMigration) {
           let refund = 0;
           for (const upgrade of UPGRADES) {
@@ -118,12 +145,15 @@ export class SaveSystem {
           campaign.upgradeSystemVersion = 1;
         }
         this.data = { ...DEFAULT_SAVE, ...parsed,
+          unlockedCharacters: [...new Set([...ALL_CHARACTER_IDS, ...(parsed.unlockedCharacters ?? [])])],
+          language: parsed.language === 'en' ? 'en' : 'vi',
+          musicEnabled: typeof parsed.musicEnabled === 'boolean' ? parsed.musicEnabled : true,
           campaign };
         if (needsUpgradeMigration) this.save();
       }
     } catch {
       // localStorage might be blocked
-      this.data = { ...DEFAULT_SAVE, campaign: newCampaign() };
+      this.data = { ...DEFAULT_SAVE, unlockedCharacters: [...ALL_CHARACTER_IDS], campaign: newCampaign() };
     }
   }
 
@@ -218,13 +248,38 @@ export class SaveSystem {
     return reward;
   }
 
-  resetCampaign(): void {
-    this.data.campaign = newCampaign();
+  /** Keep only the best score for a stage so replaying it cannot farm the campaign total. */
+  recordCampaignScore(stage: number, score: number): { added: number; total: number } {
+    const progress = this.data.campaign;
+    const key = String(stage);
+    const previousBest = progress.stageScores[key] ?? 0;
+    const best = Math.max(previousBest, Math.max(0, Math.floor(score)));
+    const added = best - previousBest;
+    if (added > 0) {
+      progress.stageScores[key] = best;
+      progress.totalScore += added;
+      this.save();
+    }
+    return { added, total: progress.totalScore };
+  }
+
+  resetCampaign(difficulty: CampaignDifficulty = 'normal'): void {
+    this.data.campaign = newCampaign(difficulty);
+    this.save();
+  }
+
+  /** Preserve the player's kit and records, but send an Impossible run back to mission one. */
+  resetCampaignRunToFirstStage(): void {
+    const progress = this.data.campaign;
+    progress.unlockedStage = 1;
+    progress.lastStage = 1;
+    progress.hasCheckpoint = true;
+    progress.completedStages = [];
     this.save();
   }
 
   resetAll(): void {
-    this.data = { ...DEFAULT_SAVE, permUpgrades: {}, unlockedCharacters: ['survivor'], completedStages: [], campaign: newCampaign() };
+    this.data = { ...DEFAULT_SAVE, permUpgrades: {}, unlockedCharacters: [...ALL_CHARACTER_IDS], completedStages: [], campaign: newCampaign() };
     this.save();
   }
 }

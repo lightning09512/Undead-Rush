@@ -158,6 +158,11 @@ export interface GunSlotState {
   fireCooldown: number;
 }
 
+export interface CampaignGunAmmoState {
+  currentAmmo: number;
+  reserveAmmo: number;
+}
+
 export class GunLoadout {
   readonly casings = new BulletCasings();
   slots: GunSlotState[] = [];
@@ -215,8 +220,15 @@ export class GunLoadout {
     this.rageCooldownTimer = 0;
   }
 
-  /** A weak, unlimited reserve sidearm keeps Campaign completable without supplies. */
-  configureCampaign(owned: string[], equipped: string, levels: Record<string, number>, ammoPacks: number, _stage = 1): void {
+  /** Configure a mission without refilling ammunition already carried between stages. */
+  configureCampaign(
+    owned: string[],
+    equipped: string,
+    levels: Record<string, number>,
+    ammoState: Record<string, CampaignGunAmmoState> = {},
+    _stage = 1,
+    legacyAmmoPacks = 0,
+  ): void {
     this.campaignMode = true;
     this.campaignGunLevels = { ...levels };
     for (const def of createCampaignGunDefs()) {
@@ -229,18 +241,34 @@ export class GunLoadout {
       && (slot.def.id === 'p9' || owned.includes(slot.def.id)));
     this.unlockedGunIds = new Set(available.map(slot => slot.def.id));
     this.unlockedGunIds.add('p9');
-    const packBonus = Math.max(0, ammoPacks) * 2;
+    const packBonus = Object.keys(ammoState).length === 0 ? Math.max(0, legacyAmmoPacks) * 2 : 0;
     for (const slot of available) {
       const level = Math.max(0, Math.min(3, levels[slot.def.id] ?? 0));
       slot.def = { ...slot.def, baseDamage: Math.round(slot.def.baseDamage * (1 + level * .12)) };
-      slot.currentAmmo = slot.def.magSize;
-      slot.reserveAmmo = slot.def.id === 'p9' ? -1
+      const savedAmmo = ammoState[slot.def.id];
+      slot.currentAmmo = savedAmmo
+        ? Math.max(0, Math.min(slot.def.magSize, Math.floor(savedAmmo.currentAmmo)))
+        : slot.def.magSize;
+      slot.reserveAmmo = slot.def.id === 'p9' ? -1 : savedAmmo
+        ? Math.max(0, Math.floor(savedAmmo.reserveAmmo))
         : slot.def.magSize * ((slot.def.reserveMagazines ?? 5) + packBonus);
+      slot.isReloading = false;
+      slot.reloadTimer = 0;
+      slot.reloadProgress = 0;
     }
     for (const slot of this.slots.filter(value => !this.unlockedGunIds.has(value.def.id))) slot.reserveAmmo = 0;
     const primary = available.some(slot => slot.def.id === equipped) ? equipped : 'p9';
     this.activeSlotIndex = Math.max(0, this.slots.findIndex(slot => slot.def.id === primary));
     this.grenadesCurrent = 2;
+  }
+
+  getCampaignAmmoState(): Record<string, CampaignGunAmmoState> {
+    const state: Record<string, CampaignGunAmmoState> = {};
+    if (!this.campaignMode) return state;
+    for (const slot of this.unlockedSlots) {
+      state[slot.def.id] = { currentAmmo: slot.currentAmmo, reserveAmmo: slot.reserveAmmo };
+    }
+    return state;
   }
 
   addCampaignAmmo(magazines = 2): void {
@@ -729,10 +757,10 @@ export class GunLoadout {
   }
 
   // The left rail and its click targets share this layout on every viewport.
-  private weaponHudLayout(canvasW: number, canvasH: number) {
+  private weaponHudLayout(canvasW: number, canvasH: number, campaignGear = false) {
     const x = 10;
     const width = Math.min(canvasW - 20, canvasW < 760 ? 176 : 218);
-    const infoHeight = canvasH < 650 ? 94 : 108;
+    const infoHeight = (canvasH < 650 ? 94 : 108) + (campaignGear ? 24 : 0);
     const infoY = canvasH - infoHeight - 10;
     const listTop = canvasH < 650 ? 155 : 208; // Below the health/equipment HUD.
     const rowHeight = canvasH < 650 ? 29 : 34;
@@ -743,8 +771,9 @@ export class GunLoadout {
     return { x, width, infoY, infoHeight, listTop, rowHeight, visibleCount, first };
   }
 
-  drawHUD(ctx: CanvasRenderingContext2D, canvasW: number, canvasH: number, player: Player): void {
-    const { x, width, infoY, infoHeight, listTop, rowHeight, visibleCount, first } = this.weaponHudLayout(canvasW, canvasH);
+  drawHUD(ctx: CanvasRenderingContext2D, canvasW: number, canvasH: number, player: Player,
+    campaignGear?: { armorLevel: number; medKits: number; flashlightLevel: number }): void {
+    const { x, width, infoY, infoHeight, listTop, rowHeight, visibleCount, first } = this.weaponHudLayout(canvasW, canvasH, !!campaignGear);
     const unlocked = this.unlockedSlots;
     const active = this.activeSlot;
     const ammoLow = active.currentAmmo <= Math.ceil(active.def.magSize * .2);
@@ -825,6 +854,15 @@ export class GunLoadout {
     } else {
       ctx.textAlign = 'right'; ctx.fillStyle = '#b7a092';
       ctx.fillText(`F NỘ ${Math.floor(this.ragePercent)}%`, x + width - 9, infoY + 65, width * .48);
+    }
+    if (campaignGear) {
+      ctx.textAlign = 'left'; ctx.font = '700 9px Segoe UI, Arial';
+      ctx.fillStyle = '#a9d9d2';
+      ctx.fillText(`PIN ${campaignGear.flashlightLevel}/3`, x + 11, infoY + 114);
+      ctx.fillStyle = campaignGear.armorLevel ? '#b9d78d' : '#97a29f';
+      ctx.fillText(`GIÁP ${campaignGear.armorLevel}/3`, x + 83, infoY + 114);
+      ctx.fillStyle = campaignGear.medKits > 0 ? '#8de6a3' : '#97a29f';
+      ctx.fillText(`TÚI ${campaignGear.medKits}`, x + width - 47, infoY + 114, 39);
     }
     ctx.restore();
   }

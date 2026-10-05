@@ -4,6 +4,7 @@ import type { Zombie } from '../entities/zombies';
 import { resolveBuildingCollision, resolveCampaignMovement } from '../entities/map-geometry';
 
 type Phase = 'approach' | 'transition' | 'windup' | 'active' | 'recover';
+type ProjectileComboMove = { move: CampaignAttackDef; angle: number };
 
 /** Shared telegraphs and hit checks for the authored Campaign boss profiles. */
 export class CampaignBossDirector {
@@ -22,6 +23,7 @@ export class CampaignBossDirector {
   private hazardY = 0;
   private forcedMove: CampaignAttackKind | null = null;
   private nextFanBurstAt = 0;
+  private projectileCombo: ProjectileComboMove[] = [];
 
   reset(): void {
     this.phase = 'approach'; this.phaseTime = 0; this.cooldown = 1.6;
@@ -32,21 +34,23 @@ export class CampaignBossDirector {
     this.hazardX = this.hazardY = 0;
     this.forcedMove = null;
     this.nextFanBurstAt = 0;
+    this.projectileCombo = [];
   }
 
   forceNextAttack(kind:CampaignAttackKind):void { this.forcedMove=kind; }
 
   update(dt: number, stage: StageDef, boss: Zombie | undefined, playerX: number, playerY: number,
-    onSummon?: () => void, onAction?: (move:CampaignAttackDef,boss:Zombie,angle:number)=>void,
-    speedMultiplier = 1): number {
-    if (!boss || boss.hp <= 0) { this.phase = 'approach'; this.attack = null; return 0; }
+    onSummon?: () => void, onAction?: (move:CampaignAttackDef,boss:Zombie,angle:number,repeat?:boolean)=>void,
+    speedMultiplier = 1, onTelegraph?: (move: CampaignAttackDef, boss: Zombie, angle: number) => void): number {
+    if (!boss || boss.hp <= 0) { this.phase = 'approach'; this.attack = null; this.projectileCombo = []; return 0; }
     const moves = campaignMoves(stage.id);
     if (!moves.length) return 0;
     const hpRatio = boss.hp / boss.maxHp;
-    const phase = stage.id === 10 ? hpRatio <= .33 ? 3 : hpRatio <= .66 ? 2 : 1 : hpRatio <= .32 ? 2 : 1;
+    const phase = hpRatio <= .5 ? 2 : 1;
     if (phase > this.bossPhase) {
       this.bossPhase = phase;
       this.phase = 'transition'; this.phaseTime = 0; this.attack = null;
+      this.projectileCombo = [];
       boss.campaignAttackKind='';boss.campaignAttackProgress=0;
       this.cooldown = .5;
       boss.flashTimer = .9;
@@ -72,8 +76,11 @@ export class CampaignBossDirector {
         this.chainDepth = 0;
         this.ox = boss.x; this.oy = boss.y;
         this.angle = Math.atan2(playerY - boss.y, playerX - boss.x);
+        this.prepareProjectileCombo(moves, this.attack, this.angle, stage.id);
         this.hazardX=playerX+Math.cos(this.angle)*55;this.hazardY=playerY+Math.sin(this.angle)*55;
         boss.campaignAttackKind=this.attack.kind;boss.campaignAttackProgress=0;boss.specialAngle=this.angle;boss.facingAngle=this.angle;
+        onTelegraph?.(this.attack, boss, this.angle);
+        for (const combo of this.projectileCombo.slice(1)) onTelegraph?.(combo.move, boss, combo.angle);
         this.phase = 'windup'; this.phaseTime = 0; this.hitThisMove = false; this.chargeTravel = 0;
         this.nextFanBurstAt = 0;
         boss.speed = 0; boss.vx = boss.vy = 0;
@@ -89,10 +96,11 @@ export class CampaignBossDirector {
       boss.campaignAttackProgress=boss.visualWindup;boss.specialAngle=this.angle;boss.facingAngle=this.angle;
       if (this.phaseTime >= move.telegraph) {
         this.phase = 'active'; this.phaseTime = 0; this.lastX = boss.x; this.lastY = boss.y;
-        this.nextFanBurstAt = this.fanInterval(stage.id);
+        this.nextFanBurstAt = this.fanInterval(stage.id) * (this.bossPhase >= 2 ? .76 : 1);
         boss.specialHit = false;
         if (move.kind === 'summon') onSummon?.();
-        onAction?.(move,boss,this.angle);
+        onAction?.(move,boss,this.angle,false);
+        for (const combo of this.projectileCombo.slice(1)) onAction?.(combo.move,boss,combo.angle,false);
         boss.visualStrike=.22;
       }
       return 0;
@@ -106,8 +114,8 @@ export class CampaignBossDirector {
         // Each marked fan is a real volley of moving, collidable projectiles.
         // A short interval makes the attack feel sustained without a single
         // invisible damage check spanning the entire cone.
-        onAction?.(move, boss, this.angle);
-        this.nextFanBurstAt += this.fanInterval(stage.id);
+        onAction?.(move, boss, this.angle, true);
+        this.nextFanBurstAt += this.fanInterval(stage.id) * (this.bossPhase >= 2 ? .76 : 1);
       }
       boss.campaignAttackProgress=Math.min(1,this.phaseTime/duration);
       let hit = false;
@@ -168,26 +176,19 @@ export class CampaignBossDirector {
           if (followup) {
             this.chainDepth = 1; this.attack = followup; this.recentKinds.push(followup.kind);
             this.ox = boss.x; this.oy = boss.y; this.angle = Math.atan2(playerY - boss.y, playerX - boss.x);
+            this.prepareProjectileCombo(moves, followup, this.angle, stage.id);
             this.hazardX=playerX+Math.cos(this.angle)*55;this.hazardY=playerY+Math.sin(this.angle)*55;boss.campaignAttackKind=followup.kind;boss.specialAngle=this.angle;boss.facingAngle=this.angle;
-            this.hitThisMove = false; this.phase = 'windup'; this.phaseTime = 0;
-            return 0;
-          }
-        }
-        if (stage.id === 10 && this.bossPhase >= 3 && this.chainDepth === 1 && near < 450) {
-          const followup = moves.find(m => m.kind === 'cross');
-          if (followup) {
-            this.chainDepth = 2; this.attack = followup; this.recentKinds.push(followup.kind);
-            this.ox = boss.x; this.oy = boss.y; this.angle = Math.atan2(playerY - boss.y, playerX - boss.x);
-            this.hazardX=playerX+Math.cos(this.angle)*55;this.hazardY=playerY+Math.sin(this.angle)*55;boss.campaignAttackKind=followup.kind;boss.specialAngle=this.angle;boss.facingAngle=this.angle;
+            onTelegraph?.(followup, boss, this.angle);
             this.hitThisMove = false; this.phase = 'windup'; this.phaseTime = 0;
             return 0;
           }
         }
         this.phase = 'approach'; this.phaseTime = 0;
         this.cooldown = stage.id === 1
-          ? Math.max(.22, 1.05 - stage.id * .065) * (hpRatio < .34 ? .74 : 1)
-          : Math.max(.18, .64 - (stage.id - 2) * .045) * (hpRatio < .34 ? .68 : 1);
+          ? Math.max(.22, 1.05 - stage.id * .065) * (this.bossPhase >= 2 ? .62 : 1)
+          : Math.max(.18, .64 - (stage.id - 2) * .045) * (this.bossPhase >= 2 ? .58 : 1);
         this.attack = null;
+        this.projectileCombo = [];
       }
     }
     return 0;
@@ -210,7 +211,24 @@ export class CampaignBossDirector {
     const cadence = stageId === 1
       ? Math.max(.42, .78 - stageId * .035)
       : Math.max(.36, .66 - (stageId - 2) * .035);
-    return Math.max(stageId === 1 ? .32 : .26, move.recovery * cadence * (hpRatio < .34 ? .82 : 1));
+    return Math.max(stageId === 1 ? .32 : .26, move.recovery * cadence * (this.bossPhase >= 2 ? .72 : 1));
+  }
+
+  private prepareProjectileCombo(moves: CampaignAttackDef[], primary: CampaignAttackDef, angle: number, stageId: number): void {
+    this.projectileCombo = [{ move: primary, angle }];
+    if (this.bossPhase < 2 || (primary.kind !== 'fan' && primary.kind !== 'ring')) return;
+    const count = stageId >= 5 && Math.random() < .58 ? 3 : 2;
+    for (let index = 1; index < count; index++) {
+      const kind = index === 1 ? (primary.kind === 'fan' ? 'ring' : 'fan') : 'fan';
+      const candidates = moves.filter(move => move.kind === kind);
+      const source = candidates.length ? candidates[Math.floor(Math.random() * candidates.length)] : primary;
+      const side = index === 1 ? 1 : -1;
+      const offset = source.kind === 'fan' ? side * (primary.kind === 'ring' ? .48 : .58) : 0;
+      this.projectileCombo.push({
+        move: { ...source, damage: Math.max(1, Math.round(source.damage * .64)) },
+        angle: angle + offset,
+      });
+    }
   }
 
   private chooseMove(moves: CampaignAttackDef[], distance: number, stageId: number): CampaignAttackDef {
@@ -227,7 +245,8 @@ export class CampaignBossDirector {
       const pounceBias = move.kind === 'charge' ? stageId === 1 ? .45 : stageId >= 7 ? 2.8 : stageId >= 4 ? 2.3 : 1.8 : 0;
       const rangedBias = move.kind === 'fan' && distance > move.reach * .45 ? stageId === 1 ? 1.4 : 2.5 : 0;
       const radialBias = move.kind === 'ring' ? stageId === 1 ? 1.1 : 2.3 : 0;
-      const weight = Math.max(.2, 1 + rangeFit + pounceBias + rangedBias + radialBias + Math.random() * 1.25);
+      const phaseTwoSpellBias = this.bossPhase >= 2 && (move.kind === 'fan' || move.kind === 'ring') ? 1.25 : 0;
+      const weight = Math.max(.2, 1 + rangeFit + pounceBias + rangedBias + radialBias + phaseTwoSpellBias + Math.random() * 1.25);
       return { move, weight };
     });
     let roll = Math.random() * weighted.reduce((sum, entry) => sum + entry.weight, 0);
@@ -246,7 +265,8 @@ export class CampaignBossDirector {
     return Math.max(.19, .24 - (stageId - 2) * .005);
   }
 
-  draw(ctx: CanvasRenderingContext2D, camera: Camera, boss: Zombie | undefined): void {
+  draw(ctx: CanvasRenderingContext2D, camera: Camera, boss: Zombie | undefined, showSkillDirection = true): void {
+    if (!showSkillDirection) return;
     if (boss && this.phase === 'transition') {
       const [px, py] = camera.worldToScreen(boss.x, boss.y);
       ctx.save(); ctx.strokeStyle = '#d4b58f'; ctx.lineWidth = 4; ctx.setLineDash([12, 9]);
@@ -288,7 +308,9 @@ export class CampaignBossDirector {
         ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(ex,ey);ctx.strokeStyle=danger;ctx.lineWidth=48;ctx.globalAlpha=.16;ctx.stroke();ctx.globalAlpha=1;ctx.lineWidth=3;ctx.setLineDash([8,8]);ctx.stroke();ctx.setLineDash([]);
         ctx.fillStyle=color;for(let k=1;k<=3;k++){const d=move.reach*k/4,px=x+Math.cos(this.angle)*d,py=y+Math.sin(this.angle)*d;ctx.beginPath();ctx.moveTo(px+Math.cos(this.angle)*12,py+Math.sin(this.angle)*12);ctx.lineTo(px-Math.cos(this.angle)*8-Math.sin(this.angle)*8,py-Math.sin(this.angle)*8+Math.cos(this.angle)*8);ctx.lineTo(px-Math.cos(this.angle)*8+Math.sin(this.angle)*8,py-Math.sin(this.angle)*8-Math.cos(this.angle)*8);ctx.closePath();ctx.fill();}
       }else if(move.kind==='fan'){
-        const halfSpread = boss.campaignBossId === 2 ? .46 : (boss.campaignBossId ?? 0) >= 7 ? .34 : .36;
+        // Include the small per-volley aim variation so every projectile stays
+        // inside the warning cone shown to the player.
+        const halfSpread = boss.campaignBossId === 2 ? .78 : (boss.campaignBossId ?? 0) >= 7 ? .54 : .58;
         const left=this.angle-halfSpread,right=this.angle+halfSpread;
         ctx.fillStyle=boss.campaignBossId===2?'rgba(169,197,104,.2)':'rgba(200,197,183,.17)';
         ctx.beginPath();ctx.moveTo(x,y);ctx.arc(x,y,move.reach,left,right);ctx.closePath();ctx.fill();
@@ -331,6 +353,48 @@ export class CampaignBossDirector {
         ctx.strokeStyle=danger;ctx.lineWidth=9;ctx.globalAlpha=.72;ctx.beginPath();ctx.arc(bx,by,move.reach*.83,this.angle-.92,this.angle+.92);ctx.stroke();ctx.globalAlpha=1;
       }else if(move.kind==='thrust'){
         ctx.strokeStyle=color;ctx.lineWidth=7;ctx.beginPath();ctx.moveTo(bx,by);ctx.lineTo(bx+Math.cos(this.angle)*move.reach*.92,by+Math.sin(this.angle)*move.reach*.92);ctx.stroke();
+      }
+    }
+    if (windup && this.projectileCombo.length > 1) {
+      for (const combo of this.projectileCombo.slice(1)) this.drawComboTelegraph(ctx, camera, boss, combo);
+    }
+    ctx.restore();
+  }
+
+  private drawComboTelegraph(ctx: CanvasRenderingContext2D, camera: Camera, boss: Zombie,
+    combo: ProjectileComboMove): void {
+    const [x, y] = camera.worldToScreen(this.ox, this.oy);
+    const range = Math.min(combo.move.reach, 390);
+    const color = boss.campaignBossId === 2 ? '#bed377' : boss.campaignBossId === 3 ? '#d08e79' : '#e0c18a';
+    ctx.save();
+    ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.globalAlpha = .72; ctx.setLineDash([8, 8]);
+    if (combo.move.kind === 'fan') {
+      const bossId = boss.campaignBossId ?? 0;
+      const spread = bossId === 2 ? .78 : bossId >= 7 ? .54 : .58;
+      const left = combo.angle - spread, right = combo.angle + spread;
+      ctx.fillStyle = bossId === 2 ? 'rgba(169,197,104,.12)' : 'rgba(200,197,183,.1)';
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, range, left, right); ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(left) * range, y + Math.sin(left) * range);
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(right) * range, y + Math.sin(right) * range);
+      ctx.stroke();
+      ctx.setLineDash([3, 8]); ctx.globalAlpha = .38;
+      for (let i = 1; i <= 3; i++) {
+        const angle = combo.angle - spread + spread * 2 * i / 4;
+        ctx.beginPath(); ctx.moveTo(x, y);
+        ctx.lineTo(x + Math.cos(angle) * range, y + Math.sin(angle) * range); ctx.stroke();
+      }
+    } else {
+      const radialReach = Math.max(boss.size * 1.8, range * .78);
+      ctx.beginPath(); ctx.arc(x, y, radialReach, 0, Math.PI * 2); ctx.stroke();
+      for (let i = 0; i < 8; i++) {
+        const angle = combo.angle + i * Math.PI / 4;
+        ctx.beginPath();
+        ctx.moveTo(x + Math.cos(angle) * boss.size * .9, y + Math.sin(angle) * boss.size * .9);
+        ctx.lineTo(x + Math.cos(angle) * radialReach, y + Math.sin(angle) * radialReach);
+        ctx.stroke();
       }
     }
     ctx.restore();

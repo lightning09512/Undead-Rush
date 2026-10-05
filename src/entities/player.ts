@@ -13,6 +13,7 @@ export interface DamageResult {
   damaged: boolean;
   dead: boolean;
   actualDamage: number;
+  medkitUsed?: boolean;
 }
 
 export class Player {

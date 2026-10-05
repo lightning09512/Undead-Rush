@@ -2,7 +2,7 @@
 // Easy to swap for CrazyGames / Poki SDK later.
 // No actual ads during gameplay.
 
-export type AdPlacement = 'revive' | 'double_gold' | 'reroll_upgrades';
+export type AdPlacement = 'revive' | 'double_gold';
 
 export interface AdCallbacks {
   onRewarded: (placement: AdPlacement) => void;

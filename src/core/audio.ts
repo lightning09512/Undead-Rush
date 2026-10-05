@@ -33,6 +33,8 @@ export class Audio {
   private lastZombieDeathTime = 0;
   private lastZombieAttackTime = 0;
   private lastZombieHurtTime = 0;
+  private lastCreatureTelegraphTime = 0;
+  private lastCreatureSkillTime = 0;
   private lastDroneShotTime = 0;
   private lastCreditPickupTime = 0;
   private lastSupplyPickupTime = 0;
@@ -46,6 +48,7 @@ export class Audio {
   private musicDecks: MusicDeck[] = [];
   private activeMusicDeck = -1;
   private musicScene: MusicScene = 'menu';
+  private musicEnabled = true;
   private musicWarningLogged = false;
 
   private get recordedAudioFiles(): Array<[string, string]> {
@@ -141,9 +144,16 @@ export class Audio {
 
   /** Selects the background score separately from the shared sound-effects bus. */
   setMusicScene(scene: MusicScene): void {
-    if (this.musicScene === scene && (scene === 'paused' || this.activeMusicDeck >= 0)) return;
+    if (this.musicScene === scene && (scene === 'paused' || this.activeMusicDeck >= 0 || !this.musicEnabled)) return;
     this.musicScene = scene;
     this.syncMusicScene();
+  }
+
+  setMusicEnabled(enabled: boolean): void {
+    if (this.musicEnabled === enabled) return;
+    this.musicEnabled = enabled;
+    if (enabled) this.syncMusicScene();
+    else for (let i = 0; i < this.musicDecks.length; i++) this.fadeDeck(i, 0, true);
   }
 
   private initMusicDecks(): void {
@@ -172,6 +182,10 @@ export class Audio {
   private syncMusicScene(): void {
     if (!this.ctx || !this.masterGain) return;
     this.initMusicDecks();
+    if (!this.musicEnabled) {
+      for (let i = 0; i < this.musicDecks.length; i++) this.fadeDeck(i, 0, true);
+      return;
+    }
     if (this.musicScene === 'paused') {
       if (this.activeMusicDeck >= 0) this.fadeDeck(this.activeMusicDeck, 0, true);
       return;
@@ -225,7 +239,7 @@ export class Audio {
     deck.gain.gain.linearRampToValueAtTime(volume, now + 0.75);
     if (pauseAtEnd) {
       window.setTimeout(() => {
-        const pausedActiveTrack = this.musicScene === 'paused' && this.activeMusicDeck === index;
+        const pausedActiveTrack = (this.musicScene === 'paused' || !this.musicEnabled) && this.activeMusicDeck === index;
         if (deck.transition !== transition || (this.activeMusicDeck === index && !pausedActiveTrack)) return;
         deck.element.pause();
         if (deck.gain.gain.value < 0.01 && this.activeMusicDeck !== index) deck.key = null;
@@ -849,22 +863,41 @@ export class Audio {
     this.playTone(1800, 0.02, 'square', 0.12);
   }
 
-  /** Berserk rage activation powerup roar */
+  /** A short, grounded impact and air rush for the rage skill, with no arcade-like pitch sweep. */
   rageActivate(): void {
     if (!this.ensureContext() || !this.ctx || !this.sfxGain) return;
     const ctx = this.ctx;
     const t = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(140, t);
-    osc.frequency.exponentialRampToValueAtTime(750, t + 0.35);
-    gain.gain.setValueAtTime(0.45, t);
-    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
-    osc.connect(gain);
-    gain.connect(this.sfxGain);
-    osc.start(t);
-    osc.stop(t + 0.42);
+    const impact = ctx.createOscillator();
+    const impactGain = ctx.createGain();
+    impact.type = 'triangle';
+    impact.frequency.setValueAtTime(118, t);
+    impact.frequency.exponentialRampToValueAtTime(56, t + 0.22);
+    impactGain.gain.setValueAtTime(0.0001, t);
+    impactGain.gain.linearRampToValueAtTime(0.34, t + 0.012);
+    impactGain.gain.exponentialRampToValueAtTime(0.001, t + 0.26);
+    impact.connect(impactGain); impactGain.connect(this.sfxGain);
+    impact.onended = () => { impact.disconnect(); impactGain.disconnect(); };
+    impact.start(t); impact.stop(t + 0.27);
+
+    if (this.noiseBuffer) {
+      const rush = ctx.createBufferSource();
+      const rushFilter = ctx.createBiquadFilter();
+      const rushGain = ctx.createGain();
+      rush.buffer = this.noiseBuffer;
+      rush.playbackRate.value = 0.82;
+      rushFilter.type = 'bandpass';
+      rushFilter.frequency.setValueAtTime(540, t + 0.008);
+      rushFilter.frequency.exponentialRampToValueAtTime(1450, t + 0.11);
+      rushFilter.frequency.exponentialRampToValueAtTime(680, t + 0.2);
+      rushFilter.Q.value = 0.72;
+      rushGain.gain.setValueAtTime(0.0001, t);
+      rushGain.gain.linearRampToValueAtTime(0.18, t + 0.02);
+      rushGain.gain.exponentialRampToValueAtTime(0.001, t + 0.21);
+      rush.connect(rushFilter); rushFilter.connect(rushGain); rushGain.connect(this.sfxGain);
+      rush.onended = () => { rush.disconnect(); rushFilter.disconnect(); rushGain.disconnect(); };
+      rush.start(t, Math.random() * 0.5, 0.22); rush.stop(t + 0.23);
+    }
   }
 
   // ─── Impact & Gameplay Sound Effects ───
@@ -1013,6 +1046,76 @@ export class Audio {
     if (now - this.lastZombieAttackTime < 260) return;
     this.lastZombieAttackTime = now;
     this.playZombieVocal(type, pan, 0.88 * this.creatureDistanceGain(distance), type === 'tank' || type.startsWith('boss') ? 0.55 : 0.38, 'attack');
+  }
+
+  /** Audible windup cue for a committed creature ability, spatially panned to its source. */
+  creatureTelegraph(type: string, kind: string, pan = 0, distance = 0, boss = false): void {
+    const now = performance.now();
+    const gain = this.creatureDistanceGain(distance);
+    if (gain < 0.035 || now - this.lastCreatureTelegraphTime < 115) return;
+    this.lastCreatureTelegraphTime = now;
+    this.playZombieVocal(type, pan, (boss ? 0.82 : 0.62) * gain, boss ? 0.64 : 0.42, 'attack');
+    const pitch = kind === 'fan' || kind === 'ring' || kind === 'web' ? 210 : boss ? 96 : 138;
+    this.playPannedCreatureTone(pitch, pitch * (kind === 'charge' || kind === 'thrust' ? 1.72 : 1.28),
+      boss ? 0.48 : 0.32, boss ? 0.075 : 0.042, 'sine', pan);
+  }
+
+  /** Short release sound so each melee, projectile, or area skill has a clear audible impact. */
+  creatureSkill(type: string, kind: string, pan = 0, distance = 0, boss = false): void {
+    const now = performance.now();
+    const gain = this.creatureDistanceGain(distance);
+    if (gain < 0.035 || now - this.lastCreatureSkillTime < 105) return;
+    this.lastCreatureSkillTime = now;
+    const ranged = ['fan', 'ring', 'web', 'spit', 'projectile', 'cross'].includes(kind);
+    const heavy = boss || ['slam', 'stomp', 'charge'].includes(kind);
+    const start = ranged ? 360 : heavy ? 105 : 230;
+    const end = ranged ? 115 : 42;
+    const duration = heavy ? 0.31 : ranged ? 0.2 : 0.16;
+    this.playPannedCreatureTone(start, end, duration, (boss ? 0.15 : 0.09) * gain,
+      ranged ? 'sawtooth' : 'triangle', pan);
+    this.playPannedCreatureNoise(duration * 0.78, 950 + (ranged ? 720 : 0), (boss ? 0.085 : 0.05) * gain, pan);
+  }
+
+  private playPannedCreatureTone(startHz: number, endHz: number, duration: number, volume: number,
+    waveform: OscillatorType, pan: number): void {
+    if (!this.ensureContext() || !this.ctx || !this.sfxGain || volume < 0.003) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const panner = ctx.createStereoPanner();
+    osc.type = waveform;
+    osc.frequency.setValueAtTime(Math.max(1, startHz), t);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(1, endHz), t + duration);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.linearRampToValueAtTime(volume, t + Math.min(0.025, duration * 0.18));
+    gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+    panner.pan.setValueAtTime(Math.max(-1, Math.min(1, pan)), t);
+    osc.connect(gain); gain.connect(panner); panner.connect(this.sfxGain);
+    osc.onended = () => { osc.disconnect(); gain.disconnect(); panner.disconnect(); };
+    osc.start(t); osc.stop(t + duration + 0.01);
+  }
+
+  private playPannedCreatureNoise(duration: number, centerHz: number, volume: number, pan: number): void {
+    if (!this.ensureContext() || !this.ctx || !this.sfxGain || !this.noiseBuffer || volume < 0.003) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const source = ctx.createBufferSource();
+    const filter = ctx.createBiquadFilter();
+    const gain = ctx.createGain();
+    const panner = ctx.createStereoPanner();
+    source.buffer = this.noiseBuffer;
+    source.playbackRate.value = 0.72 + Math.random() * 0.3;
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(centerHz, t);
+    filter.Q.value = 0.72;
+    gain.gain.setValueAtTime(volume, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+    panner.pan.setValueAtTime(Math.max(-1, Math.min(1, pan)), t);
+    source.connect(filter); filter.connect(gain); gain.connect(panner); panner.connect(this.sfxGain);
+    source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); panner.disconnect(); };
+    source.start(t, Math.random() * 0.2, duration);
+    source.stop(t + duration + 0.01);
   }
 
   zombieHurt(pan = 0, type = 'normal', distance = 0): void {

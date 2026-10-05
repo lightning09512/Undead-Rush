@@ -30,16 +30,14 @@ import { SaveSystem } from './systems/save';
 import { adWrapper } from './systems/ads';
 
 import { HUD } from './ui/hud';
-import { UpgradeUI } from './ui/upgrade-ui';
 import { MenuUI } from './ui/menu';
-import { ShopUI } from './ui/shop';
 import { CrosshairRenderer } from './ui/crosshair';
 import { drawTouchActionButtons } from './ui/touch-controls';
 import { UI_PALETTE } from './ui/palette';
 
 import { MAP_CONFIG, PLAYER_DEFAULTS, WEAPON_PARTS } from './data/items';
 import { PERM_UPGRADES, CHARACTERS, STAGES, type CampaignZone, type Point, type StageDef } from './data/meta';
-import { EVOLUTIONS, UPGRADES } from './data/upgrades';
+import { UPGRADES } from './data/upgrades';
 import { getCampaignGunnerAttack, getCampaignVariantAttack, getHorrorAttack, CAMPAIGN_VARIANT_TYPES, HORROR_TYPES, ZOMBIE_TYPES, type ZombieTypeDef } from './data/zombies';
 import { horrorAttackHits } from './systems/horror-ai';
 import { HorrorRemains } from './entities/horror-remains';
@@ -100,6 +98,7 @@ const spawner = new Spawner();
 const weapons = new WeaponSystem();
 const zombieGrid = new SpatialGrid<Zombie>(64);
 const save = new SaveSystem(!horrorPreview);
+audio.setMusicEnabled(save.data.musicEnabled);
 const horrorRemains = new HorrorRemains();
 const bloodStains = new BloodStains();
 const groundRenderer = new GroundRenderer();
@@ -111,9 +110,7 @@ const campaignResources = new CampaignResources();
 
 // ─── UI ───
 const hud = new HUD();
-const upgradeUI = new UpgradeUI();
 const menuUI = new MenuUI();
-const shopUI = new ShopUI();
 const campaignUI = new CampaignUI();
 
 // ─── Game State ───
@@ -123,6 +120,7 @@ let lastTimestamp = 0;
 let gameMode: 'endless' | 'stage' = 'endless';
 let currentStageIndex = 0;
 let stageComplete = false;
+let campaignSessionEnded = false;
 let bossKilledThisRun = false;
 let bossWeaponDrop: (Point & { gunId: string }) | null = null;
 let stageObjectiveIndex = 0;
@@ -143,6 +141,7 @@ let stageExitActive = false;
 let stageExitActivated = false;
 const campaignTriggeredZones = new Set<number>();
 const campaignActiveWaveZones = new Set<number>();
+const campaignTriggeredTransitLinks = new Set<number>();
 const campaignDestroyedPortals = new Set<string>();
 const campaignSealedSpawnZones = new Set<number>();
 interface CampaignWaveQueueEntry {
@@ -161,7 +160,7 @@ interface CampaignWaveQueueEntry {
   spawnTimer: number;
   groupSpawned: number;
   groupSize: number;
-  waitingForClear: boolean;
+  groupBreakTimer: number;
   countsForGate: boolean;
   supportOnly: boolean;
 }
@@ -186,10 +185,31 @@ const CAMPAIGN_MIN_PORTAL_DISTANCE = 300;
 const CAMPAIGN_PORTAL_SCATTER: ReadonlyArray<readonly [number, number]> = [
   [0,0],[-38,-20],[38,20],[-22,38],[22,-38],[-48,26],[48,-26],[0,48],
 ];
+
+function campaignDifficultyFactors(): { health: number; damage: number } {
+  switch (save.data.campaign.difficulty) {
+    case 'hard': return { health: 1.3, damage: 1.3 };
+    case 'impossible': return { health: 1.5, damage: 1.5 };
+    default: return { health: 1, damage: 1 };
+  }
+}
+
+function applyCampaignDifficultyToMob(mob: Zombie): void {
+  const factors = campaignDifficultyFactors();
+  mob.hp = Math.max(1, Math.round(mob.hp * factors.health));
+  mob.maxHp = mob.hp;
+  mob.damage = Math.max(1, Math.round(mob.damage * factors.damage));
+}
+
+function showCampaignSkillDirections(): boolean {
+  return gameMode !== 'stage' || save.data.campaign.difficulty === 'normal';
+}
+
 let lastCreditGain = 0;
 let creditGainTimer = 0;
 let campaignSupplyNotice = '';
 let campaignSupplyNoticeTimer = 0;
+let campaignMedkitFlashTimer = 0;
 let goldEarned = 0;
 let hasRevive = false;     // from perm upgrade or ad
 let previewEncounter = false;
@@ -208,15 +228,14 @@ let survivalBossStageId = 0;
 let survivalBossSummonsSpawned = 0;
 
 function syncMusicForThreat(): void {
-  const menuScene = menuUI.currentScreen === 'main' || menuUI.currentScreen === 'savegame' || menuUI.currentScreen === 'campaign' || menuUI.currentScreen === 'hunter_profile' || menuUI.currentScreen === 'tutorial';
+  const menuScene = menuUI.currentScreen === 'main' || menuUI.currentScreen === 'newgame' || menuUI.currentScreen === 'savegame' || menuUI.currentScreen === 'settings' || menuUI.currentScreen === 'campaign' || menuUI.currentScreen === 'hunter_profile' || menuUI.currentScreen === 'tutorial';
   if (menuScene) {
     activeMusicThreat = 'calm';
     hasSeenZombiesThisRun = false;
     audio.setMusicScene('menu');
     return;
   }
-  const upgradeScene = menuUI.currentScreen === 'levelup' || upgradeUI.visible;
-  if ((menuUI.currentScreen === 'paused' || paused) && !upgradeScene) {
+  if (menuUI.currentScreen === 'paused' || paused) {
     audio.setMusicScene('paused');
     return;
   }
@@ -255,22 +274,40 @@ let bossAttackPhase = 0;
 adWrapper.init({
   onRewarded: (placement) => {
     if (placement === 'revive') {
-      // Revive player
+      menuUI.reviveAdPending = false;
+      campaignUI.reviveAdPending = false;
+      const stillAtDeathScreen = menuUI.currentScreen === 'gameover' ||
+        (gameMode === 'stage' && menuUI.currentScreen === 'campaign' && campaignUI.page === 'failure');
+      const impossibleCampaign = gameMode === 'stage' && save.data.campaign.difficulty === 'impossible';
+      if (!menuUI.canWatchRevive || !campaignUI.canWatchRevive || impossibleCampaign || !stillAtDeathScreen) return;
+      menuUI.canWatchRevive = false;
+      campaignUI.canWatchRevive = false;
+      if (gameMode === 'stage') campaignSessionEnded = false;
       player.hp = Math.round(player.maxHp * 0.3);
       player.invulnTimer = 2.0;
       menuUI.currentScreen = 'playing';
       paused = false;
       particles.emit(player.x, player.y, 30, '#ffff00', 200, 0.8, 5);
+      audio.revive();
+      adWrapper.gameplayStart();
     } else if (placement === 'double_gold') {
       save.data.gold += goldEarned; // double it
       save.save();
       menuUI.finalGold = goldEarned * 2;
-    } else if (placement === 'reroll_upgrades') {
-      upgradeUI.generateChoices(player);
     }
   },
-  onSkipped: () => {},
-  onError: () => {},
+  onSkipped: (placement) => {
+    if (placement === 'revive') {
+      menuUI.reviveAdPending = false;
+      campaignUI.reviveAdPending = false;
+    }
+  },
+  onError: (placement) => {
+    if (placement === 'revive') {
+      menuUI.reviveAdPending = false;
+      campaignUI.reviveAdPending = false;
+    }
+  },
 });
 
 // ─── Main Loop ───
@@ -281,7 +318,7 @@ function gameLoop(timestamp: number): void {
   const dt = Math.min(rawDt, 0.1);
   lastTimestamp = timestamp;
   syncMusicForThreat();
-  input.touchButtonsEnabled = menuUI.currentScreen === 'playing' && !paused && !shopUI.visible;
+  input.touchButtonsEnabled = menuUI.currentScreen === 'playing' && !paused;
 
   if (!spriteLoader.ready) {
     ctx.fillStyle = '#060906';
@@ -303,15 +340,6 @@ function gameLoop(timestamp: number): void {
     if (weapons.loadout.handleClick(click.x, click.y, viewportWidth, viewportHeight, audio)) input.clearUiFire();
   }
 
-  // ─── Shop Screen ───
-  if (shopUI.visible) {
-    if (click) {
-      shopUI.handleClick(click.x, click.y, viewportWidth, viewportHeight, save, audio);
-    }
-    shopUI.draw(ctx, viewportWidth, viewportHeight, save);
-    return;
-  }
-
   // ─── Menu screens ───
   if (menuUI.currentScreen !== 'playing') {
     if (click) {
@@ -319,21 +347,11 @@ function gameLoop(timestamp: number): void {
         const action = campaignUI.click(click.x, click.y, save);
         if (action === 'main') { menuUI.currentScreen = 'main'; gameMode = 'endless'; }
         else if (action === 'start' || action === 'retry') {
-          gameMode = 'stage'; currentStageIndex = campaignUI.selectedStage; previewEncounter = false; startGame();
+          gameMode = 'stage'; currentStageIndex = action === 'retry' && campaignUI.impossibleDeath
+            ? 0 : campaignUI.selectedStage; previewEncounter = false; startGame();
         }
+        else if (action === 'revive_ad') { audio.menuSelect(); handleMenuAction(action); }
         else if (action) audio.menuSelect();
-      } else if (upgradeUI.visible) {
-        const selected = upgradeUI.handleClick(click.x, click.y, viewportWidth, viewportHeight);
-        if (selected) {
-          player.applyUpgrade(selected.id);
-          audio.menuSelect();
-
-          // Check for evolutions
-          checkEvolutions();
-
-          menuUI.currentScreen = 'playing';
-          paused = false;
-        }
       } else {
         const action = menuUI.handleClick(click.x, click.y, viewportWidth, viewportHeight, audio, save);
         handleMenuAction(action);
@@ -343,7 +361,7 @@ function gameLoop(timestamp: number): void {
     // Draw appropriate screen
     canvas.style.cursor = 'default';
     if (menuUI.currentScreen === 'campaign') { campaignUI.draw(ctx, viewportWidth, viewportHeight, save); return; }
-    if (menuUI.currentScreen === 'main' || menuUI.currentScreen === 'savegame' || menuUI.currentScreen === 'hunter_profile' || menuUI.currentScreen === 'tutorial') {
+    if (menuUI.currentScreen === 'main' || menuUI.currentScreen === 'newgame' || menuUI.currentScreen === 'savegame' || menuUI.currentScreen === 'settings' || menuUI.currentScreen === 'hunter_profile' || menuUI.currentScreen === 'tutorial') {
       menuUI.draw(ctx, viewportWidth, viewportHeight, save);
       return;
     }
@@ -355,11 +373,6 @@ function gameLoop(timestamp: number): void {
     if (menuUI.currentScreen === 'gameover') {
       drawGame();
       menuUI.draw(ctx, viewportWidth, viewportHeight, save);
-      return;
-    }
-    if (menuUI.currentScreen === 'levelup') {
-      drawGame();
-      upgradeUI.draw(ctx, viewportWidth, viewportHeight, player, input.mouseX, input.mouseY);
       return;
     }
     if (menuUI.currentScreen === 'stage_complete' as any) {
@@ -405,6 +418,12 @@ function handleMenuAction(action: string | null): void {
       menuUI.confirmNewGame = false;
       menuUI.currentScreen = 'savegame';
       break;
+    case 'open_new_game':
+      menuUI.confirmNewGame = false;
+      menuUI.newGameStep = 'mode';
+      menuUI.selectedCampaignDifficulty = 'normal';
+      menuUI.currentScreen = 'newgame';
+      break;
     case 'open_new_game_confirm':
       menuUI.confirmNewGame = true;
       break;
@@ -413,7 +432,7 @@ function handleMenuAction(action: string | null): void {
       break;
     case 'new_game':
       menuUI.confirmNewGame = false;
-      save.resetCampaign();
+      save.resetCampaign(menuUI.selectedCampaignDifficulty);
       gameMode = 'stage';
       currentStageIndex = 0;
       previewEncounter = false;
@@ -442,8 +461,8 @@ function handleMenuAction(action: string | null): void {
       menuUI.confirmNewGame = false;
       menuUI.currentScreen = 'main';
       break;
-    case 'open_shop':
-      shopUI.visible = true;
+    case 'open_settings':
+      menuUI.currentScreen = 'settings';
       break;
     case 'open_hunter_profile':
       menuUI.currentScreen = 'hunter_profile';
@@ -459,16 +478,26 @@ function handleMenuAction(action: string | null): void {
     case 'quit':
     case 'menu':
       if (gameMode === 'endless') endRun();
+      if (gameMode === 'stage' && !previewEncounter) {
+        persistCampaignAmmo();
+        campaignSessionEnded = true;
+      }
       resetGame();
       if (gameMode === 'stage' && !previewEncounter) { campaignUI.page = 'stages'; menuUI.currentScreen = 'campaign'; }
       else menuUI.currentScreen = 'main';
       break;
     case 'retry':
+      if (gameMode === 'endless' && menuUI.currentScreen === 'gameover') endRun();
       previewEncounter = false;
       startGame();
       break;
     case 'revive_ad':
-      adWrapper.showRewarded('revive');
+      if (menuUI.canWatchRevive && !menuUI.reviveAdPending &&
+          !(gameMode === 'stage' && save.data.campaign.difficulty === 'impossible')) {
+        menuUI.reviveAdPending = true;
+        campaignUI.reviveAdPending = true;
+        adWrapper.showRewarded('revive');
+      }
       break;
     case 'double_gold_ad':
       adWrapper.showRewarded('double_gold');
@@ -488,6 +517,7 @@ function handleMenuAction(action: string | null): void {
 
 function updateGame(dt: number): void {
   gameTime += dt;
+  campaignMedkitFlashTimer = Math.max(0, campaignMedkitFlashTimer - dt);
   if (gameMode === 'stage') setCampaignGateState(stageObjectiveIndex, stageBossSpawned, bossKilledThisRun, campaignActiveWaveZones);
 
   // ─── Stage mode: check completion ───
@@ -559,12 +589,18 @@ function updateGame(dt: number): void {
   bullets.update(dt, true);
 
   // ─── Zombies ───
-  zombies.update(dt, player.x, player.y, true);
+  zombies.update(dt, player.x, player.y, true, z => {
+    const distance = Math.hypot(z.x - player.x, z.y - player.y);
+    const kind = getCampaignVariantAttack(z.typeId)?.burstCount ? 'projectile'
+      : z.typeId === 'spider' ? 'charge'
+        : z.typeId === 'mutant' || z.typeId === 'multihead' ? 'slam' : 'thrust';
+    audio.creatureTelegraph(z.typeId, kind, Math.max(-1, Math.min(1, (z.x - player.x) / 600)), distance);
+  });
   if (stage) {
     const boss = zombies.pool.getActive().find((z) => z.campaignBossId === stage.id);
     const bossDamage = updateBossEncounter(dt, stage, boss);
     if (bossDamage > 0) {
-      const hit = player.takeDamage(bossDamage);
+      const hit = applyPlayerDamage(bossDamage);
       if (hit.dead) { handlePlayerDeath(); return; }
       if (hit.damaged) {
         audio.playerHit(); camera.shake(3.2, .16);
@@ -578,7 +614,7 @@ function updateGame(dt: number): void {
     if (bossStage && boss) {
       const bossDamage = updateBossEncounter(dt, bossStage, boss, true);
       if (bossDamage > 0) {
-        const hit = player.takeDamage(bossDamage);
+        const hit = applyPlayerDamage(bossDamage);
         if (hit.dead) { handlePlayerDeath(); return; }
         if (hit.damaged) {
           audio.playerHit(); camera.shake(3.2, .16);
@@ -632,6 +668,7 @@ function updateGame(dt: number): void {
       if (dist < z.attackRange && z.attackCooldown <= 0) {
         const angle = Math.atan2(dy, dx);
         enemyProjectiles.fire(z.x, z.y, angle, z.projectileSpeed, z.damage, 'poison');
+        audio.creatureSkill(z.typeId, 'spit', Math.max(-1, Math.min(1, (z.x - player.x) / 600)), dist);
         z.attackCooldown = 2.0;
         z.visualStrike = 0.35;
         campaignShots++;
@@ -653,14 +690,17 @@ function updateGame(dt: number): void {
       z.visualStrike = 0.4;
       if (bossAttackPhase % 3 === 0) {
         // Ring of projectiles
+        audio.creatureSkill(z.typeId, 'ring', Math.max(-1, Math.min(1, (z.x - player.x) / 600)), Math.sqrt((z.x - player.x) ** 2 + (z.y - player.y) ** 2), true);
         enemyProjectiles.fireRing(z.x, z.y, 12, 120, z.damage, 'boss_orb');
         camera.shake(5, 0.2);
       } else if (bossAttackPhase % 3 === 1) {
         // Aimed burst at player
+        audio.creatureSkill(z.typeId, 'fan', Math.max(-1, Math.min(1, (z.x - player.x) / 600)), Math.sqrt((z.x - player.x) ** 2 + (z.y - player.y) ** 2), true);
         const angle = Math.atan2(player.y - z.y, player.x - z.x);
         enemyProjectiles.fireBurst(z.x, z.y, 5, 150, z.damage, angle);
       } else {
         // Slow wave in all directions
+        audio.creatureSkill(z.typeId, 'ring', Math.max(-1, Math.min(1, (z.x - player.x) / 600)), Math.sqrt((z.x - player.x) ** 2 + (z.y - player.y) ** 2), true);
         enemyProjectiles.fireRing(z.x, z.y, 24, 80, Math.round(z.damage * 0.6), 'boss_wave');
         camera.shake(8, 0.3);
       }
@@ -679,7 +719,7 @@ function updateGame(dt: number): void {
     const dist = dx * dx + dy * dy;
     const radii = player.size + p.size;
     if (dist < radii * radii) {
-      const hit = player.takeDamage(p.damage);
+      const hit = applyPlayerDamage(p.damage);
       if (hit.dead) {
         handlePlayerDeath();
         return true;
@@ -837,19 +877,21 @@ function updateGame(dt: number): void {
         }
         const muzzleColor = z.typeId === 'gunner_red' ? '#ef6557' : z.typeId === 'gunner_orange' ? '#f1a34d' : '#dfd7a3';
         particles.emit(muzzleX, muzzleY, variantAttack.burstCount + 2, muzzleColor, 74, .14, 2.7);
+        audio.creatureSkill(z.typeId, 'projectile', pan, distance);
         z.visualStrike = .18;
         if (campaignGunnerSoundCooldown <= 0) {
           audio.shoot(variantAttack.weaponSound ?? 'rifle');
           campaignGunnerSoundCooldown = .16;
         }
       } else {
+        audio.creatureSkill(z.typeId, 'charge', pan, distance);
         audio.zombieAttack(pan, z.typeId, distance);
       }
       if (horrorPreview) previewAudit.attacks++;
     }
     if (!horrorAttackHits(z, player.x, player.y, player.size, true)) continue;
     z.specialHit = true;
-    const hit = player.takeDamage(z.damage);
+    const hit = applyPlayerDamage(z.damage);
     if (hit.damaged) {
       audio.playerHit();
       camera.shake(z.typeId.includes('mutant') ? 2.8 : 2.1, 0.12);
@@ -882,11 +924,12 @@ function updateGame(dt: number): void {
         z.attackAnim = 1.0;
         z.attackTimer += 0.8;
         z.visualStrike = 0.3;
-        const hit = player.takeDamage(z.damage);
+        const hit = applyPlayerDamage(z.damage);
         if (hit.dead) {
           handlePlayerDeath();
           return;
         }
+        if (hit.medkitUsed) z.attackCooldown = 0.5;
         if (hit.damaged) {
           z.attackCooldown = 0.5;
           const [zombieScreenX] = camera.worldToWindowScreen(z.x, z.y);
@@ -912,11 +955,6 @@ function updateGame(dt: number): void {
     if (leveledUp) {
       audio.levelUp();
       camera.shake(3, 0.15);
-      upgradeUI.generateChoices(player);
-      if (upgradeUI.cards.length > 0) {
-        menuUI.currentScreen = 'levelup';
-        paused = true;
-      }
     }
   }
 
@@ -1043,12 +1081,6 @@ function handlePickup(itemId: string, value: number, duration: number): void {
           player.level++;
           player.xpToNext = Math.floor(20 + player.level * 15 + player.level * player.level * 2);
           audio.levelUp();
-          upgradeUI.generateChoices(player);
-          if (upgradeUI.cards.length > 0 && gameMode === 'endless') {
-            menuUI.currentScreen = 'levelup';
-            paused = true;
-            break;
-          }
         }
       }
       break;
@@ -1170,9 +1202,34 @@ function handleScreenBomb(): void {
   }
 }
 
+function persistCampaignAmmo(force = false): void {
+  if (gameMode !== 'stage' || previewEncounter || (campaignSessionEnded && !force) || !weapons.loadout.campaignMode) return;
+  save.data.campaign.gunAmmo = weapons.loadout.getCampaignAmmoState();
+  save.save();
+}
+
+function applyPlayerDamage(amount: number): ReturnType<Player['takeDamage']> {
+  const hit = player.takeDamage(amount);
+  const stock = save.data.campaign;
+  if (!hit.dead || gameMode !== 'stage' || previewEncounter || stock.medKits <= 0) return hit;
+
+  stock.medKits--;
+  const healed = Math.max(1, Math.ceil(player.maxHp * .5));
+  player.hp = Math.min(player.maxHp, healed);
+  player.invulnTimer = Math.max(player.invulnTimer, 1.1);
+  player.flashTimer = 0;
+  campaignMedkitFlashTimer = .9;
+  particles.emit(player.x, player.y, 28, '#67ef91', 145, .72, 4.5);
+  damageNumbers.spawn(player.x, player.y - 24, healed, '#70f09a', false, '+');
+  audio.supplyPickup('med');
+  save.save();
+  return { damaged: false, dead: false, actualDamage: 0, medkitUsed: true };
+}
+
 function handlePlayerDeath(): void {
+  const impossibleCampaign = gameMode === 'stage' && save.data.campaign.difficulty === 'impossible';
   // Check for revive (perm upgrade or ad)
-  if (hasRevive) {
+  if (hasRevive && !impossibleCampaign) {
     hasRevive = false;
     player.hp = Math.round(player.maxHp * 0.3);
     player.invulnTimer = 2.0;
@@ -1186,15 +1243,28 @@ function handlePlayerDeath(): void {
   adWrapper.gameplayStop();
 
   if (gameMode === 'stage') {
+    campaignSessionEnded = true;
+    persistCampaignAmmo(true);
+    campaignUI.impossibleDeath = impossibleCampaign;
+    campaignUI.canWatchRevive = !impossibleCampaign;
+    menuUI.canWatchRevive = !impossibleCampaign;
+    if (impossibleCampaign) {
+      hasRevive = false;
+      save.resetCampaignRunToFirstStage();
+    }
     campaignUI.selectedStage = currentStageIndex;
-    campaignUI.result = { time: gameTime, kills: player.kills, reward: 0, newStage: 0, optional: campaignResources.used };
+    const totalScore = save.data.campaign.totalScore;
+    campaignUI.showResult({ time: gameTime, kills: player.kills, reward: 0, newStage: 0,
+      optional: campaignResources.used, score: 0, scoreAdded: 0, previousTotalScore: totalScore, totalScore });
     campaignUI.page = 'failure';
     menuUI.currentScreen = 'campaign';
     paused = true;
     return;
   }
 
-  goldEarned = endRun();
+  // Preview the reward here; commit the run only if the player declines revive
+  // by retrying or returning to the menu.
+  goldEarned = save.calculateGold(gameTime, player.kills, player.level);
 
   menuUI.finalTime = gameTime;
   menuUI.finalKills = player.kills;
@@ -1210,32 +1280,13 @@ function endRun(): number {
   return gold;
 }
 
-function checkEvolutions(): void {
-  for (const evo of EVOLUTIONS) {
-    const [reqA, reqB] = evo.requires;
-    const levelA = player.upgrades.get(reqA) || 0;
-    const levelB = player.upgrades.get(reqB) || 0;
-
-    if (levelA >= evo.requireLevel && levelB >= evo.requireLevel) {
-      if (!player.upgrades.has(evo.id)) {
-        // Unlock evolution!
-        player.upgrades.set(evo.id, 1);
-        // Show notification
-        damageNumbers.spawn(player.x, player.y - 30, 0, '#ffcc00');
-        particles.emit(player.x, player.y, 20, '#ffcc00', 150, 0.8, 5);
-        audio.levelUp();
-        camera.shake(5, 0.2);
-      }
-    }
-  }
-}
-
 function updateCampaignWaves(stage: typeof STAGES[number], dt: number): void {
   const layout = stage.layout;
   if (!layout) return;
   campaignWaveAlertTimer = Math.max(0, campaignWaveAlertTimer - dt);
   updateCampaignSpawnQueue(stage, dt);
   updateCampaignWaveClears(stage);
+  updateCampaignTransitAmbushes(stage);
 
   if (stageBossSpawned) {
     if (bossKilledThisRun) return;
@@ -1264,6 +1315,74 @@ function updateCampaignWaves(stage: typeof STAGES[number], dt: number): void {
       campaignTriggeredZones.add(zoneIndex);
       campaignEncounterTriggered = true;
     }
+  }
+}
+
+/** A small one-off patrol can interrupt the quiet walk between two authored rooms. */
+function updateCampaignTransitAmbushes(stage: typeof STAGES[number]): void {
+  const layout = stage.layout;
+  if (!layout || !campaignEncounterTriggered || stageBossSpawned || bossKilledThisRun) return;
+  // Keep the opening exploration quiet; route patrols begin after the first
+  // authored encounter and stay out of the boss approach.
+  for (let linkIndex = 1; linkIndex < layout.zones.length - 2; linkIndex++) {
+    if (campaignTriggeredTransitLinks.has(linkIndex) || isCampaignGateClosed(linkIndex)) continue;
+    const from = layout.zones[linkIndex];
+    const to = layout.zones[linkIndex + 1];
+    if (!from.waveTrigger || !campaignTriggeredZones.has(linkIndex)) continue;
+    if (campaignWaveQueue.some(wave => wave.zoneIndex === linkIndex) ||
+        zombies.pool.getActive().some(z => z.hp > 0 && z.campaignZoneIndex === linkIndex)) continue;
+    if (campaignWaveQueue.some(wave => wave.zoneIndex === linkIndex + 1) || campaignActiveWaveZones.has(linkIndex + 1)) continue;
+
+    const fromX = from.x + from.w / 2, fromY = from.y + from.h / 2;
+    const toX = to.x + to.w / 2, toY = to.y + to.h / 2;
+    const routeX = Math.round((fromX + toX) / 2);
+    const routeY = Math.round((fromY + toY) / 2);
+    const inZone = (zone: CampaignZone) => player.x >= zone.x && player.x <= zone.x + zone.w &&
+      player.y >= zone.y && player.y <= zone.y + zone.h;
+    if (inZone(from) || inZone(to) || Math.hypot(player.x - routeX, player.y - routeY) > 450) continue;
+
+    const allowedIds = new Set([...from.mobs, ...to.mobs]);
+    const roster = [...ZOMBIE_TYPES, ...HORROR_TYPES, ...CAMPAIGN_VARIANT_TYPES]
+      .filter(type => !type.isBoss && stage.mobIds.includes(type.id) && allowedIds.has(type.id));
+    if (!roster.length || zombies.pool.activeCount >= CAMPAIGN_ACTIVE_ZOMBIE_LIMIT - 3) continue;
+
+    // Follow the authored L-shaped route: use its long axis for separation and
+    // keep every emergence point inside the walkable corridor footprint.
+    const offsets = Math.abs(toY - fromY) > 20
+      ? [[0,-166],[0,166],[-76,0],[76,0],[0,-96],[0,96]]
+      : [[-166,0],[166,0],[0,-76],[0,76],[-104,-54],[104,54]];
+    const desiredCount = stage.id >= 5 ? 3 : 2;
+    const chosen: Array<{ x: number; y: number; type: ZombieTypeDef }> = [];
+    const distanceFromPlayer = Math.max(165, player.size + 68);
+    for (let attempt = 0; attempt < offsets.length && chosen.length < desiredCount; attempt++) {
+      const [ox, oy] = offsets[(attempt + (stage.id + linkIndex) % offsets.length) % offsets.length];
+      const type = chooseCampaignWaveMob(roster);
+      const x = routeX + ox + (Math.random() - .5) * 24;
+      const y = routeY + oy + (Math.random() - .5) * 24;
+      const radius = type.size * .72;
+      if (Math.hypot(player.x - x, player.y - y) < distanceFromPlayer ||
+          !isCampaignWalkable(x, y, radius) || isInsideBuilding(x, y) ||
+          campaignPointInsideBuildingFootprint(stage, x, y, radius) ||
+          layout.decorations.some(prop => prop.solid && x + radius > prop.x && x - radius < prop.x + prop.w &&
+            y + radius > prop.y && y - radius < prop.y + prop.h) ||
+          zombies.pool.getActive().some(z => z.hp > 0 && Math.hypot(x - z.x, y - z.y) < (type.size + z.size) * .52) ||
+          chosen.some(other => Math.hypot(x - other.x, y - other.y) < (type.size + other.type.size) * .72)) continue;
+      chosen.push({ x, y, type });
+    }
+    if (!chosen.length) continue;
+
+    for (const spawn of chosen) {
+      const mob = zombies.spawn(spawn.type, spawn.x, spawn.y, 1, 1, 1);
+      mob.campaignZoneIndex = linkIndex;
+      mob.hp = Math.round(mob.hp * stage.difficultyMult * CAMPAIGN_MOB_HP_MULTIPLIER);
+      mob.maxHp = mob.hp;
+      mob.damage = Math.round(mob.damage * stage.difficultyMult);
+      applyCampaignDifficultyToMob(mob);
+      mob.speed *= 1.12;
+      particles.emit(spawn.x, spawn.y, 4, '#866652', 32, .18, 1.8);
+    }
+    campaignTriggeredTransitLinks.add(linkIndex);
+    campaignEncounterTriggered = true;
   }
 }
 
@@ -1305,7 +1424,7 @@ function spawnCampaignZoneWave(stage: typeof STAGES[number], zoneIndex: number, 
     portalHp: bossPortalState ? [...bossPortalState.hp] : portalPoints.map(() => portalMaxHp), portalMaxHp, remaining: total, total, spawned: 0, portalCursor: 0,
     sealedPortals: portalPoints.map((_, index) => bossPortalState ? bossPortalState.hp[index] <= 0 : false),
     started: false, warningTimer: 0, spawnTimer: 0, groupSpawned: 0,
-    groupSize, waitingForClear: false,
+    groupSize, groupBreakTimer: 0,
     countsForGate: !useStageRoster && zone.waveTrigger, supportOnly });
   if (!useStageRoster && zone.waveTrigger) campaignActiveWaveZones.add(zoneIndex);
   return true;
@@ -1442,6 +1561,7 @@ function spawnCampaignZombie(stage: typeof STAGES[number], wave: CampaignWaveQue
       mob.hp = Math.round(mob.hp * stage.difficultyMult * CAMPAIGN_MOB_HP_MULTIPLIER);
       mob.maxHp = mob.hp;
       mob.damage = Math.round(mob.damage * stage.difficultyMult);
+      applyCampaignDifficultyToMob(mob);
       mob.speed *= 1.12;
       wave.portalCursor = (portalIndex + 1) % wave.portalPoints.length;
       campaignPortalFlash = { zoneIndex: wave.zoneIndex, point: portal, timer: .46 };
@@ -1471,12 +1591,8 @@ function updateCampaignSpawnQueue(stage: typeof STAGES[number], dt: number): voi
     wave.warningTimer = Math.max(0, wave.warningTimer - dt);
     return;
   }
-  if (wave.waitingForClear) {
-    if (zombies.pool.getActive().some(z => z.hp > 0 && z.campaignZoneIndex === wave.zoneIndex)) return;
-    wave.waitingForClear = false;
-    wave.warningTimer = CAMPAIGN_WAVE_GROUP_BREAK;
-    campaignWaveAlertText = 'QUÁI MỚI ĐANG TRÀN VÀO';
-    campaignWaveAlertTimer = 2.4;
+  if (wave.groupBreakTimer > 0) {
+    wave.groupBreakTimer = Math.max(0, wave.groupBreakTimer - dt);
     return;
   }
   wave.spawnTimer -= dt;
@@ -1493,7 +1609,9 @@ function updateCampaignSpawnQueue(stage: typeof STAGES[number], dt: number): voi
   wave.spawnTimer = 1 / spawnRate;
   if (wave.groupSpawned >= wave.groupSize && wave.remaining > 0) {
     wave.groupSpawned = 0;
-    wave.waitingForClear = true;
+    wave.groupBreakTimer = CAMPAIGN_WAVE_GROUP_BREAK;
+    campaignWaveAlertText = 'QUÁI MỚI ĐANG TRÀN VÀO';
+    campaignWaveAlertTimer = 2.4;
   }
   if (wave.remaining <= 0) campaignWaveQueue.shift();
 }
@@ -1516,7 +1634,7 @@ function updateCampaignObjective(dt: number): void {
   if (stage.exitSpawn && bossKilledThisRun && !stageExitActivated) {
     stageExitActive = true;
     if (bossWeaponDrop) return;
-    if (pressed && Math.hypot(player.x - stage.exitSpawn.x, player.y - stage.exitSpawn.y) <= 88) {
+    if (nearExit) {
       stageExitActivated = true;
       particles.emit(stage.exitSpawn.x, stage.exitSpawn.y, 22, '#8eafa0', 100, .7, 3);
     }
@@ -1565,8 +1683,9 @@ function spawnCampaignBoss(stage: typeof STAGES[number]): void {
   boss.typeId = stage.bossTypeId;
   boss.size = stage.id === 9 ? 88 : stage.id === 10 ? 82 : 55 + Math.min(18, stage.id * 1.8);
   const bossEndurance = stage.id === 1 ? 1 : 1.65 + (stage.id - 2) * .07;
-  boss.hp = Math.round(stage.bossHp * bossEndurance); boss.maxHp = boss.hp;
-  boss.damage = 20 + stage.id * 2;
+  const difficulty = campaignDifficultyFactors();
+  boss.hp = Math.round(stage.bossHp * bossEndurance * difficulty.health); boss.maxHp = boss.hp;
+  boss.damage = Math.round((20 + stage.id * 2) * difficulty.damage);
   boss.speed = 32;
   boss.xpValue = 80 + stage.id * 15;
   campaignBossAddsSpawned = 0;
@@ -1707,7 +1826,8 @@ function spawnSurvivalBoss(stage: StageDef): void {
 }
 
 function updateBossEncounter(dt: number, stage: StageDef, boss: Zombie | undefined, survival = false): number {
-  return campaignBossDirector.update(dt, stage, boss, player.x, player.y, () => {
+  const damageMultiplier = survival ? 1 : campaignDifficultyFactors().damage;
+  const contactDamage = campaignBossDirector.update(dt, stage, boss, player.x, player.y, () => {
     const bossCircuit = survival ? Math.floor((Math.ceil(survivalWave / 3) - 1) / STAGES.length) : 0;
     const summonCap = stage.id === 1 ? (survival ? Math.min(6, 4 + bossCircuit) : 4)
       : stage.id === 10 ? (survival ? Math.min(5, 3 + bossCircuit) : 3) : 0;
@@ -1728,6 +1848,7 @@ function updateBossEncounter(dt: number, stage: StageDef, boss: Zombie | undefin
         mob.campaignZoneIndex = stage.layout?.zones.length ? stage.layout.zones.length - 1 : -1;
         mob.hp = Math.round(mob.hp * stage.difficultyMult * CAMPAIGN_MOB_HP_MULTIPLIER); mob.maxHp = mob.hp;
         mob.damage = Math.round(mob.damage * stage.difficultyMult);
+        applyCampaignDifficultyToMob(mob);
       }
       [mob.x, mob.y] = resolveBuildingCollision(mob.x, mob.y, survival ? mob.size * .72 : mob.size);
       spawned++;
@@ -1736,14 +1857,18 @@ function updateBossEncounter(dt: number, stage: StageDef, boss: Zombie | undefin
     if (survival) survivalBossSummonsSpawned = spawned;
     else stageBossSummonsSpawned = spawned;
   }, (move, actor, angle) => {
+    const pan = Math.max(-1, Math.min(1, (actor.x - player.x) / 600));
+    const distance = Math.hypot(actor.x - player.x, actor.y - player.y);
+    audio.creatureSkill(actor.typeId, move.kind, pan, distance, true);
     const muzzle = actor.size * .72;
     if (move.kind === 'ring') {
       const projectileType: 'boss_acid' | 'boss_shard' | 'boss_wave' = stage.id === 10
         ? 'boss_wave' : [2, 4, 8, 9].includes(stage.id) ? 'boss_acid' : 'boss_shard';
       const count = stage.id === 1 ? 8 : stage.id >= 8 ? 18 : stage.id >= 5 ? 15 : 12;
       const speed = stage.id === 1 ? 118 : stage.id >= 8 ? 188 : stage.id >= 5 ? 164 : 142;
-      const damage = Math.max(5, Math.round(move.damage * (stage.id === 1 ? .38 : .48)));
-      enemyProjectiles.fireRing(actor.x, actor.y, count, speed, damage, projectileType, Math.random() * Math.PI * 2);
+      const damage = Math.max(5, Math.round(move.damage * (stage.id === 1 ? .38 : .48) * damageMultiplier));
+      // Keep the volley aligned with the boss's telegraph, including combo casts.
+      enemyProjectiles.fireRing(actor.x, actor.y, count, speed, damage, projectileType, angle);
       camera.shake(stage.id === 1 ? 2 : 3.1, .16);
       particles.emit(actor.x, actor.y, 12, projectileType === 'boss_acid' ? '#a7c568' : '#c8c5b7', 82, .3, 3.6);
       return;
@@ -1756,11 +1881,17 @@ function updateBossEncounter(dt: number, stage: StageDef, boss: Zombie | undefin
     // little so the boss does not trace the same exact line every time.
     const volleyAngle = angle + (Math.random() - .5) * .2;
     enemyProjectiles.fireFan(actor.x + Math.cos(angle) * muzzle, actor.y + Math.sin(angle) * muzzle,
-      volleyAngle, count, spread, stage.id === 1 ? 320 : stage.id === 2 ? 310 : 390, move.damage, type);
+      volleyAngle, count, spread, stage.id === 1 ? 320 : stage.id === 2 ? 310 : 390,
+      Math.round(move.damage * damageMultiplier), type);
     camera.shake(stage.id === 2 ? 2.4 : 1.7, .12);
     particles.emit(actor.x + Math.cos(angle) * muzzle, actor.y + Math.sin(angle) * muzzle,
       stage.id === 2 ? 8 : 7, type === 'boss_acid' ? '#a7c568' : '#c8c5b7', 65, .24, 3);
-  }, survival ? 1 : 2);
+  }, survival ? 1 : 2, (move, actor) => {
+    const pan = Math.max(-1, Math.min(1, (actor.x - player.x) / 600));
+    const distance = Math.hypot(actor.x - player.x, actor.y - player.y);
+    audio.creatureTelegraph(actor.typeId, move.kind, pan, distance, true);
+  });
+  return survival ? contactDamage : Math.round(contactDamage * damageMultiplier);
 }
 
 function checkStageObjective(): void {
@@ -1783,16 +1914,25 @@ function checkStageObjective(): void {
 
   if (complete && !stageComplete) {
     stageComplete = true;
+    campaignSessionEnded = true;
+    persistCampaignAmmo(true);
     audio.objectiveComplete();
     const gold = save.completeCampaignStage(stage.id, stage.reward, player.kills, campaignResources.used);
+    const score = stage.id * 1000
+      + player.kills * (15 + stage.id * 5)
+      + Math.round(Math.max(0, player.hp) / Math.max(1, player.maxHp) * 500 * stage.id)
+      + campaignResources.used * 200 * stage.id;
+    const previousTotalScore = save.data.campaign.totalScore;
+    const scoreRecord = save.recordCampaignScore(stage.id, score);
 
     menuUI.finalTime = gameTime;
     menuUI.finalKills = player.kills;
     menuUI.finalLevel = player.level;
     menuUI.finalGold = gold;
     campaignUI.selectedStage = currentStageIndex;
-    campaignUI.result = { time: gameTime, kills: player.kills, reward: gold,
-      newStage: gold > 0 && stage.id < STAGES.length ? stage.id + 1 : 0, optional: campaignResources.used };
+    campaignUI.showResult({ time: gameTime, kills: player.kills, reward: gold,
+      newStage: gold > 0 && stage.id < STAGES.length ? stage.id + 1 : 0, optional: campaignResources.used,
+      score, scoreAdded: scoreRecord.added, previousTotalScore, totalScore: scoreRecord.total });
     campaignUI.page = 'result';
     menuUI.currentScreen = 'campaign';
     paused = true;
@@ -2036,7 +2176,7 @@ function handleExplosion(x: number, y: number, radius: number, damage: number, v
   const pdy = player.y - y;
   const pDist = Math.sqrt(pdx * pdx + pdy * pdy);
   if (pDist < radius) {
-    const hit = player.takeDamage(Math.round(damage * 0.3 * (1 - pDist / radius)));
+    const hit = applyPlayerDamage(Math.round(damage * 0.3 * (1 - pDist / radius)));
     if (hit.dead) {
       handlePlayerDeath();
     } else if (hit.damaged) {
@@ -2067,7 +2207,8 @@ function drawGame(): void {
   if (campaignStage) {
     campaignTerrainRenderer.draw(ctx, camera, campaignStage, stageObjectiveIndex, player.x, player.y, gameTime);
     bloodStains.draw(ctx, camera);
-    LightingRenderer.get().drawCampaignLighting(ctx, camera, campaignStage, player.x, player.y, player.aimAngle, viewportWidth, viewportHeight);
+    LightingRenderer.get().drawCampaignLighting(ctx, camera, campaignStage, player.x, player.y, player.aimAngle,
+      viewportWidth, viewportHeight, save.data.campaign.flashlightLevel);
     weapons.loadout.casings.draw(ctx, camera);
     const queuedWave = campaignWaveQueue[0];
     const visiblePortalFlash = campaignPortalFlash && campaignPortalFlash.timer > 0 ? campaignPortalFlash : undefined;
@@ -2104,9 +2245,11 @@ function drawGame(): void {
   if (gameMode === 'endless') {
     horrorRemains.draw(ctx, camera);
   }
-  zombies.drawWarnings(ctx, camera);
+  const showSkillDirections = showCampaignSkillDirections();
+  zombies.drawWarnings(ctx, camera, showSkillDirections);
   const directorStageId = campaignStage?.id ?? (gameMode === 'endless' && survivalPhase === 'boss' ? survivalBossStageId : 0);
-  if (directorStageId) campaignBossDirector.draw(ctx, camera, zombies.pool.getActive().find((z) => z.campaignBossId === directorStageId));
+  if (directorStageId) campaignBossDirector.draw(ctx, camera,
+    zombies.pool.getActive().find((z) => z.campaignBossId === directorStageId), showSkillDirections);
 
   // Draw entities
   mapPickups.draw(ctx, camera);
@@ -2175,7 +2318,18 @@ function drawGame(): void {
 
   // ─── Tactical Gun Loadout Bottom HUD Card (Matches User Spec) ───
   if (menuUI.currentScreen === 'playing') {
-    weapons.loadout.drawHUD(ctx, viewportWidth, viewportHeight, player);
+    weapons.loadout.drawHUD(ctx, viewportWidth, viewportHeight, player, gameMode === 'stage' ? {
+      armorLevel: save.data.campaign.armorLevel,
+      medKits: save.data.campaign.medKits,
+      flashlightLevel: save.data.campaign.flashlightLevel,
+    } : undefined);
+    if (gameMode === 'stage' && campaignMedkitFlashTimer > 0) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(.7, campaignMedkitFlashTimer * .8);
+      ctx.strokeStyle = '#67ef91'; ctx.lineWidth = 5;
+      ctx.strokeRect(2.5, 2.5, viewportWidth - 5, viewportHeight - 5);
+      ctx.restore();
+    }
     drawTouchActionButtons(ctx, viewportWidth, viewportHeight, {
       dashCooldown: player.dashCooldown,
       dashCooldownMax: player.dashMaxCooldown,
@@ -2268,7 +2422,7 @@ function drawStageObjective(): void {
   const y = !stageBossSpawned && viewportWidth >= 700 && viewportWidth < 1050 ? 117 : 70;
   const chargeTask = stageBossSpawned && campaignNestCharge?.stageId === stage.id && campaignNestCharge.status !== 'cancelled'
     ? campaignNestCharge : undefined;
-  const panelHeight = chargeTask ? 82 : 64;
+  const panelHeight = chargeTask ? 82 : 78;
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -2280,7 +2434,8 @@ function drawStageObjective(): void {
   const heading = campaignWaveAlertTimer > 0 && campaignWaveAlertText
     ? campaignWaveAlertText
     : !campaignEncounterTriggered ? `TIẾP CẬN AN TOÀN  •  ${zoneName ?? stage.name}` : `CAMPAIGN ${stage.id}/10  •  ${zoneName ?? stage.name}`;
-  ctx.fillText(heading, x, y + (chargeTask ? -27 : -16), panelW - 20);
+  const headingY = y - panelHeight / 2 + 16;
+  ctx.fillText(heading, x, headingY, panelW - 20);
   let objectiveText: string;
   if (stageBossSpawned) objectiveText = `HẠ BOSS: ${stage.bossName}`;
   else if (stageObjectiveIndex >= stage.objectiveNodes.length) objectiveText = stage.id === 1 ? 'ĐẾN KHU BOSS  •  SHIFT / LƯỚT ĐỂ NÉ ĐÒN' : 'ĐANG TIẾN VÀO KHU BOSS';
@@ -2304,9 +2459,9 @@ function drawStageObjective(): void {
   }
   if (stageExitActive && stage.exitSpawn && !stageExitActivated) {
     const nearExit = Math.hypot(player.x - stage.exitSpawn.x, player.y - stage.exitSpawn.y) <= 88;
-    objectiveText = nearExit ? 'ĐIỂM THOÁT ĐÃ MỞ  •  NHẤN E ĐỂ KẾT THÚC' : 'ĐI THEO DẤU CHỈ HƯỚNG ĐẾN ĐIỂM THOÁT';
+    objectiveText = nearExit ? 'ĐI VÀO VÙNG THOÁT  •  ĐỂ KẾT THÚC' : 'ĐI THEO DẤU CHỈ HƯỚNG  •  ĐẾN ĐIỂM THOÁT';
   }
-  if (bossWeaponDrop) objectiveText = `NHẶT ${campaignGuns.find(gun => gun.id === bossWeaponDrop!.gunId)?.shortName ?? 'VŨ KHÍ'} BOSS ĐỂ MỞ ĐIỂM THOÁT`;
+  if (bossWeaponDrop) objectiveText = `NHẶT ${campaignGuns.find(gun => gun.id === bossWeaponDrop!.gunId)?.shortName ?? 'VŨ KHÍ'} BOSS  •  ĐỂ MỞ ĐIỂM THOÁT`;
   if (campaignActiveWaveZones.has(currentZoneIndex)) {
     const holdingObjective = stage.objectiveHoldAt === stageObjectiveIndex && stage.layout?.zones[currentZoneIndex]?.role === 'hold';
     const holdNode = holdingObjective ? stage.objectiveNodes[stageObjectiveIndex] : undefined;
@@ -2322,18 +2477,13 @@ function drawStageObjective(): void {
   if (campaignSupplyNoticeTimer > 0) objectiveText = campaignSupplyNotice;
   ctx.fillStyle = stageExitActive ? '#9fc4af' : stageBossSpawned ? '#e47a68' : '#f0eadc';
   ctx.font = `bold ${viewportWidth < 700 ? 10 : 11}px 'Segoe UI', Arial, sans-serif`;
-  const words = objectiveText.split(' ');
-  const lines: string[] = [];
-  let line = '';
-  for (const word of words) {
-    const next = line ? `${line} ${word}` : word;
-    if (line && ctx.measureText(next).width > panelW - 24 && lines.length === 0) {
-      lines.push(line); line = word;
-    } else line = next;
-  }
-  lines.push(line);
+  const drawTaskLine = (text: string, lineY: number, color: string): void => {
+    const left = x - panelW / 2 + 16;
+    ctx.textAlign = 'left'; ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(left, lineY, 2.2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillText(text, left + 9, lineY, panelW - 42);
+  };
   if (chargeTask) {
-    ctx.fillText(objectiveText, x, y - 7, panelW - 22);
     const nearPickup = Math.hypot(player.x - chargeTask.pickupPoint.x, player.y - chargeTask.pickupPoint.y) <= 82;
     const nearTarget = Math.hypot(player.x - chargeTask.targetPoint.x, player.y - chargeTask.targetPoint.y) <= 92;
     const chargeText = chargeTask.status === 'available'
@@ -2342,11 +2492,13 @@ function drawStageObjective(): void {
         ? nearTarget ? 'MANG THUỐC NỔ ĐẾN Ổ ĐÁNH DẤU · NHẤN E ĐỂ ĐẶT' : 'MANG THUỐC NỔ ĐẾN Ổ SPAWN ĐÁNH DẤU'
         : chargeTask.status === 'planted' ? `THUỐC NỔ ĐÃ ĐẶT · LÙI RA ${chargeTask.fuseRemaining.toFixed(1)}s`
           : 'Ổ SPAWN MỤC TIÊU ĐÃ BỊ PHÁ';
-    ctx.fillStyle = chargeTask.status === 'destroyed' ? '#c4d3bd' : '#f0c775';
-    ctx.font = `bold ${viewportWidth < 700 ? 9 : 10}px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText(chargeText, x, y + 14, panelW - 22);
+    drawTaskLine(objectiveText, y - 7, stageBossSpawned ? '#e47a68' : '#f0eadc');
+    drawTaskLine(chargeText, y + 14, chargeTask.status === 'destroyed' ? '#c4d3bd' : '#f0c775');
   } else {
-    lines.slice(0, 2).forEach((text, index) => ctx.fillText(text, x, y + (lines.length > 1 ? -1 : 6) + index * 15, panelW - 22));
+    const lines = objectiveText.split(/\s+•\s+/).slice(0, 2);
+    const firstY = lines.length > 1 ? y - 3 : y + 7;
+    lines.forEach((text, index) => drawTaskLine(text, firstY + index * 17,
+      index === 0 ? (stageExitActive ? '#9fc4af' : stageBossSpawned ? '#e47a68' : '#f0eadc') : '#c5cfca'));
   }
   drawCampaignDirection(stage);
 }
@@ -2549,8 +2701,10 @@ function applyPermUpgrades(): void {
 }
 
 function startGame(): void {
+  if (gameMode === 'stage') persistCampaignAmmo();
   input.campaignMode = gameMode === 'stage';
   resetGame();
+  campaignSessionEnded = false;
   input.clearUiFire();
   const stage = gameMode === 'stage' ? STAGES[currentStageIndex] : undefined;
   if (stage) {
@@ -2560,17 +2714,17 @@ function startGame(): void {
     player.dashMaxCooldown = 1.0;
     camera.x = player.x - camera.width / 2; camera.y = player.y - camera.height / 2;
     const stock = save.data.campaign;
-    const ammoPacks = stock.ammoPacks;
-    const medKits = stock.medKits;
+    const legacyAmmoPacks = Object.keys(stock.gunAmmo).length === 0 ? stock.ammoPacks : 0;
     if (!previewEncounter) {
-      stock.ammoPacks = 0;
-      stock.medKits = 0;
       stock.lastStage = currentStageIndex + 1;
       stock.hasCheckpoint = true;
-      save.save();
     }
-    weapons.loadout.configureCampaign(stock.ownedGuns, stock.equippedGun, stock.gunLevels, ammoPacks, currentStageIndex + 1);
-    campaignResources.reset(stage, medKits);
+    weapons.loadout.configureCampaign(stock.ownedGuns, stock.equippedGun, stock.gunLevels,
+      stock.gunAmmo, currentStageIndex + 1, legacyAmmoPacks);
+    stock.gunAmmo = weapons.loadout.getCampaignAmmoState();
+    stock.ammoPacks = 0;
+    campaignResources.reset(stage);
+    if (!previewEncounter) save.save();
   } else {
     camera.zoom = 1.42;
     player.dashMaxCooldown = 3;
@@ -2582,7 +2736,13 @@ function startGame(): void {
     for (let n = 0; n < droneLevel; n++) player.applyUpgrade('drone');
   }
   applyPermUpgrades();
-  if (stage) player.hp = player.maxHp;
+  if (stage) {
+    player.hp = player.maxHp;
+    player.damageReduction = [1, .90, .82, .75][save.data.campaign.armorLevel] ?? 1;
+  }
+  const selectedCharacterId = stage ? save.data.campaign.selectedCharacter : save.data.selectedCharacter;
+  const selectedCharacter = CHARACTERS.find(character => character.id === selectedCharacterId);
+  if (selectedCharacter?.bonuses.damageReduction) player.damageReduction *= selectedCharacter.bonuses.damageReduction;
   adWrapper.gameplayStart();
   menuUI.currentScreen = 'playing';
   paused = false;
@@ -2595,6 +2755,12 @@ function startGame(): void {
 }
 
 function resetGame(): void {
+  menuUI.canWatchRevive = true;
+  menuUI.reviveAdPending = false;
+  campaignUI.canWatchRevive = true;
+  campaignUI.reviveAdPending = false;
+  campaignUI.impossibleDeath = false;
+  campaignMedkitFlashTimer = 0;
   setCampaignGeometry();
   bossWeaponDrop = null;
   stageObjectiveIndex = 0;
@@ -2608,6 +2774,7 @@ function resetGame(): void {
   stageExitActivated = false;
   campaignTriggeredZones.clear();
   campaignActiveWaveZones.clear();
+  campaignTriggeredTransitLinks.clear();
   campaignDestroyedPortals.clear();
   campaignSealedSpawnZones.clear();
   campaignBossPortals = null;
@@ -2647,7 +2814,6 @@ function resetGame(): void {
   weapons.reset();
   mapPickups.reset();
   supplyCrates.reset();
-  upgradeUI.visible = false;
   gameTime = 0;
   paused = false;
   hasRevive = false;
@@ -2661,6 +2827,10 @@ function resetGame(): void {
 // ─── Initialization ───
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
+window.addEventListener('beforeunload', () => {
+  if (menuUI.currentScreen === 'gameover') endRun();
+  persistCampaignAmmo();
+});
 
 // User gesture unlock for WebAudio
 const unlockAudioContext = () => {

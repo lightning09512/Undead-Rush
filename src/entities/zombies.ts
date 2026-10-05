@@ -186,7 +186,8 @@ export class ZombieSystem {
     return z;
   }
 
-  update(dt: number, playerX: number, playerY: number, collideBuildings = true): void {
+  update(dt: number, playerX: number, playerY: number, collideBuildings = true,
+    onSpecialTelegraph?: (zombie: Zombie) => void): void {
     this.pool.forEach((z) => {
       if (z.hp <= 0) return false; // Main loop owns death rewards and release.
       const dx = playerX - z.x;
@@ -221,7 +222,9 @@ export class ZombieSystem {
           }
           z.visualWindup = 0;
         } else {
+          const previousSpecialState = z.specialState;
           special = updateHorrorAI(z, dt, playerX, playerY, collideBuildings);
+          if (previousSpecialState === 'chase' && z.specialState === 'windup') onSpecialTelegraph?.(z);
         }
       }
       if (special) {
@@ -336,7 +339,8 @@ export class ZombieSystem {
     });
   }
 
-  drawWarnings(ctx: CanvasRenderingContext2D, camera: Camera): void {
+  drawWarnings(ctx: CanvasRenderingContext2D, camera: Camera, showDirections = true): void {
+    if (!showDirections) return;
     for (const z of this.pool.getActive()) {
       if (z.hp <= 0 || z.campaignBossId !== null || !camera.isVisible(z.x, z.y, 260)) continue;
       const [sx, sy] = camera.worldToScreen(z.x, z.y);

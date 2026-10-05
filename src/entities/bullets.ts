@@ -4,6 +4,8 @@ import { Pool } from '../core/pool';
 import { Camera } from '../core/camera';
 import { isInsideBuilding } from './map-geometry';
 
+const GUN_PROJECTILE_SPEED_MULTIPLIER = 1.25;
+
 export interface Bullet {
   x: number;
   y: number;
@@ -58,12 +60,15 @@ export class BulletSystem {
     weaponType = 'pistol'
   ): Bullet {
     const b = this.pool.acquire();
+    const projectileSpeed = weaponType === 'grenade' || weaponType === 'mine' || weaponType === 'drone'
+      ? speed
+      : speed * GUN_PROJECTILE_SPEED_MULTIPLIER;
     b.x = x;
     b.y = y;
-    b.vx = Math.cos(angle) * speed;
-    b.vy = Math.sin(angle) * speed;
+    b.vx = Math.cos(angle) * projectileSpeed;
+    b.vy = Math.sin(angle) * projectileSpeed;
     b.damage = damage;
-    b.speed = speed;
+    b.speed = projectileSpeed;
     b.size = size;
     b.color = color;
     b.life = 2.0; // seconds

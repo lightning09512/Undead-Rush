@@ -99,13 +99,14 @@ export interface CharacterDef {
   name: string;
   description: string;
   color: string;
-  cost: number;          // gold to unlock (0 = free)
   bonuses: {
     damage?: number;
     speed?: number;
     hp?: number;
     fireRate?: number;
     pickupRadius?: number;
+    /** Multiplier applied to incoming damage (lower means tougher). */
+    damageReduction?: number;
     special?: string;
   };
 }
@@ -114,52 +115,48 @@ export const CHARACTERS: CharacterDef[] = [
   {
     id: 'survivor',
     name: 'Survivor',
-    description: 'Balanced stats, no bonuses',
+    description: 'Nhặt vật phẩm từ xa hơn 20%',
     color: '#4488ff',
-    cost: 0,
-    bonuses: {},
+    bonuses: { pickupRadius: 1.2 },
   },
   {
     id: 'soldier',
     name: 'Soldier',
-    description: '+20% damage, -10% speed',
+    description: 'Gây thêm 20% sát thương',
     color: '#44aa44',
-    cost: 500,
-    bonuses: { damage: 1.2, speed: 0.9 },
+    bonuses: { damage: 1.2 },
   },
   {
     id: 'scout',
     name: 'Scout',
-    description: '+30% speed, -20% HP',
+    description: 'Di chuyển nhanh hơn 20%',
     color: '#ffaa22',
-    cost: 500,
-    bonuses: { speed: 1.3, hp: 0.8 },
+    bonuses: { speed: 1.2 },
   },
   {
     id: 'medic',
     name: 'Medic',
-    description: '+50% HP, -15% damage',
+    description: 'Có thêm 25% máu tối đa',
     color: '#ff4488',
-    cost: 750,
-    bonuses: { hp: 1.5, damage: 0.85 },
+    bonuses: { hp: 1.25 },
   },
   {
     id: 'engineer',
     name: 'Engineer',
-    description: '+25% fire rate, +30% pickup radius',
+    description: 'Tăng 18% tốc độ bắn',
     color: '#88aaff',
-    cost: 1000,
-    bonuses: { fireRate: 1.25, pickupRadius: 1.3 },
+    bonuses: { fireRate: 1.18 },
   },
   {
     id: 'berserker',
     name: 'Berserker',
-    description: '+40% damage, +20% speed, -40% HP',
+    description: 'Giảm 18% sát thương nhận vào',
     color: '#ff2222',
-    cost: 1500,
-    bonuses: { damage: 1.4, speed: 1.2, hp: 0.6 },
+    bonuses: { damageReduction: 0.82 },
   },
 ];
+
+export const ALL_CHARACTER_IDS = CHARACTERS.map(character => character.id);
 
 // ─── Stage Definitions for Level Mode ───
 export interface StageDef {

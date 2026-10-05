@@ -1,12 +1,12 @@
 // ─── Menu Screens: Main Menu, Pause, Game Over, Stage Complete ───
 
 import { Audio } from '../core/audio';
-import { SaveSystem } from '../systems/save';
+import { SaveSystem, type CampaignDifficulty } from '../systems/save';
 import { UI_PALETTE as C } from './palette';
 import { STAGES } from '../data/meta';
 import { createQuarantineBackdrop, drawBloodHandprint, drawWornPanel } from './horror-texture';
 
-export type MenuScreen = 'main' | 'savegame' | 'campaign' | 'playing' | 'paused' | 'gameover' | 'levelup' | 'stage_complete' | 'hunter_profile' | 'tutorial';
+export type MenuScreen = 'main' | 'newgame' | 'savegame' | 'settings' | 'campaign' | 'playing' | 'paused' | 'gameover' | 'stage_complete' | 'hunter_profile' | 'tutorial';
 
 export class MenuUI {
   currentScreen: MenuScreen = 'main';
@@ -17,6 +17,10 @@ export class MenuUI {
   finalLevel = 0;
   finalGold = 0;
   confirmNewGame = false;
+  newGameStep: 'mode' | 'difficulty' = 'mode';
+  selectedCampaignDifficulty: CampaignDifficulty = 'normal';
+  canWatchRevive = true;
+  reviveAdPending = false;
 
   // Animation
   private titlePulse = 0;
@@ -56,6 +60,13 @@ export class MenuUI {
     return { x, y, cardW, cardH, landscape, titleX, buttonX, buttonY, buttonW, buttonH, gap: buttonH + 8 };
   }
 
+  private newGameLayout(w: number, h: number) {
+    const base = this.mainLayout(w, h);
+    const buttonH = Math.min(48, Math.max(34, base.buttonH));
+    return { ...base, buttonY: base.landscape ? base.y + 78 : base.y + Math.min(base.cardH * .51, 302),
+      buttonH, gap: buttonH + 10 };
+  }
+
   private resultLayout(w: number, h: number) {
     const compact = h < 550 && w > 600;
     const panelW = Math.min(compact ? 700 : 460, w - 32);
@@ -81,6 +92,17 @@ export class MenuUI {
     return { x, y, panelW, panelH, buttonX, buttonY, buttonW, buttonH, gap: buttonH + 9 };
   }
 
+  private settingsLayout(w: number, h: number) {
+    const panelW = Math.min(500, w - 32), panelH = Math.min(390, h - 28);
+    const x = (w - panelW) / 2, y = (h - panelH) / 2;
+    const rowX = x + 24, rowW = panelW - 48;
+    const languageY = y + panelH * .34;
+    const musicY = y + panelH * .62;
+    const buttonH = Math.min(46, Math.max(30, panelH * .12));
+    const backY = y + panelH - buttonH - 14;
+    return { x, y, panelW, panelH, rowX, rowW, languageY, musicY, buttonH, backY };
+  }
+
   private newGameConfirmLayout(w: number, h: number) {
     const panelW = Math.min(440, w - 28);
     const panelH = Math.min(220, h - 24);
@@ -88,6 +110,16 @@ export class MenuUI {
     const buttonY = y + panelH - 57;
     const buttonW = (panelW - 54) / 2;
     return { x, y, panelW, panelH, buttonY, buttonW, confirmX: x + 18, cancelX: x + 36 + buttonW };
+  }
+
+  private newGameDifficultyLayout(w: number, h: number) {
+    const base = this.newGameLayout(w, h);
+    const backH = Math.min(38, Math.max(30, base.buttonH - 8));
+    const backY = base.y + base.cardH - backH - 13;
+    const itemY = base.y + (base.landscape ? 48 : 105);
+    const gap = 6;
+    const itemH = Math.max(46, Math.min(94, (backY - itemY - gap * 2 - 8) / 3));
+    return { ...base, itemY, itemH, gap, backY, backH };
   }
 
   constructor() {
@@ -105,8 +137,10 @@ export class MenuUI {
 
   handleClick(x: number, y: number, w: number, h: number, audio: Audio, save?: SaveSystem): string | null {
     switch (this.currentScreen) {
-      case 'main': return this.handleMainMenuClick(x, y, w, h, audio);
+      case 'main': return this.handleMainMenuClick(x, y, w, h, audio, save);
+      case 'newgame': return this.handleNewGameMenuClick(x, y, w, h, audio, save);
       case 'savegame': return this.handleSaveGameClick(x, y, w, h, audio, save);
+      case 'settings': return this.handleSettingsClick(x, y, w, h, audio, save);
       case 'paused': return this.handlePauseClick(x, y, w, h, audio);
       case 'gameover': return this.handleGameOverClick(x, y, w, h, audio);
       case 'stage_complete': return this.handleStageCompleteClick(x, y, w, h, audio);
@@ -116,35 +150,98 @@ export class MenuUI {
     return null;
   }
 
-  private handleMainMenuClick(x: number, y: number, w: number, h: number, audio: Audio): string | null {
+  private handleMainMenuClick(x: number, y: number, w: number, h: number, audio: Audio, save?: SaveSystem): string | null {
     const { buttonW: btnW, buttonH: btnH, buttonX: bx, buttonY: startY, gap } = this.mainLayout(w, h);
+    const row = Math.floor((y - startY) / gap);
+    const rowY = startY + row * gap;
+    if (x < bx || x > bx + btnW || row < 0 || row > 4 || y < rowY || y > rowY + btnH) return null;
+    if (row === 0) { audio.menuSelect(); return 'open_new_game'; }
+    if (row === 1) {
+      if (!save?.data.campaign.hasCheckpoint) return null;
+      audio.menuSelect(); return 'load_game';
+    }
+    audio.menuSelect();
+    if (row === 2) return 'open_settings';
+    if (row === 3) return 'open_hunter_profile';
+    return 'open_tutorial';
+  }
 
-    // Endless (PLAY)
-    if (x >= bx && x <= bx + btnW && y >= startY && y <= startY + btnH) {
-      audio.menuSelect();
-      return 'start_endless';
-    }
-    // Stage mode
-    if (x >= bx && x <= bx + btnW && y >= startY + gap && y <= startY + gap + btnH) {
-      audio.menuSelect();
-      return 'open_save_menu';
-    }
-    // Shop
-    if (x >= bx && x <= bx + btnW && y >= startY + gap * 2 && y <= startY + gap * 2 + btnH) {
-      audio.menuSelect();
-      return 'open_shop';
-    }
-    // Hunter Profile
-    if (x >= bx && x <= bx + btnW && y >= startY + gap * 3 && y <= startY + gap * 3 + btnH) {
-      audio.menuSelect();
-      return 'open_hunter_profile';
-    }
-    // Tutorial
-    if (x >= bx && x <= bx + btnW && y >= startY + gap * 4 && y <= startY + gap * 4 + btnH) {
-      audio.menuSelect();
-      return 'open_tutorial';
+  private handleNewGameMenuClick(x: number, y: number, w: number, h: number, audio: Audio, save?: SaveSystem): string | null {
+    if (this.confirmNewGame) {
+      const l = this.newGameConfirmLayout(w, h);
+      const buttonH = 38;
+      if (x >= l.confirmX && x <= l.confirmX + l.buttonW && y >= l.buttonY && y <= l.buttonY + buttonH) {
+        audio.menuSelect(); return 'new_game';
+      }
+      if (x >= l.cancelX && x <= l.cancelX + l.buttonW && y >= l.buttonY && y <= l.buttonY + buttonH) {
+        audio.menuSelect(); return 'cancel_new_game';
+      }
+      return null;
     }
 
+    if (this.newGameStep === 'difficulty') {
+      const l = this.newGameDifficultyLayout(w, h);
+      const choices: CampaignDifficulty[] = ['normal', 'hard', 'impossible'];
+      const row = Math.floor((y - l.itemY) / (l.itemH + l.gap));
+      const rowY = l.itemY + row * (l.itemH + l.gap);
+      if (x >= l.buttonX && x <= l.buttonX + l.buttonW && row >= 0 && row < choices.length &&
+          y >= rowY && y <= rowY + l.itemH) {
+        this.selectedCampaignDifficulty = choices[row];
+        audio.menuSelect();
+        if (this.hasCampaignProgress(save)) { this.confirmNewGame = true; return null; }
+        return 'new_game';
+      }
+      if (x >= l.buttonX && x <= l.buttonX + l.buttonW && y >= l.backY && y <= l.backY + l.backH) {
+        this.newGameStep = 'mode'; audio.menuSelect(); return null;
+      }
+      return null;
+    }
+
+    const l = this.newGameLayout(w, h);
+    const row = Math.floor((y - l.buttonY) / l.gap);
+    const rowY = l.buttonY + row * l.gap;
+    if (x < l.buttonX || x > l.buttonX + l.buttonW || row < 0 || row > 2 || y < rowY || y > rowY + l.buttonH) return null;
+    if (row === 0) {
+      this.newGameStep = 'difficulty';
+      audio.menuSelect();
+      return null;
+    }
+    audio.menuSelect();
+    if (row === 1) return 'start_endless';
+    return 'back_to_main';
+  }
+
+  private hasCampaignProgress(save?: SaveSystem): boolean {
+    const campaign = save?.data.campaign;
+    if (!campaign) return false;
+    return campaign.hasCheckpoint || campaign.unlockedStage > 1 || campaign.lastStage > 1
+      || campaign.completedStages.length > 0 || campaign.credits !== 160
+      || campaign.ownedGuns.some(id => id !== 'p9') || campaign.equippedGun !== 'p9'
+      || campaign.selectedCharacter !== 'survivor'
+      || Object.keys(campaign.gunLevels).length > 0 || Object.keys(campaign.gunAmmo).length > 0
+      || campaign.ammoPacks > 0 || campaign.medKits > 0 || campaign.armorLevel > 0
+      || campaign.flashlightLevel !== 1 || Object.keys(campaign.cardLevels).length > 0
+      || Object.keys(campaign.stageScores).length > 0;
+  }
+
+  private handleSettingsClick(x: number, y: number, w: number, h: number, audio: Audio, save?: SaveSystem): string | null {
+    if (!save) return null;
+    const l = this.settingsLayout(w, h);
+    const halfW = (l.rowW - 8) / 2;
+    if (y >= l.languageY + 25 && y <= l.languageY + 25 + l.buttonH) {
+      if (x >= l.rowX && x <= l.rowX + halfW) save.data.language = 'vi';
+      else if (x >= l.rowX + halfW + 8 && x <= l.rowX + l.rowW) save.data.language = 'en';
+      else return null;
+      save.save(); audio.menuSelect(); return null;
+    }
+    if (x >= l.rowX && x <= l.rowX + l.rowW && y >= l.musicY + 25 && y <= l.musicY + 25 + l.buttonH) {
+      save.data.musicEnabled = !save.data.musicEnabled;
+      save.save(); audio.setMusicEnabled(save.data.musicEnabled); audio.menuSelect();
+      return null;
+    }
+    if (x >= l.rowX && x <= l.rowX + l.rowW && y >= l.backY && y <= l.backY + l.buttonH) {
+      audio.menuSelect(); return 'back_to_main';
+    }
     return null;
   }
 
@@ -167,7 +264,7 @@ export class MenuUI {
     const row = Math.floor((y - l.buttonY) / l.gap);
     const rowY = l.buttonY + row * l.gap;
     if (x < l.buttonX || x > l.buttonX + l.buttonW || row < 0 || row > 3 || y < rowY || y > rowY + l.buttonH) return null;
-    if (row === 0) { audio.menuSelect(); return 'open_new_game_confirm'; }
+    if (row === 0) { audio.menuSelect(); return 'open_new_game'; }
     if (row === 1) {
       if (!save?.data.campaign.hasCheckpoint) return null;
       audio.menuSelect(); return 'load_game';
@@ -194,6 +291,7 @@ export class MenuUI {
   }
 
   private handleGameOverClick(x: number, y: number, w: number, h: number, audio: Audio): string | null {
+    if (this.reviveAdPending) return null;
     const { buttonX: bx, buttonW: btnW, buttonH: btnH, buttonY, gap } = this.resultLayout(w, h);
 
     // Retry
@@ -207,6 +305,7 @@ export class MenuUI {
       return 'menu';
     }
     // Revive ad
+    if (!this.canWatchRevive || this.reviveAdPending) return null;
     if (x >= bx && x <= bx + btnW && y >= buttonY + gap * 2 && y <= buttonY + gap * 2 + btnH) {
       audio.menuSelect();
       return 'revive_ad';
@@ -261,7 +360,9 @@ export class MenuUI {
 
     switch (this.currentScreen) {
       case 'main': this.drawMainMenu(ctx, w, h, save); break;
+      case 'newgame': this.drawNewGameMenu(ctx, w, h, save); break;
       case 'savegame': this.drawSaveGameMenu(ctx, w, h, save); break;
+      case 'settings': this.drawSettings(ctx, w, h, save); break;
       case 'paused': this.drawPause(ctx, w, h); break;
       case 'gameover': this.drawGameOver(ctx, w, h); break;
       case 'stage_complete': this.drawStageComplete(ctx, w, h); break;
@@ -272,6 +373,7 @@ export class MenuUI {
 
   private drawMainMenu(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
     this.drawStaticBackdrop(ctx, w, h);
+    const english = save?.data.language === 'en';
     const l = this.mainLayout(w, h);
     const { x, y, cardW, cardH, titleX } = l;
     ctx.save();
@@ -279,7 +381,7 @@ export class MenuUI {
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.fillStyle = C.textMuted;
     ctx.font = "bold 10px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText('KHU VỰC CÁCH LY  /  03', x + 26, y + 27);
+    ctx.fillText(english ? 'QUARANTINE ZONE  /  03' : 'KHU VỰC CÁCH LY  /  03', x + 26, y + 27);
     const titleTop = l.landscape ? y + 95 : y + 78;
     const titleSize = l.landscape ? Math.min(50, cardW * 0.072) : Math.min(55, cardW * 0.145);
     ctx.textAlign = 'center';
@@ -294,41 +396,164 @@ export class MenuUI {
     ctx.moveTo(titleX + 30, titleTop + titleSize * 0.66); ctx.lineTo(titleX + 46, titleTop + titleSize * 1.06); ctx.stroke();
     ctx.fillStyle = C.textSoft;
     ctx.font = "11px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText('SỐNG SÓT QUA VÙNG NHIỄM BỆNH', titleX, titleTop + titleSize + 31);
+    ctx.fillText(english ? 'SURVIVE THE INFESTATION' : 'SỐNG SÓT QUA VÙNG NHIỄM BỆNH', titleX, titleTop + titleSize + 31);
     if (l.landscape) {
       ctx.strokeStyle = C.borderSoft; ctx.beginPath(); ctx.moveTo(x + cardW * 0.48, y + 47); ctx.lineTo(x + cardW * 0.48, y + cardH - 48); ctx.stroke();
     } else {
       ctx.fillStyle = C.borderSoft; ctx.fillRect(x + 26, l.buttonY - 14, cardW - 52, 1);
     }
-    const buttons = [
-      ['SINH TỒN', 'BẮT ĐẦU', C.cyan],
-      ['CHIẾN DỊCH', '10 MÀN', C.textMuted],
-      ['CỬA HÀNG NÂNG CẤP', '', C.amber],
-      ['HỒ SƠ THỢ SĂN', '', C.textSoft],
-      ['HƯỚNG DẪN', '', C.textSoft],
+    const checkpoint = save?.data.campaign.hasCheckpoint ?? false;
+    const lastStage = save?.data.campaign.lastStage ?? 1;
+    const buttons: Array<[string, string, string, boolean]> = [
+      [english ? 'NEW GAME' : 'GAME MỚI', english ? 'CHOOSE MODE' : 'CHỌN CHẾ ĐỘ', C.cyan, false],
+      [english ? 'LOAD GAME' : 'TẢI GAME', checkpoint
+        ? english ? `CAMPAIGN · MISSION ${lastStage}` : `CHIẾN DỊCH · MÀN ${lastStage}`
+        : english ? 'NO CAMPAIGN SAVE' : 'CHƯA CÓ DỮ LIỆU LƯU', C.textSoft, !checkpoint],
+      [english ? 'SETTINGS' : 'CÀI ĐẶT', '', C.amber, false],
+      [english ? 'HUNTER PROFILE' : 'HỒ SƠ THỢ SĂN', '', C.textSoft, false],
+      [english ? 'HOW TO PLAY' : 'HƯỚNG DẪN', '', C.textSoft, false],
     ];
     for (let i = 0; i < buttons.length; i++) {
-      this.drawFieldButton(ctx, l.buttonX, l.buttonY + i * l.gap, l.buttonW, l.buttonH, buttons[i][0], buttons[i][2], i === 0, buttons[i][1]);
+      this.drawFieldButton(ctx, l.buttonX, l.buttonY + i * l.gap, l.buttonW, l.buttonH,
+        buttons[i][0], buttons[i][2], i === 0, buttons[i][1], buttons[i][3]);
     }
     const footerY = y + cardH - 35;
     ctx.textAlign = 'left';
     ctx.fillStyle = C.amber;
     ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText(`${save?.data.gold ?? 0} VÀNG`, x + 26, footerY);
+    ctx.fillText(`${save?.data.gold ?? 0} ${english ? 'GOLD' : 'VÀNG'}`, x + 26, footerY);
     ctx.textAlign = 'right';
     ctx.fillStyle = C.textMuted;
     ctx.font = "11px 'Segoe UI', Arial, sans-serif";
     const best = save?.data.bestTime ?? 0;
     const bestTime = `${Math.floor(best / 60)}:${Math.floor(best % 60).toString().padStart(2, '0')}`;
-    ctx.fillText(`KỶ LỤC  ${bestTime}  /  ${save?.data.bestKills ?? 0} HẠ GỤC`, x + cardW - 26, footerY);
+    ctx.fillText(english
+      ? `BEST  ${bestTime}  /  ${save?.data.bestKills ?? 0} KILLS`
+      : `KỶ LỤC  ${bestTime}  /  ${save?.data.bestKills ?? 0} HẠ GỤC`, x + cardW - 26, footerY);
     if (w >= 850 && h >= 540) {
       ctx.textAlign = 'left'; ctx.fillStyle = C.textMuted;
       ctx.font = "11px 'Segoe UI', Arial, sans-serif";
-      ctx.fillText('WASD  DI CHUYỂN     CHUỘT  BẮN     R  NẠP ĐẠN     ESC  TẠM DỪNG', x, Math.min(h - 20, y + cardH + 28));
+      ctx.fillText(english
+        ? 'WASD  MOVE     MOUSE  SHOOT     R  RELOAD     ESC  PAUSE'
+        : 'WASD  DI CHUYỂN     CHUỘT  BẮN     R  NẠP ĐẠN     ESC  TẠM DỪNG', x, Math.min(h - 20, y + cardH + 28));
       ctx.textAlign = 'right'; ctx.fillStyle = '#8c8773';
       ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
-      ctx.fillText('CỬA ĐÃ MỞ.  ĐỪNG DỪNG LẠI.', w - 35, h - 29);
+      ctx.fillText(english ? 'THE GATE IS OPEN.  KEEP MOVING.' : 'CỬA ĐÃ MỞ.  ĐỪNG DỪNG LẠI.', w - 35, h - 29);
     }
+    ctx.restore();
+  }
+
+  private drawNewGameMenu(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
+    this.drawStaticBackdrop(ctx, w, h);
+    const l = this.newGameLayout(w, h);
+    const english = save?.data.language === 'en';
+    ctx.save();
+    drawWornPanel(ctx, l.x, l.y, l.cardW, l.cardH, true);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = C.textMuted; ctx.font = "bold 10px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText(english ? 'START A NEW RUN' : 'BẮT ĐẦU CUỘC CHƠI MỚI', l.x + 26, l.y + 27);
+    if (this.newGameStep === 'difficulty') {
+      this.drawCampaignDifficultyMenu(ctx, w, h, english);
+    } else {
+      ctx.textAlign = 'center';
+      ctx.fillStyle = C.text; ctx.font = `900 ${Math.min(30, l.cardW * .085)}px 'Arial Black', Impact, sans-serif`;
+      ctx.fillText(english ? 'CHOOSE MODE' : 'CHỌN CHẾ ĐỘ', l.titleX, l.landscape ? l.y + l.cardH * .42 : l.y + 253);
+      ctx.fillStyle = C.textSoft; ctx.font = "11px 'Segoe UI', Arial, sans-serif";
+      ctx.fillText(english ? 'Choose how you want to survive.' : 'Bạn muốn sống sót trong chế độ nào?', l.titleX,
+        l.landscape ? l.y + l.cardH * .51 : l.y + 278, l.landscape ? l.cardW * .46 : l.cardW - 50);
+      if (l.landscape) {
+        ctx.strokeStyle = C.borderSoft;
+        ctx.beginPath(); ctx.moveTo(l.x + l.cardW * .48, l.y + 47); ctx.lineTo(l.x + l.cardW * .48, l.y + l.cardH - 48); ctx.stroke();
+      } else {
+        ctx.fillStyle = C.borderSoft; ctx.fillRect(l.x + 26, l.buttonY - 14, l.cardW - 52, 1);
+      }
+
+      const buttons: Array<[string, string, string]> = [
+        [english ? 'CAMPAIGN' : 'CHIẾN DỊCH', english ? '10 MISSIONS · STORY' : '10 MÀN · CỐT TRUYỆN', C.cyan],
+        [english ? 'SURVIVAL' : 'SINH TỒN', english ? 'ENDLESS MODE' : 'SỐNG SÓT VÔ TẬN', C.amber],
+        [english ? 'BACK' : 'QUAY LẠI', '', C.textSoft],
+      ];
+      buttons.forEach(([label, note, color], index) => this.drawFieldButton(ctx,
+        l.buttonX, l.buttonY + index * l.gap, l.buttonW, l.buttonH, label, color, index === 0, note));
+    }
+    ctx.restore();
+    if (this.confirmNewGame) this.drawNewGameConfirmation(ctx, w, h, save);
+  }
+
+  private drawCampaignDifficultyMenu(ctx: CanvasRenderingContext2D, w: number, h: number, english: boolean): void {
+    const l = this.newGameDifficultyLayout(w, h);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = C.text; ctx.font = `900 ${Math.min(27, l.cardW * .07)}px 'Arial Black', Impact, sans-serif`;
+    ctx.fillText(english ? 'CHOOSE YOUR NIGHTMARE' : 'CHỌN CƠN ÁC MỘNG', l.titleX,
+      l.landscape ? l.y + l.cardH * .35 : l.y + 62, l.landscape ? l.cardW * .46 : l.cardW - 40);
+    ctx.fillStyle = C.textSoft; ctx.font = `${w < 480 ? 9 : 11}px 'Segoe UI', Arial, sans-serif`;
+    ctx.fillText(english ? 'Select a Campaign difficulty. The dead remember.' : 'Chọn độ khó Chiến dịch. Lũ chết chóc sẽ nhớ bạn.', l.titleX,
+      l.landscape ? l.y + l.cardH * .43 : l.y + 84, l.landscape ? l.cardW * .46 : l.cardW - 42);
+    if (l.landscape) {
+      ctx.strokeStyle = C.borderSoft;
+      ctx.beginPath(); ctx.moveTo(l.x + l.cardW * .48, l.y + 40); ctx.lineTo(l.x + l.cardW * .48, l.y + l.cardH - 48); ctx.stroke();
+    } else {
+      ctx.fillStyle = C.borderSoft; ctx.fillRect(l.x + 26, l.itemY - 8, l.cardW - 52, 1);
+    }
+
+    const options: Array<{ id: CampaignDifficulty; name: string; stats: string; dread: string; color: string }> = english ? [
+      { id: 'normal', name: 'NORMAL', stats: 'Standard enemy health and damage · Skill direction visible.', dread: 'The warning light still burns before the dark reaches you.', color: C.cyan },
+      { id: 'hard', name: 'HARD', stats: '+30% enemy health and damage · Skill direction hidden.', dread: 'The warning dies. You hear claws only when they are close.', color: C.amber },
+      { id: 'impossible', name: 'IMPOSSIBLE', stats: '+50% enemy health and damage · No skill direction.', dread: 'One death sends you back to Mission 1. No way out.', color: C.dangerBright },
+    ] : [
+      { id: 'normal', name: 'BÌNH THƯỜNG', stats: 'Máu, sát thương chuẩn · Hướng kỹ năng hiện rõ.', dread: 'Ít nhất, ánh báo còn lóe trước khi bóng tối ập tới.', color: C.cyan },
+      { id: 'hard', name: 'KHÓ', stats: 'Quái +30% máu, +30% sát thương · Ẩn hướng skill.', dread: 'Ánh báo tắt. Chỉ còn tiếng móng vuốt mỗi lúc một gần.', color: C.amber },
+      { id: 'impossible', name: 'CỰC KHÓ · IMPOSSIBLE', stats: 'Quái +50% máu, +50% sát thương · Không báo hướng skill.', dread: 'Gục ngã là về Màn 1. Không checkpoint. Không lối thoát.', color: C.dangerBright },
+    ];
+    options.forEach((option, index) => {
+      const x = l.buttonX, y = l.itemY + index * (l.itemH + l.gap), cardW = l.buttonW, cardH = l.itemH;
+      ctx.fillStyle = '#192024'; ctx.strokeStyle = option.color; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.roundRect(x, y, cardW, cardH, 3); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = option.color; ctx.fillRect(x + 8, y + 8, 3, Math.max(12, cardH - 16));
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = option.color; ctx.font = `900 ${w < 480 ? 10 : 12}px 'Arial Black', Impact, sans-serif`;
+      ctx.fillText(option.name, x + 19, y + 15, cardW - 32);
+      const compact = cardH < 67;
+      ctx.fillStyle = C.text; ctx.font = `${w < 480 ? 8 : compact ? 9 : 10}px 'Segoe UI', Arial, sans-serif`;
+      ctx.fillText(option.stats, x + 19, y + (cardH < 54 ? 27 : compact ? 31 : 36), cardW - 32);
+      ctx.fillStyle = C.textMuted; ctx.font = `italic ${w < 480 ? 8 : compact ? 9 : 10}px 'Segoe UI', Arial, sans-serif`;
+      ctx.fillText(option.dread, x + 19, y + (cardH < 54 ? 39 : compact ? 46 : 55), cardW - 32);
+    });
+    this.drawFieldButton(ctx, l.buttonX, l.backY, l.buttonW, l.backH,
+      english ? 'BACK TO MODES' : 'QUAY LẠI CHỌN CHẾ ĐỘ', C.textSoft);
+  }
+
+  private drawSettings(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
+    this.drawStaticBackdrop(ctx, w, h, .24);
+    const l = this.settingsLayout(w, h);
+    const english = save?.data.language === 'en';
+    const language = save?.data.language ?? 'vi';
+    const musicEnabled = save?.data.musicEnabled ?? true;
+    ctx.save();
+    drawWornPanel(ctx, l.x, l.y, l.panelW, l.panelH, true);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = C.textMuted; ctx.font = "bold 10px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText(english ? 'SURVIVOR OPTIONS' : 'TÙY CHỌN THỢ SĂN', l.rowX, l.y + 28);
+    ctx.fillStyle = C.text; ctx.font = `900 ${Math.min(32, l.panelW * .075)}px 'Arial Black', Impact, sans-serif`;
+    ctx.fillText(english ? 'SETTINGS' : 'CÀI ĐẶT', l.rowX, l.y + 66);
+    ctx.fillStyle = C.borderSoft; ctx.fillRect(l.rowX, l.y + 88, l.rowW, 1);
+
+    const halfW = (l.rowW - 8) / 2;
+    ctx.fillStyle = C.textSoft; ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText(english ? 'LANGUAGE' : 'NGÔN NGỮ', l.rowX, l.languageY);
+    this.drawFieldButton(ctx, l.rowX, l.languageY + 25, halfW, l.buttonH,
+      english ? 'VIETNAMESE' : 'TIẾNG VIỆT', C.cyan, language === 'vi', language === 'vi' ? (english ? 'SELECTED' : 'ĐANG CHỌN') : '');
+    this.drawFieldButton(ctx, l.rowX + halfW + 8, l.languageY + 25, halfW, l.buttonH,
+      'ENGLISH', C.cyan, language === 'en', language === 'en' ? (english ? 'SELECTED' : 'ĐANG CHỌN') : '');
+
+    ctx.fillStyle = C.textSoft; ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText(english ? 'BACKGROUND MUSIC' : 'NHẠC NỀN', l.rowX, l.musicY);
+    this.drawFieldButton(ctx, l.rowX, l.musicY + 25, l.rowW, l.buttonH,
+      musicEnabled ? (english ? 'MUSIC  ·  ON' : 'NHẠC  ·  BẬT') : (english ? 'MUSIC  ·  OFF' : 'NHẠC  ·  TẮT'),
+      musicEnabled ? C.cyan : C.textMuted, musicEnabled, english ? 'TOGGLE' : 'BẬT / TẮT');
+
+    this.drawFieldButton(ctx, l.rowX, l.backY, l.rowW, l.buttonH,
+      english ? 'BACK TO MENU' : 'QUAY LẠI MENU', C.textSoft);
     ctx.restore();
   }
 
@@ -356,22 +581,35 @@ export class MenuUI {
     buttons.forEach(([label, note, color, disabled], index) => this.drawFieldButton(ctx,
       l.buttonX, l.buttonY + index * l.gap, l.buttonW, l.buttonH, label, color, index === 1 && !disabled, note, disabled));
     ctx.restore();
-    if (this.confirmNewGame) this.drawNewGameConfirmation(ctx, w, h);
+    if (this.confirmNewGame) this.drawNewGameConfirmation(ctx, w, h, save);
   }
 
-  private drawNewGameConfirmation(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+  private drawNewGameConfirmation(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
     const l = this.newGameConfirmLayout(w, h);
+    const english = save?.data.language === 'en';
     ctx.save();
     ctx.fillStyle = 'rgba(2, 4, 5, .76)'; ctx.fillRect(0, 0, w, h);
     drawWornPanel(ctx, l.x, l.y, l.panelW, l.panelH, true);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = C.amberBright; ctx.font = "900 19px 'Arial Black', Impact, sans-serif";
-    ctx.fillText('BẮT ĐẦU GAME MỚI?', w / 2, l.y + 34, l.panelW - 32);
+    ctx.fillText(english ? 'START A NEW CAMPAIGN?' : 'BẮT ĐẦU CHIẾN DỊCH MỚI?', w / 2, l.y + 34, l.panelW - 32);
     ctx.fillStyle = C.textSoft; ctx.font = "12px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText('Thao tác này xóa tiến độ, tín dụng, súng và thẻ của Chiến dịch.', w / 2, l.y + 75, l.panelW - 34);
-    ctx.fillText('Dữ liệu Sinh tồn được giữ nguyên. Bạn vẫn có thể hủy.', w / 2, l.y + 98, l.panelW - 34);
-    this.drawFieldButton(ctx, l.confirmX, l.buttonY, l.buttonW, 38, 'BẮT ĐẦU', C.dangerBright, true);
-    this.drawFieldButton(ctx, l.cancelX, l.buttonY, l.buttonW, 38, 'HỦY', C.textSoft);
+    ctx.fillText(english
+      ? 'This resets Campaign progress, credits, weapons and equipment.'
+      : 'Tiến trình, tín dụng, súng và trang bị Chiến dịch sẽ được đặt lại.',
+    w / 2, l.y + 75, l.panelW - 34);
+    ctx.fillText(english ? 'Survival records stay untouched. You can cancel.' : 'Hồ sơ Sinh tồn được giữ nguyên. Bạn có thể hủy.',
+      w / 2, l.y + 98, l.panelW - 34);
+    const difficultyName = english
+      ? ({ normal: 'NORMAL', hard: 'HARD', impossible: 'IMPOSSIBLE' } as const)[this.selectedCampaignDifficulty]
+      : ({ normal: 'BÌNH THƯỜNG', hard: 'KHÓ', impossible: 'CỰC KHÓ · IMPOSSIBLE' } as const)[this.selectedCampaignDifficulty];
+    ctx.fillStyle = this.selectedCampaignDifficulty === 'impossible' ? C.dangerBright : C.amberBright;
+    ctx.font = "bold 11px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText(`${english ? 'DIFFICULTY' : 'ĐỘ KHÓ'}: ${difficultyName}`,
+      w / 2, l.y + 121, l.panelW - 34);
+    this.drawFieldButton(ctx, l.confirmX, l.buttonY, l.buttonW, 38,
+      english ? 'START CAMPAIGN' : 'BẮT ĐẦU', C.dangerBright, true);
+    this.drawFieldButton(ctx, l.cancelX, l.buttonY, l.buttonW, 38, english ? 'CANCEL' : 'HỦY', C.textSoft);
     ctx.restore();
   }
 
@@ -429,7 +667,10 @@ export class MenuUI {
     }
     this.drawFieldButton(ctx, l.buttonX, l.buttonY, l.buttonW, l.buttonH, 'THỬ LẠI', C.cyan, true);
     this.drawFieldButton(ctx, l.buttonX, l.buttonY + l.gap, l.buttonW, l.buttonH, 'MENU CHÍNH', C.textSoft);
-    this.drawFieldButton(ctx, l.buttonX, l.buttonY + l.gap * 2, l.buttonW, l.buttonH, 'HỒI SINH', C.health, false, 'QUẢNG CÁO');
+    this.drawFieldButton(ctx, l.buttonX, l.buttonY + l.gap * 2, l.buttonW, l.buttonH,
+      this.reviveAdPending ? 'ĐANG CHỜ QUẢNG CÁO' : 'HỒI SINH', C.health, false,
+      this.reviveAdPending ? 'CHỜ' : this.canWatchRevive ? 'XEM QUẢNG CÁO' : 'ĐÃ DÙNG',
+      !this.canWatchRevive || this.reviveAdPending);
   }
   private drawStageComplete(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     this.drawStaticBackdrop(ctx, w, h, 0.35);
@@ -557,7 +798,7 @@ export class MenuUI {
     ctx.fillStyle = disabled ? '#6d797d' : primary ? '#102024' : C.text;
     ctx.font = `bold ${w < 230 ? 12 : 13}px 'Segoe UI', Arial, sans-serif`;
     ctx.fillText(text, x + 20, y + h / 2);
-    if (note && w >= 270) {
+    if (note && w >= 150) {
       ctx.textAlign = 'right'; ctx.font = "bold 9px 'Segoe UI', Arial, sans-serif";
       ctx.fillStyle = disabled ? '#657074' : primary ? '#29474c' : C.textMuted;
       ctx.fillText(note, x + w - 17, y + h / 2);

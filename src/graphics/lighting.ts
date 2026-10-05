@@ -117,6 +117,7 @@ export class LightingRenderer {
     aimAngle: number,
     width: number,
     height: number,
+    flashlightLevel = 1,
   ): void {
     const layout = stage.layout;
     if (!layout) return;
@@ -165,19 +166,23 @@ export class LightingRenderer {
       mask.drawImage(this.lightMaskCanvas, lamp.x - lamp.radius, lamp.y - lamp.radius, lamp.radius * 2, lamp.radius * 2);
     }
 
-    const [px, py] = camera.worldToScreen(playerX, playerY);
-    const beamX = px + Math.cos(aimAngle) * 28;
-    const beamY = py + Math.sin(aimAngle) * 28;
-    const beamLength = 360;
-    mask.globalAlpha = .80;
-    mask.translate(beamX, beamY);
-    mask.rotate(aimAngle);
-    mask.beginPath();
-    mask.moveTo(0, 0);
-    mask.arc(0, 0, beamLength, -.36, .36);
-    mask.closePath();
-    mask.clip();
-    mask.drawImage(this.lightMaskCanvas, -beamLength, -beamLength, beamLength * 2, beamLength * 2);
+    if (flashlightLevel > 0) {
+      const [px, py] = camera.worldToScreen(playerX, playerY);
+      const beamX = px + Math.cos(aimAngle) * 28;
+      const beamY = py + Math.sin(aimAngle) * 28;
+      const level = Math.max(1, Math.min(3, flashlightLevel));
+      const beamLength = 360 + (level - 1) * 90;
+      const beamHalfAngle = .36 + (level - 1) * .045;
+      mask.globalAlpha = .80 + (level - 1) * .06;
+      mask.translate(beamX, beamY);
+      mask.rotate(aimAngle);
+      mask.beginPath();
+      mask.moveTo(0, 0);
+      mask.arc(0, 0, beamLength, -beamHalfAngle, beamHalfAngle);
+      mask.closePath();
+      mask.clip();
+      mask.drawImage(this.lightMaskCanvas, -beamLength, -beamLength, beamLength * 2, beamLength * 2);
+    }
     mask.restore();
 
     ctx.drawImage(overlay, 0, 0);

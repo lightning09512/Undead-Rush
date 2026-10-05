@@ -12,7 +12,7 @@ export class CampaignResources {
   stations: Supply[] = [];
   used = 0;
 
-  reset(stage?: StageDef, medKits = 0): void {
+  reset(stage?: StageDef): void {
     this.stations = []; this.used = 0;
     if (!stage?.layout) return;
     const zones = stage.layout.zones;
@@ -23,11 +23,6 @@ export class CampaignResources {
     add(1, 'ammo', 1);
     add(Math.max(2, zones.length - 3), 'med', -1);
     add(zones.length - 2, 'crate', 1);
-    const entry = zones[0];
-    for (let i = 0; i < medKits; i++) this.stations.push({
-      x: entry.x + entry.w / 2 - 145 + i * 75, y: entry.y + entry.h / 2 + 145,
-      kind: 'med', used: false,
-    });
   }
 
   collectNearby(player: Player, guns: GunLoadout, ammoMultiplier = 1): CollectedSupply[] {
