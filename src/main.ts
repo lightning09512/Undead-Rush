@@ -258,10 +258,14 @@ function applyCampaignDifficultyToMob(mob: Zombie): void {
 }
 
 function campaignStageMobHealthMultiplier(stageId: number, mobId: string): number {
-  if (stageId !== 8) return 1;
-  if (mobId === 'tank') return 0.65;
-  if (mobId === 'mutant') return 0.72;
-  if (mobId === 'multihead') return 0.68;
+  // Campaign-only health tuning; shared Survival archetypes keep their base stats.
+  if (stageId === 8) {
+    if (mobId === 'tank') return 0.58;
+    if (mobId === 'mutant') return 0.72;
+    if (mobId === 'multihead') return 0.55;
+  }
+  if (mobId === 'tank') return 0.78;
+  if (mobId === 'multihead') return 0.72;
   return 1;
 }
 
