@@ -15,7 +15,7 @@ import { CampaignCredits } from './entities/campaign-credits';
 import { ParticleSystem } from './entities/particles';
 import { ExplosionEffects } from './entities/explosion-effects';
 import { DamageNumbers } from './entities/damage-numbers';
-import { EnemyProjectileSystem } from './entities/enemy-projectiles';
+import { EnemyProjectileSystem, type EnemyProjectile } from './entities/enemy-projectiles';
 import { MapPickupSystem } from './entities/map-pickups';
 import { SupplyCrateSystem } from './entities/supply-crates';
 import { GroundRenderer } from './graphics/ground';
@@ -51,6 +51,7 @@ import { CampaignResources } from './systems/campaign-resources';
 import { CampaignUI } from './ui/campaign-ui';
 import { createCampaignGunDefs } from './systems/gun-loadout';
 import { getStageCopy, getUiTerm, localizeZoneName, sentenceCaseDisplay } from './data/localization';
+import { getBossIdFromType, getBossSignature } from './data/boss-signatures';
 
 // Development encounters use an isolated, non-persistent save from the outset.
 const horrorPreview = import.meta.env.DEV && new URLSearchParams(location.search).get('horror-preview') === '1';
@@ -108,6 +109,20 @@ const campaignMapRenderer = new CampaignMapRenderer();
 const campaignTerrainRenderer = new CampaignTerrainRenderer();
 const campaignBossDirector = new CampaignBossDirector();
 const campaignResources = new CampaignResources();
+
+function registerBossProjectileImpact(projectile: EnemyProjectile): void {
+  if (!projectile.type.startsWith('boss_')) return;
+  const distance = Math.hypot(projectile.x - player.x, projectile.y - player.y);
+  const pan = Math.max(-1, Math.min(1, (projectile.x - player.x) / 600));
+  const style = projectile.type === 'boss_fire' ? 'fire'
+    : projectile.type === 'boss_arcane' || projectile.type === 'boss_orb' ? 'arcane'
+      : projectile.type === 'boss_acid' ? 'acid'
+        : projectile.type === 'boss_shard' ? 'shard' : 'blood';
+  explosionEffects.spawn(projectile.x, projectile.y, projectile.size * 3.3, style, projectile.bossId);
+  audio.bossProjectileImpact(projectile.type, pan, distance, projectile.bossId);
+  const signature = getBossSignature(projectile.bossId);
+  particles.emit(projectile.x, projectile.y, 3, signature.colors.glow, 44, .2, 2.3);
+}
 
 type DevPerformanceOverlay = import('./dev/performance-overlay').PerformanceOverlay;
 let devPerformanceOverlay: DevPerformanceOverlay | null = null;
@@ -783,20 +798,22 @@ function updateGame(dt: number): void {
 
       // Alternate between attack patterns
       z.visualStrike = 0.4;
+      const bossId = z.campaignBossId ?? getBossIdFromType(z.typeId);
+      const projectileType = getBossSignature(bossId).projectile;
       if (bossAttackPhase % 3 === 0) {
         // Ring of projectiles
-        audio.creatureSkill(z.typeId, 'ring', Math.max(-1, Math.min(1, (z.x - player.x) / 600)), Math.sqrt((z.x - player.x) ** 2 + (z.y - player.y) ** 2), true);
-        enemyProjectiles.fireRing(z.x, z.y, 12, 120, z.damage, 'boss_orb');
+        audio.creatureSkill(z.typeId, 'ring', Math.max(-1, Math.min(1, (z.x - player.x) / 600)), Math.sqrt((z.x - player.x) ** 2 + (z.y - player.y) ** 2), true, bossId, projectileType);
+        enemyProjectiles.fireRing(z.x, z.y, 12, 120, z.damage, projectileType, 0, bossId);
         camera.shake(5, 0.2);
       } else if (bossAttackPhase % 3 === 1) {
         // Aimed burst at player
-        audio.creatureSkill(z.typeId, 'fan', Math.max(-1, Math.min(1, (z.x - player.x) / 600)), Math.sqrt((z.x - player.x) ** 2 + (z.y - player.y) ** 2), true);
+        audio.creatureSkill(z.typeId, 'fan', Math.max(-1, Math.min(1, (z.x - player.x) / 600)), Math.sqrt((z.x - player.x) ** 2 + (z.y - player.y) ** 2), true, bossId, projectileType);
         const angle = Math.atan2(player.y - z.y, player.x - z.x);
-        enemyProjectiles.fireBurst(z.x, z.y, 5, 150, z.damage, angle);
+        enemyProjectiles.fireBurst(z.x, z.y, 5, 150, z.damage, angle, projectileType, bossId);
       } else {
         // Slow wave in all directions
-        audio.creatureSkill(z.typeId, 'ring', Math.max(-1, Math.min(1, (z.x - player.x) / 600)), Math.sqrt((z.x - player.x) ** 2 + (z.y - player.y) ** 2), true);
-        enemyProjectiles.fireRing(z.x, z.y, 24, 80, Math.round(z.damage * 0.6), 'boss_wave');
+        audio.creatureSkill(z.typeId, 'ring', Math.max(-1, Math.min(1, (z.x - player.x) / 600)), Math.sqrt((z.x - player.x) ** 2 + (z.y - player.y) ** 2), true, bossId, projectileType);
+        enemyProjectiles.fireRing(z.x, z.y, 24, 80, Math.round(z.damage * 0.6), projectileType, 0, bossId);
         camera.shake(8, 0.3);
       }
     }
@@ -808,12 +825,23 @@ function updateGame(dt: number): void {
 
   // ─── Enemy projectile -> player collision ───
   enemyProjectiles.pool.forEach((p) => {
-    if (gameMode === 'stage' && (!isCampaignWalkable(p.x, p.y, p.size * .6) || isInsideBuilding(p.x, p.y))) return true;
+    if (gameMode === 'stage' && (!isCampaignWalkable(p.x, p.y, p.size * .6) || isInsideBuilding(p.x, p.y))) {
+      registerBossProjectileImpact(p);
+      return true;
+    }
     const dx = player.x - p.x;
     const dy = player.y - p.y;
     const dist = dx * dx + dy * dy;
+    const passByRange = player.size + p.size + 108;
+    if (p.type.startsWith('boss_') && !p.flightCuePlayed && dist < passByRange * passByRange) {
+      p.flightCuePlayed = true;
+      const distance = Math.sqrt(dist);
+      const pan = Math.max(-1, Math.min(1, (p.x - player.x) / 600));
+      audio.bossProjectilePass(p.type, pan, distance, p.bossId);
+    }
     const radii = player.size + p.size;
     if (dist < radii * radii) {
+      registerBossProjectileImpact(p);
       const hit = applyPlayerDamage(p.damage);
       if (hit.dead) {
         handlePlayerDeath();
@@ -1947,25 +1975,26 @@ function updateBossEncounter(dt: number, stage: StageDef, boss: Zombie | undefin
     }
     if (survival) survivalBossSummonsSpawned = spawned;
     else stageBossSummonsSpawned = spawned;
-  }, (move, actor, angle) => {
+  }, (move, actor, angle, repeat = false) => {
     const pan = Math.max(-1, Math.min(1, (actor.x - player.x) / 600));
     const distance = Math.hypot(actor.x - player.x, actor.y - player.y);
-    audio.creatureSkill(actor.typeId, move.kind, pan, distance, true);
+    const bossId = actor.campaignBossId ?? stage.id;
+    const signature = getBossSignature(bossId);
     const muzzle = actor.size * .72;
+    if (!repeat) audio.creatureSkill(actor.typeId, move.kind, pan, distance, true, bossId, signature.projectile);
     if (move.kind === 'ring') {
-      const projectileType: 'boss_acid' | 'boss_shard' | 'boss_wave' = stage.id === 10
-        ? 'boss_wave' : [2, 4, 8, 9].includes(stage.id) ? 'boss_acid' : 'boss_shard';
+      const projectileType = signature.projectile;
       const count = stage.id === 1 ? 8 : stage.id >= 8 ? 18 : stage.id >= 5 ? 15 : 12;
       const speed = stage.id === 1 ? 118 : stage.id >= 8 ? 188 : stage.id >= 5 ? 164 : 142;
       const damage = Math.max(5, Math.round(move.damage * (stage.id === 1 ? .38 : .48) * damageMultiplier));
       // Keep the volley aligned with the boss's telegraph, including combo casts.
-      enemyProjectiles.fireRing(actor.x, actor.y, count, speed, damage, projectileType, angle);
+      enemyProjectiles.fireRing(actor.x, actor.y, count, speed, damage, projectileType, angle, bossId);
       camera.shake(stage.id === 1 ? 2 : 3.1, .16);
-      particles.emit(actor.x, actor.y, 12, projectileType === 'boss_acid' ? '#a7c568' : '#c8c5b7', 82, .3, 3.6);
+      particles.emit(actor.x, actor.y, 12, signature.colors.glow, 82, .3, 3.6);
       return;
     }
     if (move.kind !== 'fan') return;
-    const type = stage.id === 2 || [4, 8, 9].includes(stage.id) ? 'boss_acid' : 'boss_shard';
+    const type = signature.projectile;
     const count = stage.id === 1 ? 7 : stage.id >= 7 ? 10 : stage.id >= 5 ? 9 : stage.id === 2 ? 9 : 8;
     const spread = stage.id === 2 ? .68 : stage.id >= 7 ? .44 : .48;
     // The lock stays inside the telegraphed lane, while each volley shifts a
@@ -1973,14 +2002,14 @@ function updateBossEncounter(dt: number, stage: StageDef, boss: Zombie | undefin
     const volleyAngle = angle + (Math.random() - .5) * .2;
     enemyProjectiles.fireFan(actor.x + Math.cos(angle) * muzzle, actor.y + Math.sin(angle) * muzzle,
       volleyAngle, count, spread, stage.id === 1 ? 320 : stage.id === 2 ? 310 : 390,
-      Math.round(move.damage * damageMultiplier), type);
+      Math.round(move.damage * damageMultiplier), type, bossId);
     camera.shake(stage.id === 2 ? 2.4 : 1.7, .12);
     particles.emit(actor.x + Math.cos(angle) * muzzle, actor.y + Math.sin(angle) * muzzle,
-      stage.id === 2 ? 8 : 7, type === 'boss_acid' ? '#a7c568' : '#c8c5b7', 65, .24, 3);
+      stage.id === 2 ? 8 : 7, signature.colors.glow, 65, .24, 3);
   }, survival ? 1 : 2, (move, actor) => {
     const pan = Math.max(-1, Math.min(1, (actor.x - player.x) / 600));
     const distance = Math.hypot(actor.x - player.x, actor.y - player.y);
-    audio.creatureTelegraph(actor.typeId, move.kind, pan, distance, true);
+    audio.creatureTelegraph(actor.typeId, move.kind, pan, distance, true, actor.campaignBossId ?? stage.id);
   });
   return survival ? contactDamage : Math.round(contactDamage * damageMultiplier);
 }

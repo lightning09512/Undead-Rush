@@ -4,6 +4,7 @@ import menuMusic from '../assets/01. Menu Music.mp3';
 import gameMusicOne from '../assets/02. Music 1.mp3';
 import gameMusicTwo from '../assets/03. Music 2.mp3';
 import gameMusicThree from '../assets/04. Music 3.mp3';
+import { getBossIdFromType, getBossSignature } from '../data/boss-signatures';
 
 type MusicScene = 'menu' | 'calm' | 'combat' | 'campaignBoss' | 'boss' | 'paused';
 interface MusicDeck {
@@ -36,6 +37,9 @@ export class Audio {
   private lastZombieHurtTime = 0;
   private lastCreatureTelegraphTime = 0;
   private lastCreatureSkillTime = 0;
+  private lastBossImpactTime = 0;
+  private lastBossProjectilePassTime = 0;
+  private activeBossCueVoices = 0;
   private lastDroneShotTime = 0;
   private lastCreditPickupTime = 0;
   private lastSupplyPickupTime = 0;
@@ -1137,31 +1141,142 @@ export class Audio {
   }
 
   /** Audible windup cue for a committed creature ability, spatially panned to its source. */
-  creatureTelegraph(type: string, kind: string, pan = 0, distance = 0, boss = false): void {
+  creatureTelegraph(type: string, kind: string, pan = 0, distance = 0, boss = false, bossId = 0): void {
     const now = performance.now();
     const gain = this.creatureDistanceGain(distance);
     if (gain < 0.035 || now - this.lastCreatureTelegraphTime < 115) return;
     this.lastCreatureTelegraphTime = now;
-    this.playZombieVocal(type, pan, (boss ? 0.82 : 0.62) * gain, boss ? 0.64 : 0.42, 'attack');
-    const pitch = kind === 'fan' || kind === 'ring' || kind === 'web' ? 210 : boss ? 96 : 138;
+    if (boss) {
+      const id = bossId || getBossIdFromType(type);
+      // Keep a subdued creature voice under the authored, low-frequency tell.
+      this.playZombieVocal(type, pan, 0.36 * gain, 0.72, 'attack');
+      this.playBossSignatureCue(id, kind, 'windup', pan, 0.34 * gain);
+      return;
+    }
+    this.playZombieVocal(type, pan, 0.62 * gain, 0.42, 'attack');
+    const pitch = kind === 'fan' || kind === 'ring' || kind === 'web' ? 210 : 138;
     this.playPannedCreatureTone(pitch, pitch * (kind === 'charge' || kind === 'thrust' ? 1.72 : 1.28),
-      boss ? 0.48 : 0.32, boss ? 0.075 : 0.042, 'sine', pan);
+      0.32, 0.042, 'sine', pan);
   }
 
   /** Short release sound so each melee, projectile, or area skill has a clear audible impact. */
-  creatureSkill(type: string, kind: string, pan = 0, distance = 0, boss = false): void {
+  creatureSkill(type: string, kind: string, pan = 0, distance = 0, boss = false, bossId = 0, material = kind): void {
     const now = performance.now();
     const gain = this.creatureDistanceGain(distance);
     if (gain < 0.035 || now - this.lastCreatureSkillTime < 105) return;
     this.lastCreatureSkillTime = now;
+    if (boss) {
+      this.playBossSignatureCue(bossId || getBossIdFromType(type), kind, 'cast', pan, 0.42 * gain, material);
+      return;
+    }
     const ranged = ['fan', 'ring', 'web', 'spit', 'projectile', 'cross'].includes(kind);
-    const heavy = boss || ['slam', 'stomp', 'charge'].includes(kind);
+    const heavy = ['slam', 'stomp', 'charge'].includes(kind);
     const start = ranged ? 360 : heavy ? 105 : 230;
     const end = ranged ? 115 : 42;
     const duration = heavy ? 0.31 : ranged ? 0.2 : 0.16;
-    this.playPannedCreatureTone(start, end, duration, (boss ? 0.15 : 0.09) * gain,
+    this.playPannedCreatureTone(start, end, duration, 0.09 * gain,
       ranged ? 'sawtooth' : 'triangle', pan);
-    this.playPannedCreatureNoise(duration * 0.78, 950 + (ranged ? 720 : 0), (boss ? 0.085 : 0.05) * gain, pan);
+    this.playPannedCreatureNoise(duration * 0.78, 950 + (ranged ? 720 : 0), 0.05 * gain, pan);
+  }
+
+  /** Material-specific, spatialized hit cue for a boss projectile. */
+  bossProjectileImpact(projectileType: string, pan = 0, distance = 0, bossId = 0): void {
+    const now = performance.now();
+    const gain = this.creatureDistanceGain(distance);
+    if (gain < 0.035 || now - this.lastBossImpactTime < 72) return;
+    this.lastBossImpactTime = now;
+    this.playBossSignatureCue(bossId || 1, projectileType, 'impact', pan, 0.26 * gain, projectileType);
+  }
+
+  /** A quiet material-specific pass-by cue, rate-limited to keep volleys readable. */
+  bossProjectilePass(projectileType: string, pan = 0, distance = 0, bossId = 0): void {
+    const now = performance.now();
+    const gain = this.creatureDistanceGain(distance);
+    if (gain < 0.12 || now - this.lastBossProjectilePassTime < 185) return;
+    this.lastBossProjectilePassTime = now;
+    this.playBossSignatureCue(bossId || 1, projectileType, 'flight', pan, 0.12 * gain, projectileType);
+  }
+
+  /** Low, layered boss cues use unstable throat formants and filtered air, never arcade pitch beeps. */
+  private playBossSignatureCue(bossId: number, kind: string, event: 'windup' | 'cast' | 'flight' | 'impact',
+    pan: number, volume: number, material = kind): void {
+    if (!this.ensureContext() || !this.ctx || !this.sfxGain || !this.noiseBuffer || volume < 0.025 || this.activeBossCueVoices >= 4) return;
+    const ctx = this.ctx;
+    const signature = getBossSignature(bossId);
+    const profile = signature.audio;
+    const t = ctx.currentTime;
+    const duration = event === 'windup' ? 0.62 : event === 'impact' ? 0.28 : event === 'flight' ? 0.18 : 0.37;
+    const end = t + duration;
+    const variation = 0.96 + Math.random() * 0.08;
+    const root = profile.rootHz * variation;
+    const materialFilter = material.includes('fire') ? 1260 : material.includes('arcane') || material === 'boss_orb'
+      ? 1740 : material.includes('acid') ? 470 : material.includes('blood') || material.includes('wave') ? 360 : profile.textureHz;
+    const bus = ctx.createGain();
+    const panner = ctx.createStereoPanner();
+    bus.gain.setValueAtTime(0.0001, t);
+    const peak = volume * (event === 'windup' ? 0.74 : event === 'flight' ? 0.52 : 0.9);
+    if (event === 'windup') {
+      bus.gain.linearRampToValueAtTime(peak * 0.38, t + 0.14);
+      bus.gain.linearRampToValueAtTime(peak, t + duration * 0.72);
+    } else {
+      bus.gain.linearRampToValueAtTime(peak, t + (event === 'impact' ? 0.008 : 0.025));
+    }
+    bus.gain.exponentialRampToValueAtTime(0.0001, end);
+    panner.pan.setValueAtTime(Math.max(-1, Math.min(1, pan)), t);
+    bus.connect(panner); panner.connect(this.sfxGain);
+
+    const nodes: AudioNode[] = [bus, panner];
+    let remaining = 0;
+    this.activeBossCueVoices++;
+    const track = (source: AudioScheduledSourceNode, startSource?: () => void) => {
+      nodes.push(source); remaining++;
+      source.onended = () => {
+        if (--remaining !== 0) return;
+        for (const node of nodes) node.disconnect();
+        this.activeBossCueVoices = Math.max(0, this.activeBossCueVoices - 1);
+      };
+      if (startSource) startSource(); else source.start(t);
+      source.stop(end + 0.02);
+    };
+
+    const throat = ctx.createBiquadFilter();
+    const throatGain = ctx.createGain();
+    throat.type = 'lowpass';
+    throat.frequency.setValueAtTime(profile.throatHz * 1.25, t);
+    throat.frequency.exponentialRampToValueAtTime(profile.throatHz * 0.72, end);
+    throat.Q.value = profile.filterQ;
+    throatGain.gain.value = event === 'windup' ? 0.64 : 0.78;
+    throat.connect(throatGain); throatGain.connect(bus); nodes.push(throat, throatGain);
+    const drone = ctx.createOscillator();
+    drone.type = profile.waveform;
+    drone.frequency.setValueAtTime(root * (event === 'cast' ? 1.16 : 0.94), t);
+    drone.frequency.exponentialRampToValueAtTime(root * (event === 'windup' ? 1.04 : 0.66), end);
+    drone.connect(throat); track(drone);
+
+    const harmonicFilter = ctx.createBiquadFilter();
+    const harmonicGain = ctx.createGain();
+    harmonicFilter.type = 'bandpass'; harmonicFilter.frequency.value = profile.throatHz * 1.85;
+    harmonicFilter.Q.value = Math.max(.7, profile.filterQ * .82);
+    harmonicGain.gain.value = event === 'windup' ? 0.13 : 0.19;
+    harmonicFilter.connect(harmonicGain); harmonicGain.connect(bus); nodes.push(harmonicFilter, harmonicGain);
+    const harmonic = ctx.createOscillator();
+    harmonic.type = 'triangle';
+    harmonic.frequency.setValueAtTime(root * profile.harmonicRatio, t);
+    harmonic.frequency.exponentialRampToValueAtTime(root * profile.harmonicRatio * .84, end);
+    harmonic.connect(harmonicFilter); track(harmonic);
+
+    const textureFilter = ctx.createBiquadFilter();
+    const textureGain = ctx.createGain();
+    textureFilter.type = 'bandpass';
+    textureFilter.frequency.setValueAtTime(materialFilter, t);
+    textureFilter.frequency.exponentialRampToValueAtTime(Math.max(170, materialFilter * .56), end);
+    textureFilter.Q.value = material.includes('shard') ? 1.8 : .72;
+    textureGain.gain.value = event === 'windup' ? .2 : event === 'flight' ? .24 : .32;
+    textureFilter.connect(textureGain); textureGain.connect(bus); nodes.push(textureFilter, textureGain);
+    const texture = ctx.createBufferSource();
+    texture.buffer = this.noiseBuffer;
+    texture.playbackRate.value = event === 'impact' ? .68 : event === 'flight' ? .92 + Math.random() * .12 : .52 + Math.random() * .14;
+    texture.connect(textureFilter); track(texture, () => texture.start(t, Math.random() * 1.2, duration));
   }
 
   private playPannedCreatureTone(startHz: number, endHz: number, duration: number, volume: number,

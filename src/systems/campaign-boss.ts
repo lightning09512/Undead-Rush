@@ -3,6 +3,7 @@ import type { GameLanguage } from '../data/localization';
 import type { CampaignAttackDef, CampaignAttackKind, StageDef } from '../data/meta';
 import type { Zombie } from '../entities/zombies';
 import { resolveBuildingCollision, resolveCampaignMovement } from '../entities/map-geometry';
+import { getBossSignature, type BossProjectileType } from '../data/boss-signatures';
 
 type Phase = 'approach' | 'transition' | 'windup' | 'active' | 'recover';
 type ProjectileComboMove = { move: CampaignAttackDef; angle: number };
@@ -280,17 +281,19 @@ export class CampaignBossDirector {
     const [x,y]=camera.worldToScreen(this.ox,this.oy);
     const [hx,hy]=camera.worldToScreen(this.hazardX,this.hazardY);
     const [bx,by]=camera.worldToScreen(boss.x,boss.y);
-    const color=boss.campaignBossId===1?'#e1c48d':boss.campaignBossId===2?'#b9ca78':'#b8d1c6';
-    const danger=boss.campaignBossId===2?'#92a953':boss.campaignBossId===3?'#b96459':'#bf785f';
+    const signature=getBossSignature(boss.campaignBossId);
+    const color=signature.colors.warning;
+    const danger=signature.colors.glow;
     const progress=Math.max(0,Math.min(1,boss.campaignAttackProgress));
     ctx.save();ctx.lineCap='round';ctx.lineJoin='round';
-    ctx.strokeStyle=color;ctx.fillStyle=boss.campaignBossId===2?'rgba(155,185,85,.15)':boss.campaignBossId===3?'rgba(153,193,184,.15)':'rgba(209,180,119,.14)';ctx.lineWidth=3;
+    ctx.strokeStyle=color;ctx.fillStyle=withAlpha(signature.colors.glow,.16);ctx.lineWidth=3;
     if(windup){
+      this.drawChargeMotif(ctx,boss,x,y,progress,signature.projectile,signature.colors.core,signature.colors.glow);
       if(move.kind==='slam'||move.kind==='stomp'){
         ctx.beginPath();ctx.arc(x,y,move.reach,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.setLineDash([13,10]);ctx.beginPath();ctx.arc(x,y,move.reach*.72,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);
       }else if(move.kind==='ring'){
-        ctx.fillStyle='rgba(152,184,83,.15)';ctx.beginPath();ctx.ellipse(hx,hy,move.reach,move.reach*.72,-.2,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#b2c76c';ctx.beginPath();ctx.ellipse(hx,hy,move.reach,move.reach*.72,-.2,0,Math.PI*2);ctx.stroke();
-        ctx.fillStyle='#e4cc8b';ctx.font='bold 12px Segoe UI, Arial';ctx.textAlign='center';ctx.fillText(language === 'en' ? 'Tissue buildup' : 'Dịch tích tụ',hx,hy-move.reach*.74);
+        ctx.fillStyle=withAlpha(signature.colors.glow,.18);ctx.beginPath();ctx.ellipse(hx,hy,move.reach,move.reach*.72,-.2,0,Math.PI*2);ctx.fill();ctx.strokeStyle=color;ctx.beginPath();ctx.ellipse(hx,hy,move.reach,move.reach*.72,-.2,0,Math.PI*2);ctx.stroke();
+        ctx.fillStyle=signature.colors.core;ctx.font='bold 12px Segoe UI, Arial';ctx.textAlign='center';ctx.fillText(signature.warningText[language],hx,hy-move.reach*.74,move.reach*1.7);
         // Dashed radial spokes warn that the boss will also release a real
         // outward projectile ring from its body when the windup ends.
         ctx.strokeStyle=danger;ctx.globalAlpha=.78;ctx.lineWidth=2;ctx.setLineDash([7,8]);
@@ -313,7 +316,7 @@ export class CampaignBossDirector {
         // inside the warning cone shown to the player.
         const halfSpread = boss.campaignBossId === 2 ? .78 : (boss.campaignBossId ?? 0) >= 7 ? .54 : .58;
         const left=this.angle-halfSpread,right=this.angle+halfSpread;
-        ctx.fillStyle=boss.campaignBossId===2?'rgba(169,197,104,.2)':'rgba(200,197,183,.17)';
+        ctx.fillStyle=withAlpha(signature.colors.glow,.2);
         ctx.beginPath();ctx.moveTo(x,y);ctx.arc(x,y,move.reach,left,right);ctx.closePath();ctx.fill();
         ctx.strokeStyle=color;ctx.lineWidth=3;ctx.setLineDash([9,7]);
         ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+Math.cos(left)*move.reach,y+Math.sin(left)*move.reach);ctx.moveTo(x,y);ctx.lineTo(x+Math.cos(right)*move.reach,y+Math.sin(right)*move.reach);ctx.stroke();ctx.setLineDash([]);
@@ -341,13 +344,13 @@ export class CampaignBossDirector {
         ctx.strokeStyle=danger;ctx.globalAlpha=.34;ctx.lineWidth=boss.size*1.1;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(bx,by);ctx.stroke();ctx.globalAlpha=1;
         ctx.strokeStyle=color;ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(bx,by);ctx.stroke();
       }else if(move.kind==='slam'||move.kind==='stomp'){
-        const radius=move.reach*Math.min(1,this.phaseTime/.52);ctx.strokeStyle='#ead5ab';ctx.lineWidth=8;ctx.globalAlpha=.8;ctx.beginPath();ctx.arc(x,y,radius,0,Math.PI*2);ctx.stroke();ctx.globalAlpha=.35;ctx.lineWidth=18;ctx.beginPath();ctx.arc(x,y,Math.max(0,radius-13),0,Math.PI*2);ctx.stroke();
+        const radius=move.reach*Math.min(1,this.phaseTime/.52);ctx.strokeStyle=signature.colors.core;ctx.lineWidth=8;ctx.globalAlpha=.8;ctx.beginPath();ctx.arc(x,y,radius,0,Math.PI*2);ctx.stroke();ctx.globalAlpha=.35;ctx.lineWidth=18;ctx.beginPath();ctx.arc(x,y,Math.max(0,radius-13),0,Math.PI*2);ctx.stroke();
       }else if(move.kind==='ring'){
         const age=this.phaseTime;
-        ctx.fillStyle=age<.68?'rgba(159,191,84,.36)':'rgba(213,171,92,.42)';ctx.strokeStyle=age<.68?'#c9db8a':'#f2cd7b';ctx.lineWidth=4;
+        ctx.fillStyle=withAlpha(signature.colors.glow,.36);ctx.strokeStyle=age<.68?signature.colors.warning:signature.colors.core;ctx.lineWidth=4;
         ctx.beginPath();ctx.ellipse(hx,hy,move.reach*(.72+.28*Math.min(1,age/.65)),move.reach*.54*(.72+.28*Math.min(1,age/.65)),-.2,0,Math.PI*2);ctx.fill();ctx.stroke();
-        if(age<.45){for(let k=0;k<4;k++){const t=Math.min(1,age/.45),px=x+(hx-x)*t+Math.sin(age*15+k*2)*7,py=y+(hy-y)*t+Math.cos(age*13+k*2)*5;ctx.fillStyle='#b8cf73';ctx.beginPath();ctx.ellipse(px,py,6+k%2*2,9+k%2*2,.3+k*.4,0,Math.PI*2);ctx.fill();}}
-        else if(age>=.68){ctx.strokeStyle='#e8d794';ctx.lineWidth=7;ctx.beginPath();ctx.ellipse(hx,hy,move.reach*Math.min(1,(age-.68)*7),move.reach*.72*Math.min(1,(age-.68)*7),-.2,0,Math.PI*2);ctx.stroke();}
+        if(age<.45){for(let k=0;k<4;k++){const t=Math.min(1,age/.45),px=x+(hx-x)*t+Math.sin(age*15+k*2)*7,py=y+(hy-y)*t+Math.cos(age*13+k*2)*5;ctx.fillStyle=signature.colors.core;ctx.beginPath();ctx.ellipse(px,py,6+k%2*2,9+k%2*2,.3+k*.4,0,Math.PI*2);ctx.fill();}}
+        else if(age>=.68){ctx.strokeStyle=signature.colors.core;ctx.lineWidth=7;ctx.beginPath();ctx.ellipse(hx,hy,move.reach*Math.min(1,(age-.68)*7),move.reach*.72*Math.min(1,(age-.68)*7),-.2,0,Math.PI*2);ctx.stroke();}
       }else if(move.kind==='summon'){
         ctx.strokeStyle=color;ctx.lineWidth=5;ctx.globalAlpha=.65;for(let k=0;k<3;k++){const r=45+k*36+Math.sin(this.phaseTime*8+k)*5;ctx.beginPath();ctx.arc(bx,by,r,0,Math.PI*2);ctx.stroke();}ctx.globalAlpha=1;
       }else if(move.kind==='sweep'){
@@ -362,18 +365,49 @@ export class CampaignBossDirector {
     ctx.restore();
   }
 
+  private drawChargeMotif(ctx: CanvasRenderingContext2D, boss: Zombie, x: number, y: number,
+    progress: number, projectile: BossProjectileType, core: string, glow: string): void {
+    const pulse = .9 + Math.sin(boss.animTimer * 8) * .1;
+    const radius = boss.size * (1.08 + progress * .08) * pulse;
+    ctx.save(); ctx.globalAlpha = .24 + progress * .34; ctx.lineWidth = 1.5;
+    ctx.strokeStyle = glow; ctx.setLineDash([3, 7]); ctx.beginPath();
+    ctx.arc(x, y, radius, boss.animTimer * .2, boss.animTimer * .2 + Math.PI * 1.7); ctx.stroke(); ctx.setLineDash([]);
+    for (let i = 0; i < 6; i++) {
+      const angle = boss.animTimer * .55 + i * Math.PI / 3;
+      const px = x + Math.cos(angle) * radius, py = y + Math.sin(angle) * radius;
+      const size = 3.5 + progress * 2.5;
+      ctx.fillStyle = i % 2 ? core : glow;
+      ctx.strokeStyle = core; ctx.lineWidth = 1;
+      ctx.beginPath();
+      if (projectile === 'boss_arcane') {
+        ctx.moveTo(px, py - size); ctx.lineTo(px + size * .72, py); ctx.lineTo(px, py + size); ctx.lineTo(px - size * .72, py); ctx.closePath();
+      } else if (projectile === 'boss_fire') {
+        ctx.moveTo(px, py + size); ctx.lineTo(px - size * .52, py); ctx.lineTo(px, py - size * 1.25); ctx.lineTo(px + size * .6, py + size * .1); ctx.closePath();
+      } else if (projectile === 'boss_acid') {
+        ctx.ellipse(px, py, size * .55, size, angle, 0, Math.PI * 2);
+      } else if (projectile === 'boss_blood') {
+        ctx.moveTo(px, py - size); ctx.quadraticCurveTo(px + size, py - size * .15, px, py + size); ctx.quadraticCurveTo(px - size, py - size * .15, px, py - size); ctx.closePath();
+      } else {
+        ctx.moveTo(px - size, py - size * .25); ctx.lineTo(px + size, py - size * .55); ctx.lineTo(px + size * .35, py + size * .65); ctx.closePath();
+      }
+      ctx.fill(); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   private drawComboTelegraph(ctx: CanvasRenderingContext2D, camera: Camera, boss: Zombie,
     combo: ProjectileComboMove): void {
     const [x, y] = camera.worldToScreen(this.ox, this.oy);
     const range = Math.min(combo.move.reach, 390);
-    const color = boss.campaignBossId === 2 ? '#bed377' : boss.campaignBossId === 3 ? '#d08e79' : '#e0c18a';
+    const signature = getBossSignature(boss.campaignBossId);
+    const color = signature.colors.warning;
     ctx.save();
     ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.globalAlpha = .72; ctx.setLineDash([8, 8]);
     if (combo.move.kind === 'fan') {
       const bossId = boss.campaignBossId ?? 0;
       const spread = bossId === 2 ? .78 : bossId >= 7 ? .54 : .58;
       const left = combo.angle - spread, right = combo.angle + spread;
-      ctx.fillStyle = bossId === 2 ? 'rgba(169,197,104,.12)' : 'rgba(200,197,183,.1)';
+      ctx.fillStyle = withAlpha(signature.colors.glow,.12);
       ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, range, left, right); ctx.closePath(); ctx.fill();
       ctx.beginPath();
       ctx.moveTo(x, y);
@@ -425,4 +459,12 @@ function pointSegmentDistanceSq(px: number, py: number, x1: number, y1: number, 
   const t = lengthSq === 0 ? 0 : Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lengthSq));
   const qx = x1 + t * dx, qy = y1 + t * dy;
   return (px - qx) ** 2 + (py - qy) ** 2;
+}
+
+function withAlpha(color: string, alpha: number): string {
+  const value = color.replace('#', '');
+  const red = Number.parseInt(value.slice(0, 2), 16);
+  const green = Number.parseInt(value.slice(2, 4), 16);
+  const blue = Number.parseInt(value.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
