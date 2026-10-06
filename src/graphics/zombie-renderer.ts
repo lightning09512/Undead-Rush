@@ -4,6 +4,7 @@ import type { Zombie } from '../entities/zombies';
 import { drawHorrorZombie } from './horror-renderer';
 import { drawHorrorZombie as drawStageHorrorZombie } from './stage-horror-renderer';
 import { drawSurvivalZombie } from './survival-zombie-renderer';
+import { drawZombieGestureSprite } from './zombie-gesture-sprites';
 
 export class ZombieRenderer {
   private static shadowCanvas: HTMLCanvasElement;
@@ -33,6 +34,7 @@ export class ZombieRenderer {
     isFlashing: boolean,
     survival = false
   ): void {
+    if (drawZombieGestureSprite(ctx, z, sx, sy, isFlashing)) return;
     if (survival) {
       if (!drawHorrorZombie(ctx, z, sx, sy, isFlashing)) drawSurvivalZombie(ctx, z, sx, sy, isFlashing);
       return;
