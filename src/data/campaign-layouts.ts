@@ -87,6 +87,18 @@ const CHAPTERS: Chapter[] = [
 
 const room = (cx: number, cy: number, w: number, h: number): CampaignRect => ({ x: cx - w / 2, y: cy - h / 2, w, h });
 
+// Physical props placed in the first three authored chapters. Floor marks,
+// spills, loose trash and hanging curtains stay passable; fixtures and debris
+// that occupy space share one collision policy across these maps.
+const BLOCKING_CAMPAIGN_PROPS = new Set([
+  'ambulance', 'barrel', 'barricade', 'barrier', 'cabinet', 'canopy', 'car', 'chair', 'cooler',
+  'bollard', 'crate', 'divider', 'examLamp', 'fence', 'gardenlamp', 'generator', 'gurney', 'mailbox',
+  'medicalCart', 'medicalSign', 'monitor', 'oxygen', 'pallet', 'porchsteps', 'pump', 'radio',
+  'rescuevan', 'roadDebris', 'roadSign', 'shelf', 'shrub', 'shopfront', 'sign', 'signfuel',
+  'streetlight', 'supplyCrate', 'tanker', 'tent', 'tire', 'toolcart', 'trafficcone', 'tree',
+  'workbench', 'brokenFence', 'surgery',
+]);
+
 export function applyCampaignLayouts(stages: StageDef[]): void {
   stages.forEach((stage, chapterIndex) => {
     const chapter = CHAPTERS[chapterIndex];
@@ -182,8 +194,8 @@ export function applyCampaignLayouts(stages: StageDef[]): void {
           const large = ['car','ambulance','tanker','canopy','shopfront','tent','gurney','surgery','generator','workbench'].includes(propKind);
           const width = large ? propKind === 'tanker' ? 240 : propKind === 'canopy' ? 230 : propKind === 'shopfront' ? 210 : propKind === 'ambulance' ? 190 : propKind === 'surgery' ? 190 : propKind === 'tent' ? 190 : 160 + (n % 2) * 18 : ['signfuel','radio','pump','medicalSign','streetlight','trafficcone','mailbox','tire','bollard','examLamp','chair','oxygen','barrel','crate'].includes(propKind) ? (propKind === 'signfuel' ? 132 : propKind === 'radio' ? 118 : propKind === 'pump' ? 86 : propKind === 'medicalSign' ? 82 : 48 + (n % 2) * 12) : 76 + (n % 3) * 13;
           const height = large ? propKind === 'canopy' ? 142 : propKind === 'tanker' ? 104 : propKind === 'tent' || propKind === 'surgery' ? 132 : propKind === 'ambulance' ? 100 : 88 : ['streetlight','trafficcone','mailbox','tire','bollard','examLamp','chair','oxygen','barrel','crate'].includes(propKind) ? 46 : propKind === 'signfuel' ? 102 : propKind === 'radio' ? 112 : propKind === 'pump' ? 94 : propKind === 'medicalSign' ? 104 : 58;
-          const solid = ['car','ambulance','tanker','canopy','shopfront','tent','gurney','surgery','generator','workbench','barricade','barrier','fence','tree','crate','cooler','shelf','supplyCrate','divider','cabinet','barrel','roadDebris','roadSign','bollard','tire','shrub','brokenFence','porchsteps'].includes(propKind);
-          decorations.push({ ...room(cx + ox, cy + oy, width, height), kind: propKind, solid: solid && !bossArena });
+          const solid = BLOCKING_CAMPAIGN_PROPS.has(propKind);
+          decorations.push({ ...room(cx + ox, cy + oy, width, height), kind: propKind, solid });
         });
         return;
       }

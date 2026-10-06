@@ -2,7 +2,7 @@
 
 import { Pool } from '../core/pool';
 import { Camera } from '../core/camera';
-import { segmentHitsBuilding } from './map-geometry';
+import { segmentHitsBuilding, segmentLeavesCampaignWalkable } from './map-geometry';
 
 const GUN_PROJECTILE_SPEED_MULTIPLIER = 1.25;
 
@@ -96,7 +96,8 @@ export class BulletSystem {
       const nextY = b.y + b.vy * dt;
       // Sweep the complete projectile path against the same rotated solid
       // geometry used by actors; endpoint-only checks can miss thin corners.
-      if (collideBuildings && segmentHitsBuilding(b.x, b.y, nextX, nextY)) return true;
+      if (collideBuildings && (segmentHitsBuilding(b.x, b.y, nextX, nextY) ||
+          segmentLeavesCampaignWalkable(b.x, b.y, nextX, nextY))) return true;
       b.x = nextX;
       b.y = nextY;
       return false;

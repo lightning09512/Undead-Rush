@@ -754,13 +754,23 @@ export class CampaignUI {
     ctx.fillStyle = C.textSoft; ctx.font = '13px Segoe UI, Arial'; this.wrap(ctx, body, x, y + 23, width, 18, 2);
   }
   private wrap(ctx: CanvasRenderingContext2D, str: string, x: number, y: number, width: number, lineH: number, maxLines: number): void {
+    // Wrapped copy uses x as its left edge. Callers may have left the canvas in centered mode
+    // after drawing a heading, which otherwise makes the text spill outside its card.
+    ctx.save();
+    ctx.textAlign = 'left';
     const words = str.split(' '); let line = '', lines = 0;
     for (const word of words) {
       const next = line ? `${line} ${word}` : word;
-      if (ctx.measureText(next).width > width && line) { ctx.fillText(line, x, y + lines * lineH); lines++; line = word; if (lines >= maxLines) return; }
+      if (ctx.measureText(next).width > width && line) {
+        ctx.fillText(line, x, y + lines * lineH);
+        lines++;
+        line = word;
+        if (lines >= maxLines) { ctx.restore(); return; }
+      }
       else line = next;
     }
     if (lines < maxLines) ctx.fillText(line, x, y + lines * lineH);
+    ctx.restore();
   }
   private panel(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, stroke: string): void {
     ctx.fillStyle = C.panelRaised; ctx.fillRect(x, y, w, h); ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.strokeRect(x, y, w, h);

@@ -311,4 +311,20 @@ export function segmentHitsBuilding(x1: number, y1: number, x2: number, y2: numb
   return false;
 }
 
+/**
+ * Campaign boundary walls are drawn along the edge of the walkable room/corridor
+ * union rather than stored as building props. Sweep projectile paths against
+ * that same walkable area so shots cannot cross those rendered walls.
+ */
+export function segmentLeavesCampaignWalkable(x1: number, y1: number, x2: number, y2: number): boolean {
+  if (!campaignLayout) return false;
+  const dx = x2 - x1, dy = y2 - y1;
+  const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) / 8));
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    if (!isCampaignWalkable(x1 + dx * t, y1 + dy * t)) return true;
+  }
+  return false;
+}
+
 export const MAP_CENTER = { x: cx, y: cy };

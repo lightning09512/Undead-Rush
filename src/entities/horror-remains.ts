@@ -3,6 +3,7 @@ import type { Zombie } from './zombies';
 import { getHorrorAttack } from '../data/zombies';
 import { drawSurvivalZombie } from '../graphics/survival-zombie-renderer';
 import { drawHorrorCorpse } from '../graphics/horror-renderer';
+import { drawCampaignBoss } from '../graphics/campaign-boss-renderer';
 
 /** Fixed-size decal ring. Cached once on death, underneath all loot and actors. */
 export class HorrorRemains {
@@ -19,8 +20,26 @@ export class HorrorRemains {
     }
     const c = r.canvas.getContext('2d')!;
     c.clearRect(0, 0, 224, 224);
-    drawHorrorCorpse(c, z.typeId, 112, 112, z.size, z.facingAngle, z.id);
-    if (!getHorrorAttack(z.typeId)) {
+    if (z.campaignBossId !== null) {
+      // Campaign bosses have authored silhouettes; keep that exact boss in
+      // the death decal instead of layering the generic zombie corpse over it.
+      c.save(); c.translate(112, 112);
+      c.fillStyle = 'rgba(81, 13, 22, .78)';
+      c.beginPath(); c.ellipse(0, z.size * .28, z.size * 1.55, z.size * .92, -.18, 0, Math.PI * 2); c.fill();
+      for (let i = 0; i < 6; i++) {
+        const angle = ((z.id * 19 + i * 61) % 360) * Math.PI / 180;
+        const distance = z.size * (.72 + (i % 3) * .24);
+        c.fillStyle = i % 2 ? 'rgba(116, 21, 30, .74)' : 'rgba(57, 15, 21, .68)';
+        c.beginPath(); c.ellipse(Math.cos(angle) * distance, z.size * .22 + Math.sin(angle) * distance * .58,
+          z.size * (.2 + (i % 2) * .09), z.size * .11, angle, 0, Math.PI * 2); c.fill();
+      }
+      c.rotate(z.facingAngle + .34); c.scale(1.08, .68);
+      drawCampaignBoss(c, { ...z, hp: 1, facingAngle: 0, visualWindup: 0, visualStrike: 0, walkDist: 0 }, 0, 0, false, false);
+      c.restore();
+    } else {
+      drawHorrorCorpse(c, z.typeId, 112, 112, z.size, z.facingAngle, z.id);
+    }
+    if (z.campaignBossId === null && !getHorrorAttack(z.typeId)) {
       // Snapshot once at death. The world decal does not retain a pooled entity.
       c.save(); c.translate(112, 112); c.rotate(z.facingAngle + 0.25); c.scale(1.12, 0.65);
       drawSurvivalZombie(c, { ...z, facingAngle: 0, visualWindup: 0, visualStrike: 0, walkDist: 0 }, 0, 0, false);

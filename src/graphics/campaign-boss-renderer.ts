@@ -189,7 +189,8 @@ function drawLateBossHealth(ctx: CanvasRenderingContext2D, z: Zombie, x: number,
 }
 
 /** Campaign boss silhouettes, separate from the Survival renderer and stats. */
-export function drawCampaignBoss(ctx: CanvasRenderingContext2D, z: Zombie, x: number, y: number, flash: boolean): void {
+export function drawCampaignBoss(ctx: CanvasRenderingContext2D, z: Zombie, x: number, y: number, flash: boolean,
+  showHealthBar = true): void {
   const id = z.campaignBossId;
   if (id === null) return;
   const r = z.size;
@@ -206,7 +207,7 @@ export function drawCampaignBoss(ctx: CanvasRenderingContext2D, z: Zombie, x: nu
     else if (id === 9) drawLateBossNine(ctx, z, r, flash);
     else drawLateBossTen(ctx, z, r, flash);
     ctx.restore();
-    drawLateBossHealth(ctx, z, x, y, r);
+    if (showHealthBar) drawLateBossHealth(ctx, z, x, y, r);
     return;
   }
   if (id === 3) {
@@ -414,7 +415,9 @@ export function drawCampaignBoss(ctx: CanvasRenderingContext2D, z: Zombie, x: nu
   ctx.fillStyle = '#e4bdb0'; ctx.beginPath(); ctx.arc(r*.56,-r*.38,Math.max(2,r*.055),0,Math.PI*2); ctx.fill();
   ctx.restore();
 
-  // Campaign-only boss health bar.
-  ctx.fillStyle = 'rgba(12,13,15,.9)'; ctx.fillRect(x-r, y+r+12, r*2, 5);
-  ctx.fillStyle = id === 10 ? '#b74b46' : '#a94a43'; ctx.fillRect(x-r, y+r+12, r*2*Math.max(0,z.hp/z.maxHp), 5);
+  if (showHealthBar) {
+    // Campaign-only boss health bar.
+    ctx.fillStyle = 'rgba(12,13,15,.9)'; ctx.fillRect(x-r, y+r+12, r*2, 5);
+    ctx.fillStyle = id === 10 ? '#b74b46' : '#a94a43'; ctx.fillRect(x-r, y+r+12, r*2*Math.max(0,z.hp/z.maxHp), 5);
+  }
 }
