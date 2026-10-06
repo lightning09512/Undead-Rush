@@ -1,102 +1,157 @@
-interface CharacterRender {
-  image: HTMLImageElement;
+interface HunterArtPalette { cloth: string; armor: string; shadow: string; light: string; trim: string; skin: string; }
+
+function hunterArtPalette(id: string, accent: string): HunterArtPalette {
+  const palettes: Record<string, Omit<HunterArtPalette, 'trim'>> = {
+    survivor: { cloth: '#566a70', armor: '#303d41', shadow: '#1a2629', light: '#859a99', skin: '#b78e70' },
+    soldier: { cloth: '#53624b', armor: '#303c32', shadow: '#1c261f', light: '#829076', skin: '#b89172' },
+    scout: { cloth: '#766a4e', armor: '#393a31', shadow: '#22251f', light: '#b5a071', skin: '#c29a7a' },
+    medic: { cloth: '#84928a', armor: '#3d4c49', shadow: '#202c2b', light: '#bac9bf', skin: '#c79d81' },
+    engineer: { cloth: '#776a52', armor: '#393a34', shadow: '#22241f', light: '#b9a16f', skin: '#bd9274' },
+    berserker: { cloth: '#704347', armor: '#38272b', shadow: '#21191d', light: '#aa6660', skin: '#b48772' },
+  };
+  return { ...(palettes[id] ?? palettes.survivor), trim: id === 'medic' ? '#b64e4b' : accent };
 }
 
-const characterRenderCache = new Map<string, CharacterRender>();
-// Normalized trim boxes for the transparent 640 x 960 character renders.
-const CHARACTER_ART_CROP: Record<string, { x: number; y: number; w: number; h: number }> = {
-  survivor: { x: .227, y: 0, w: .555, h: 1 },
-  soldier: { x: .200, y: .006, w: .671, h: .994 },
-  scout: { x: .253, y: 0, w: .562, h: 1 },
-  medic: { x: .240, y: 0, w: .586, h: 1 },
-  engineer: { x: .218, y: 0, w: .590, h: 1 },
-  berserker: { x: .141, y: .006, w: .766, h: .994 },
-};
-
-function characterArtPath(id: string): string {
-  return `/assets/characters/${id}.webp`;
+function heroLimb(ctx: CanvasRenderingContext2D, points: Array<[number, number]>, width: number, color: string, highlight: string): void {
+  detailLine(ctx, points, '#151a1b', width + 5);
+  detailLine(ctx, points, color, width);
+  detailLine(ctx, points.map(([x, y]): [number, number] => [x - 1.2, y - 1.4]), highlight, Math.max(1, width * .16));
 }
 
-function loadCharacterRender(id: string): CharacterRender {
-  const cached = characterRenderCache.get(id);
-  if (cached) return cached;
-
-  const render: CharacterRender = { image: new Image() };
-  characterRenderCache.set(id, render);
-  render.image.src = characterArtPath(id);
-  return render;
-}
-
-/** Detailed 3D-style character renders for the Campaign preparation screen. */
+/** Hand-drawn Canvas portrait art, sharing the armory's inked metal-and-fabric style. */
 export function drawHunterPortrait(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, id: string, accent: string): void {
-  const render = loadCharacterRender(id);
-  if (render.image.complete && render.image.naturalWidth > 0) {
-    const crop = CHARACTER_ART_CROP[id] ?? { x: 0, y: 0, w: 1, h: 1 };
-    const source = {
-      x: render.image.naturalWidth * crop.x,
-      y: render.image.naturalHeight * crop.y,
-      w: render.image.naturalWidth * crop.w,
-      h: render.image.naturalHeight * crop.h,
-    };
-    const targetHeight = h * .98;
-    const aspect = source.w / source.h;
-    // A slight horizontal emphasis helps detailed full-body renders read at the
-    // compact scale of this 2D game's character selection card.
-    const targetWidth = Math.min(w * .88, targetHeight * aspect * 1.18);
-    const targetY = y + (h - targetHeight) / 2;
-    const targetX = x + (w - targetWidth) / 2;
+  const palette = hunterArtPalette(id, accent);
+  const scale = Math.min(w / 170, h / 244);
+  if (!(scale > 0)) return;
 
-    ctx.save();
-    ctx.globalAlpha = .25;
-    ctx.fillStyle = '#050808';
-    ctx.beginPath();
-    ctx.ellipse(x + w / 2, y + h - 5, Math.min(w * .32, targetWidth * .76), 6, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(render.image, source.x, source.y, source.w, source.h,
-      targetX, targetY, targetWidth, targetHeight);
-    ctx.restore();
-    return;
+  ctx.save();
+  ctx.translate(x + w / 2, y + h / 2);
+  ctx.scale(scale, scale);
+  ctx.translate(-80, -122);
+
+  // Ground shadow and layered boots/utility trousers.
+  ctx.fillStyle = 'rgba(0,0,0,.36)'; ctx.beginPath(); ctx.ellipse(81, 235, 39, 7, 0, 0, Math.PI * 2); ctx.fill();
+  polygon(ctx, [[53,179],[78,181],[76,219],[71,229],[47,229],[45,220]], '#303734', '#171c1c', 2);
+  polygon(ctx, [[82,181],[106,178],[113,218],[108,229],[83,229],[79,219]], '#373d39', '#171c1c', 2);
+  rounded(ctx, 44, 218, 31, 15, 4, '#252b2b', '#111718', 2);
+  rounded(ctx, 80, 218, 34, 15, 4, '#252b2b', '#111718', 2);
+  detailLine(ctx, [[48,224],[70,224],[72,228]], '#7f8980', 1.2);
+  detailLine(ctx, [[84,224],[108,224],[110,228]], '#7f8980', 1.2);
+  rounded(ctx, 56, 188, 18, 14, 3, palette.armor, '#1a2020', 1.2);
+  rounded(ctx, 84, 188, 18, 14, 3, palette.armor, '#1a2020', 1.2);
+  detailLine(ctx, [[61,191],[69,197],[64,201]], palette.light, 1);
+  detailLine(ctx, [[90,191],[98,197],[93,201]], palette.light, 1);
+  detailLine(ctx, [[78,184],[79,214]], '#171d1e', 2.1);
+
+  // Backpack, radio aerial and shoulder straps sit behind the torso.
+  rounded(ctx, 34, 88, 22, 73, 7, palette.shadow, '#121819', 2);
+  rounded(ctx, 37, 94, 16, 24, 4, palette.armor, '#101516', 1.1);
+  detailLine(ctx, [[41,99],[49,99],[49,112],[41,112],[41,99]], palette.light, 1);
+  rounded(ctx, 39, 127, 13, 17, 3, palette.cloth, '#171d1d', 1);
+  detailLine(ctx, [[49,91],[51,69],[54,64]], '#9ca79a', 1.3);
+
+  // Arms and gloves frame the weapon, with the same clean outlines as the gun art.
+  heroLimb(ctx, [[51,99],[43,117],[57,139]], 13, palette.cloth, palette.light);
+  heroLimb(ctx, [[108,98],[119,113],[113,139]], 14, palette.armor, palette.light);
+
+  // Layered jacket and plate carrier.
+  polygon(ctx, [[57,82],[70,76],[94,77],[108,86],[113,124],[105,165],[91,177],[62,171],[48,150],[49,111]], palette.cloth, '#171d1e', 2.4);
+  polygon(ctx, [[62,86],[76,81],[93,82],[105,90],[108,119],[101,144],[90,155],[64,149],[56,130],[55,104]], palette.armor, '#151a1b', 2);
+  polygon(ctx, [[64,87],[78,83],[92,85],[87,120],[70,122]], palette.light, '#242d2e', 1.1);
+  polygon(ctx, [[91,84],[103,91],[104,119],[91,120],[87,97]], palette.shadow, '#141a1b', 1.1);
+  detailLine(ctx, [[61,94],[69,104],[70,144]], '#a3a28b', 1.2);
+  detailLine(ctx, [[100,94],[94,105],[94,144]], '#a3a28b', 1.2);
+  rounded(ctx, 61, 126, 16, 17, 3, '#273131', '#111718', 1.4);
+  rounded(ctx, 82, 128, 17, 16, 3, '#283131', '#111718', 1.4);
+  detailLine(ctx, [[65,131],[73,131],[73,138],[65,138],[65,131]], palette.light, .9);
+  detailLine(ctx, [[86,132],[95,132]], palette.light, .9);
+  screw(ctx, 64, 91, { darkMetal: '#202727', edge: palette.light } as ReturnType<typeof gunPalette>);
+  screw(ctx, 101, 93, { darkMetal: '#202727', edge: palette.light } as ReturnType<typeof gunPalette>);
+
+  // Class insignia and equipment distinguish the existing six character classes.
+  if (id === 'medic') {
+    rounded(ctx, 96, 105, 12, 18, 2, '#d7ddd3', '#242c2b', 1);
+    ctx.fillStyle = '#ad4a48'; ctx.fillRect(100, 108, 4, 12); ctx.fillRect(97, 112, 10, 4);
+    rounded(ctx, 42, 112, 8, 17, 2, '#d5ddd2', '#28302e', .8);
+    ctx.fillStyle = '#af4c49'; ctx.fillRect(44, 116, 4, 3); ctx.fillRect(45, 114, 2, 8);
+  } else if (id === 'engineer') {
+    rounded(ctx, 49, 146, 15, 12, 2, '#c49f5c', '#29261f', 1.2);
+    detailLine(ctx, [[52,149],[61,149],[61,155],[52,155],[52,149]], '#e0c37e', .9);
+    rounded(ctx, 92, 148, 17, 10, 3, '#333b39', '#141a1a', 1.1);
+    detailLine(ctx, [[96,151],[105,151]], '#c8a45e', 1.2);
+  } else if (id === 'soldier') {
+    rounded(ctx, 68, 99, 23, 25, 3, '#28332d', '#111716', 1.4);
+    detailLine(ctx, [[72,103],[86,103],[86,119],[72,119],[72,103]], '#96a182', 1.2);
+    detailLine(ctx, [[78,108],[80,114]], palette.trim, 1.4);
+  } else if (id === 'scout') {
+    detailLine(ctx, [[59,91],[68,103],[91,141]], '#bca46e', 2.2);
+    detailLine(ctx, [[95,91],[89,104],[68,140]], '#bca46e', 1.2);
+    rounded(ctx, 87, 113, 12, 7, 2, '#b69b61', '#24231d', .8);
+  } else if (id === 'berserker') {
+    detailLine(ctx, [[56,101],[70,116],[99,145]], '#a64c49', 3);
+    detailLine(ctx, [[104,99],[96,113],[69,147]], '#a64c49', 2.2);
+    rounded(ctx, 51, 124, 10, 19, 3, '#473137', '#1b191b', 1);
+  } else {
+    rounded(ctx, 97, 105, 10, 16, 2, palette.shadow, '#111718', 1);
+    detailLine(ctx, [[100,108],[104,108],[104,118]], palette.trim, 1.2);
   }
 
-  drawHunterPortraitFallback(ctx, x, y, w, h, id, accent);
-}
+  // Collar, neck and face, built as beveled shapes rather than a raster portrait.
+  polygon(ctx, [[68,75],[75,69],[88,69],[97,78],[92,91],[72,91]], '#343c3c', '#131819', 1.6);
+  const faceGrad = ctx.createLinearGradient(68, 42, 93, 69);
+  faceGrad.addColorStop(0, '#d0aa86'); faceGrad.addColorStop(1, '#88644e');
+  ctx.fillStyle = faceGrad; ctx.strokeStyle = '#1b1b1a'; ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.moveTo(67,46); ctx.lineTo(73,35); ctx.lineTo(91,36); ctx.lineTo(97,48);
+  ctx.lineTo(93,67); ctx.lineTo(83,75); ctx.lineTo(72,69); ctx.closePath(); ctx.fill(); ctx.stroke();
+  detailLine(ctx, [[72,54],[79,54]], '#1d2524', 2.5);
+  detailLine(ctx, [[86,54],[93,53]], '#1d2524', 2.5);
+  ctx.fillStyle = '#d8d0bd'; ctx.fillRect(74, 53, 3, 1.1); ctx.fillRect(87, 52, 3, 1.1);
+  detailLine(ctx, [[78,65],[82,67],[87,65]], '#664f43', 1.4);
 
-/** Lightweight local fallback while a character render is loading or unavailable. */
-function drawHunterPortraitFallback(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, id: string, accent: string): void {
-  ctx.save();
-  ctx.translate(x + w / 2, y + h * .1);
-  ctx.scale(Math.min(w / 116, h / 195), Math.min(w / 116, h / 195));
-  ctx.fillStyle = '#111819'; ctx.beginPath(); ctx.ellipse(2, 170, 48, 9, 0, 0, Math.PI * 2); ctx.fill();
-  const coat = id === 'medic' ? '#a6afa6' : id === 'scout' ? '#746d55' : id === 'berserker' ? '#5a3839' : id === 'soldier' ? '#596954' : id === 'engineer' ? '#70695a' : '#50636b';
-  const skin = id === 'scout' ? '#c79e7d' : id === 'medic' ? '#d7b597' : '#b89376';
-  // Boots and uneven utility trousers.
-  ctx.fillStyle = '#252b2c'; ctx.fillRect(-29, 150, 24, 19); ctx.fillRect(8, 150, 25, 19);
-  ctx.fillStyle = '#3a4240'; ctx.beginPath(); ctx.moveTo(-31,90); ctx.lineTo(26,90); ctx.lineTo(31,151); ctx.lineTo(7,151); ctx.lineTo(1,112); ctx.lineTo(-6,151); ctx.lineTo(-29,151); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#1b2528'; ctx.fillRect(-31, 97, 60, 7);
-  // Arms frame a front-facing torso. One hand rests on a carried weapon.
-  ctx.fillStyle = skin; ctx.fillRect(-48, 83, 12, 28); ctx.fillRect(36, 83, 12, 28);
-  ctx.fillStyle = coat; ctx.beginPath(); ctx.moveTo(-38,38); ctx.lineTo(33,38); ctx.lineTo(43,96); ctx.lineTo(19,111); ctx.lineTo(-30,106); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#263233'; ctx.fillRect(-35, 84, 69, 10);
-  ctx.fillStyle = accent; ctx.fillRect(-29, 54, 9, 27);
-  if (id === 'medic') { ctx.fillStyle = '#e4ded2'; ctx.fillRect(10,53,17,19); ctx.fillStyle = '#a7504e'; ctx.fillRect(17,55,4,15); ctx.fillRect(12,60,14,4); }
-  if (id === 'engineer') { ctx.fillStyle = '#c8a96f'; ctx.fillRect(-27,77,19,10); ctx.fillRect(16,80,14,8); }
-  if (id === 'soldier') { ctx.fillStyle = '#232c27'; ctx.fillRect(-15,46,30,30); ctx.strokeStyle = '#96a285'; ctx.strokeRect(-15,46,30,30); }
-  if (id === 'berserker') { ctx.strokeStyle = '#9b5d54'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(-35,48); ctx.lineTo(-17,80); ctx.moveTo(30,47); ctx.lineTo(16,80); ctx.stroke(); }
-  if (id === 'scout') { ctx.fillStyle = '#c3a568'; ctx.fillRect(-11,46,22,5); ctx.fillRect(-17,76,31,4); }
-  // Visible face, eyes and mouth below headgear.
-  ctx.fillStyle = skin; ctx.beginPath(); ctx.ellipse(0,22,18,23,0,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle = '#232726'; ctx.fillRect(-13,17,8,3); ctx.fillRect(5,17,8,3);
-  ctx.fillStyle = '#e7dfc5'; ctx.fillRect(-9,20,5,2); ctx.fillRect(5,20,5,2);
-  ctx.strokeStyle = '#72584a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-5,34); ctx.quadraticCurveTo(1,37,7,33); ctx.stroke();
-  ctx.fillStyle = id === 'medic' ? '#d1d1c2' : id === 'scout' ? '#665f4e' : '#303b3b';
-  ctx.beginPath(); ctx.moveTo(-20,15); ctx.lineTo(-16,-2); ctx.quadraticCurveTo(0,-14,17,-2); ctx.lineTo(21,14); ctx.lineTo(11,9); ctx.lineTo(-13,9); ctx.closePath(); ctx.fill();
-  if (id === 'scout') { ctx.strokeStyle = '#c2aa78'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-20,14);ctx.lineTo(20,14);ctx.stroke(); }
-  // Compact rifle/sidearm carried at chest height.
-  ctx.fillStyle = '#222d31'; ctx.fillRect(-33,102,69,8); ctx.fillRect(15,96,24,5); ctx.fillRect(-14,109,14,18);
-  ctx.fillStyle = '#8f958c'; ctx.fillRect(-20,99,24,3); ctx.fillRect(23,104,19,2);
+  // Distinct headgear: each silhouette and material remain hand-drawn and readable.
+  if (id === 'scout') {
+    polygon(ctx, [[63,47],[66,31],[77,25],[91,27],[99,37],[98,45],[88,41],[71,42]], '#675e48', '#171b1b', 2);
+    polygon(ctx, [[72,39],[103,39],[108,44],[91,46],[72,44]], '#88734c', '#201e19', 1.4);
+    rounded(ctx, 74, 36, 17, 5, 2, '#292e2e', '#121819', 1);
+    detailLine(ctx, [[77,38],[87,38]], '#b5aa82', 1);
+  } else if (id === 'medic') {
+    polygon(ctx, [[63,49],[66,33],[75,25],[91,26],[99,35],[100,46],[93,44],[72,44]], '#bac6bd', '#171d1d', 2);
+    rounded(ctx, 74, 30, 18, 12, 3, '#e0e3d9', '#7a8980', 1);
+    ctx.fillStyle = '#b94d4a'; ctx.fillRect(81, 32, 4, 9); ctx.fillRect(78, 35, 10, 3);
+    polygon(ctx, [[66,43],[99,43],[104,47],[67,48]], '#899890', '#252d2b', 1);
+  } else if (id === 'engineer') {
+    polygon(ctx, [[61,45],[64,35],[74,28],[91,29],[99,37],[99,45]], '#8f7444', '#191b18', 2);
+    rounded(ctx, 68, 29, 28, 12, 4, '#b49a60', '#28271f', 1.5);
+    detailLine(ctx, [[72,32],[91,32]], '#dcc784', 1.2);
+    rounded(ctx, 74, 36, 17, 6, 2, '#283131', '#151a1a', 1);
+    detailLine(ctx, [[78,39],[87,39]], '#8ed2d0', 1.2);
+  } else if (id === 'berserker') {
+    polygon(ctx, [[62,48],[65,33],[75,25],[91,27],[100,37],[98,48],[90,42],[72,43]], '#3a292d', '#171719', 2);
+    polygon(ctx, [[63,41],[98,41],[103,47],[68,49]], '#8f4648', '#231b1d', 1.7);
+    detailLine(ctx, [[68,42],[95,42]], '#d37a68', 1.5);
+    rounded(ctx, 73, 34, 21, 7, 3, '#211e21', '#161718', 1);
+    detailLine(ctx, [[76,37],[91,37]], '#be6659', 1.1);
+  } else {
+    polygon(ctx, [[62,47],[65,32],[76,24],[92,27],[100,38],[98,47],[89,42],[71,43]], id === 'soldier' ? '#4b5c46' : '#3b4646', '#141a1a', 2);
+    polygon(ctx, [[62,43],[100,43],[104,48],[63,48]], id === 'soldier' ? '#7b8965' : '#626f70', '#202626', 1.5);
+    rounded(ctx, 71, 34, 24, 8, 3, '#252d30', '#111718', 1.3);
+    detailLine(ctx, [[75,36],[91,36]], id === 'soldier' ? '#b3bf91' : '#8de5e8', 1.6);
+  }
+
+  // Forearm support and hands hold the same crisp illustrated rifle used in the armory.
+  heroLimb(ctx, [[46,117],[59,126],[69,137]], 7, palette.cloth, palette.light);
+  heroLimb(ctx, [[117,115],[121,128],[112,137]], 7, palette.armor, palette.light);
+  drawGunArt(ctx, 27, 119, 111, 40, id === 'medic' ? 'smg9' : id === 'scout' ? 'dmr55' : 'ar7');
+  rounded(ctx, 64, 130, 11, 8, 3, '#262c2a', '#111616', 1.3);
+  rounded(ctx, 108, 130, 11, 8, 3, '#262c2a', '#111616', 1.3);
+  detailLine(ctx, [[67,133],[72,133]], '#a98c6c', 1);
+  detailLine(ctx, [[111,133],[116,133]], '#a98c6c', 1);
+
+  // Clear edge highlights and small rivets finish the illustration like the weapon sprites.
+  detailLine(ctx, [[53,105],[57,91],[67,84]], 'rgba(205,218,198,.7)', 1.2);
+  detailLine(ctx, [[105,91],[111,101],[109,115]], 'rgba(205,218,198,.55)', 1.1);
+  screw(ctx, 56, 105, { darkMetal: '#202727', edge: palette.light } as ReturnType<typeof gunPalette>);
+  screw(ctx, 105, 106, { darkMetal: '#202727', edge: palette.light } as ReturnType<typeof gunPalette>);
   ctx.restore();
 }
 

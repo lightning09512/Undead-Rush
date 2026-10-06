@@ -1,4 +1,3 @@
-import playerImg from '../assets/hero.png';
 import zombieNormalImg from '../assets/normal_zombie-removebg-preview.png';
 import zombieRunnerImg from '../assets/runner-removebg-preview.png';
 import zombieTankImg from '../assets/Tank-removebg-preview.png';
@@ -16,7 +15,6 @@ export interface AssetConfig {
 
 export const ASSETS_CONFIG: Record<string, AssetConfig> = {
   // Entities
-  'player': { name: 'player', path: playerImg, scale: 64 },
   'zombie_normal': { name: 'zombie_normal', path: zombieNormalImg, scale: 64 },
   'zombie_runner': { name: 'zombie_runner', path: zombieRunnerImg, scale: 54 },
   'zombie_tank': { name: 'zombie_tank', path: zombieTankImg, scale: 105 },
