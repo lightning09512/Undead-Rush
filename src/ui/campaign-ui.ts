@@ -808,8 +808,8 @@ export class CampaignUI {
 
   private characterDescription(id: string, fallback: string): string {
     const descriptions = this.language === 'en'
-      ? { survivor: 'Picks up items from 20% farther away', soldier: 'Deals 20% more damage', scout: 'Moves 20% faster', medic: 'Has 25% more maximum HP', engineer: 'Fires 18% faster', berserker: 'Takes 18% less damage' }
-      : { survivor: 'Nhặt vật phẩm xa hơn 20%', soldier: 'Gây thêm 20% sát thương', scout: 'Di chuyển nhanh hơn 20%', medic: 'Tăng 25% máu tối đa', engineer: 'Tăng 18% tốc độ bắn', berserker: 'Giảm 18% sát thương nhận vào' };
+      ? { survivor: 'Reloads 15% faster', soldier: 'Deals 12% more damage', scout: 'Moves 12% faster', medic: 'Has 20% more maximum HP', engineer: 'Fires 12% faster', berserker: 'Takes 12% less damage' }
+      : { survivor: 'Nạp đạn nhanh hơn 15%', soldier: 'Gây thêm 12% sát thương', scout: 'Di chuyển nhanh hơn 12%', medic: 'Tăng 20% máu tối đa', engineer: 'Tăng 12% tốc độ bắn', berserker: 'Giảm 12% sát thương nhận vào' };
     return descriptions[id as keyof typeof descriptions] ?? fallback;
   }
 

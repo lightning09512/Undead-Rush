@@ -1,5 +1,71 @@
-/** Original vector illustrations for the Campaign preparation screen. */
+interface CharacterRender {
+  image: HTMLImageElement;
+}
+
+const characterRenderCache = new Map<string, CharacterRender>();
+// Normalized trim boxes for the transparent 640 x 960 character renders.
+const CHARACTER_ART_CROP: Record<string, { x: number; y: number; w: number; h: number }> = {
+  survivor: { x: .227, y: 0, w: .555, h: 1 },
+  soldier: { x: .200, y: .006, w: .671, h: .994 },
+  scout: { x: .253, y: 0, w: .562, h: 1 },
+  medic: { x: .240, y: 0, w: .586, h: 1 },
+  engineer: { x: .218, y: 0, w: .590, h: 1 },
+  berserker: { x: .141, y: .006, w: .766, h: .994 },
+};
+
+function characterArtPath(id: string): string {
+  return `/assets/characters/${id}.webp`;
+}
+
+function loadCharacterRender(id: string): CharacterRender {
+  const cached = characterRenderCache.get(id);
+  if (cached) return cached;
+
+  const render: CharacterRender = { image: new Image() };
+  characterRenderCache.set(id, render);
+  render.image.src = characterArtPath(id);
+  return render;
+}
+
+/** Detailed 3D-style character renders for the Campaign preparation screen. */
 export function drawHunterPortrait(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, id: string, accent: string): void {
+  const render = loadCharacterRender(id);
+  if (render.image.complete && render.image.naturalWidth > 0) {
+    const crop = CHARACTER_ART_CROP[id] ?? { x: 0, y: 0, w: 1, h: 1 };
+    const source = {
+      x: render.image.naturalWidth * crop.x,
+      y: render.image.naturalHeight * crop.y,
+      w: render.image.naturalWidth * crop.w,
+      h: render.image.naturalHeight * crop.h,
+    };
+    const targetHeight = h * .98;
+    const aspect = source.w / source.h;
+    // A slight horizontal emphasis helps detailed full-body renders read at the
+    // compact scale of this 2D game's character selection card.
+    const targetWidth = Math.min(w * .88, targetHeight * aspect * 1.18);
+    const targetY = y + (h - targetHeight) / 2;
+    const targetX = x + (w - targetWidth) / 2;
+
+    ctx.save();
+    ctx.globalAlpha = .25;
+    ctx.fillStyle = '#050808';
+    ctx.beginPath();
+    ctx.ellipse(x + w / 2, y + h - 5, Math.min(w * .32, targetWidth * .76), 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(render.image, source.x, source.y, source.w, source.h,
+      targetX, targetY, targetWidth, targetHeight);
+    ctx.restore();
+    return;
+  }
+
+  drawHunterPortraitFallback(ctx, x, y, w, h, id, accent);
+}
+
+/** Lightweight local fallback while a character render is loading or unavailable. */
+function drawHunterPortraitFallback(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, id: string, accent: string): void {
   ctx.save();
   ctx.translate(x + w / 2, y + h * .1);
   ctx.scale(Math.min(w / 116, h / 195), Math.min(w / 116, h / 195));

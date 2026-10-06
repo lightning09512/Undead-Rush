@@ -104,7 +104,8 @@ export interface CharacterDef {
     speed?: number;
     hp?: number;
     fireRate?: number;
-    pickupRadius?: number;
+    /** Reload speed multiplier. */
+    reloadSpeed?: number;
     /** Multiplier applied to incoming damage (lower means tougher). */
     damageReduction?: number;
     special?: string;
@@ -115,44 +116,44 @@ export const CHARACTERS: CharacterDef[] = [
   {
     id: 'survivor',
     name: 'Survivor',
-    description: 'Nhặt vật phẩm từ xa hơn 20%',
+    description: 'Nạp đạn nhanh hơn 15%',
     color: '#4488ff',
-    bonuses: { pickupRadius: 1.2 },
+    bonuses: { reloadSpeed: 1.15 },
   },
   {
     id: 'soldier',
     name: 'Soldier',
-    description: 'Gây thêm 20% sát thương',
+    description: 'Gây thêm 12% sát thương',
     color: '#44aa44',
-    bonuses: { damage: 1.2 },
+    bonuses: { damage: 1.12 },
   },
   {
     id: 'scout',
     name: 'Scout',
-    description: 'Di chuyển nhanh hơn 20%',
+    description: 'Di chuyển nhanh hơn 12%',
     color: '#ffaa22',
-    bonuses: { speed: 1.2 },
+    bonuses: { speed: 1.12 },
   },
   {
     id: 'medic',
     name: 'Medic',
-    description: 'Có thêm 25% máu tối đa',
+    description: 'Tăng 20% máu tối đa',
     color: '#ff4488',
-    bonuses: { hp: 1.25 },
+    bonuses: { hp: 1.2 },
   },
   {
     id: 'engineer',
     name: 'Engineer',
-    description: 'Tăng 18% tốc độ bắn',
+    description: 'Tăng 12% tốc độ bắn',
     color: '#88aaff',
-    bonuses: { fireRate: 1.18 },
+    bonuses: { fireRate: 1.12 },
   },
   {
     id: 'berserker',
     name: 'Berserker',
-    description: 'Giảm 18% sát thương nhận vào',
+    description: 'Giảm 12% sát thương nhận vào',
     color: '#ff2222',
-    bonuses: { damageReduction: 0.82 },
+    bonuses: { damageReduction: 0.88 },
   },
 ];
 

@@ -2905,7 +2905,7 @@ function applyPermUpgrades(): void {
       player.hp = player.maxHp;
     }
     if (char.bonuses.fireRate) player.fireRate *= char.bonuses.fireRate;
-    if (char.bonuses.pickupRadius) player.pickupRadius *= char.bonuses.pickupRadius;
+    if (char.bonuses.reloadSpeed) player.reloadSpeedMultiplier *= char.bonuses.reloadSpeed;
   }
 }
 
