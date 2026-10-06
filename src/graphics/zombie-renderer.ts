@@ -4,7 +4,6 @@ import type { Zombie } from '../entities/zombies';
 import { drawHorrorZombie } from './horror-renderer';
 import { drawHorrorZombie as drawStageHorrorZombie } from './stage-horror-renderer';
 import { drawSurvivalZombie } from './survival-zombie-renderer';
-import { drawZombieGestureSprite } from './zombie-gesture-sprites';
 
 export class ZombieRenderer {
   private static shadowCanvas: HTMLCanvasElement;
@@ -34,7 +33,6 @@ export class ZombieRenderer {
     isFlashing: boolean,
     survival = false
   ): void {
-    if (drawZombieGestureSprite(ctx, z, sx, sy, isFlashing)) return;
     if (survival) {
       if (!drawHorrorZombie(ctx, z, sx, sy, isFlashing)) drawSurvivalZombie(ctx, z, sx, sy, isFlashing);
       return;
@@ -53,12 +51,19 @@ export class ZombieRenderer {
 
     // ─── 2. Top-Down Rotated Entity Space ───
     ctx.save();
-    ctx.translate(sx, sy);
+    const moveSpeed = Math.hypot(z.vx, z.vy);
+    const strideRate = z.typeId === 'tank' ? 1.2 : z.typeId === 'runner' ? 2.8 : 1.8;
+    const gait = Math.sin(z.walkDist * strideRate + z.wobble);
+    const locomotion = Math.min(1, moveSpeed / Math.max(1, z.speed));
+    const idleBob = Math.sin(z.animTimer * 2.2 + z.wobble) * 0.65;
+    const stepBob = Math.abs(gait) * (z.typeId === 'tank' ? 1.8 : 1.2);
+    ctx.translate(sx, sy + (locomotion > 0.04 ? stepBob * locomotion : idleBob));
     ctx.rotate(z.facingAngle);
     ctx.scale(scale, scale);
 
-    // Dynamic shambling wobble
-    const wobble = Math.sin(z.animTimer * 4.5 + z.wobble) * 0.055;
+    // Keep the existing illustrated forms, but give their idle, gait and
+    // attack poses a little more weight and stagger without changing hitboxes.
+    const wobble = Math.sin(z.animTimer * 4.5 + z.wobble) * 0.055 + gait * locomotion * 0.022 - z.attackAnim * 0.035;
     ctx.rotate(wobble);
 
     // Render terrifying procedural archetype
@@ -199,6 +204,8 @@ export class ZombieRenderer {
     const stride = sp > 5 ? Math.sin(z.walkDist * 1.8) * 6 : 0;
     const attack = z.attackAnim;
     const clawSwipe = Math.sin(z.attackTimer * 13) * (8 * attack);
+    const idleReach = Math.sin(z.animTimer * 2.1 + z.wobble) * (sp > 5 ? 0 : 2.8);
+    const armTwitch = Math.sin(z.animTimer * 4.2 + z.id) * (sp > 5 ? 1.2 : 1.8);
 
     // Volumetric Feet (decayed muddy combat boots with treads)
     const footGradL = ctx.createLinearGradient(0, -11, 0, -4);
@@ -250,8 +257,8 @@ export class ZombieRenderer {
     }
 
     // ─── Arms: Muscular Rotten Tendons & Sharp Bony Talons ───
-    const armL = 17 + (attack > 0 ? clawSwipe : stride * 0.45);
-    const armR = 17 + (attack > 0 ? -clawSwipe : -stride * 0.45);
+    const armL = 17 + (attack > 0 ? clawSwipe : stride * 0.45 + idleReach);
+    const armR = 17 + (attack > 0 ? -clawSwipe : -stride * 0.45 - idleReach * 0.7);
 
     // Left Arm (upper highlight, lower shadow)
     const armGrad = ctx.createLinearGradient(0, -12, 0, -4);
@@ -263,25 +270,25 @@ export class ZombieRenderer {
 
     ctx.beginPath();
     ctx.moveTo(-1, -10);
-    ctx.lineTo(armL, -8 - attack * 3);
+    ctx.lineTo(armL, -8 - attack * 3 + armTwitch);
     ctx.stroke();
 
     ctx.beginPath();
     ctx.moveTo(-1, 10);
-    ctx.lineTo(armR, 8 + attack * 3);
+    ctx.lineTo(armR, 8 + attack * 3 - armTwitch);
     ctx.stroke();
 
     // Sharp Bony Claw Fingers
     ctx.fillStyle = flash ? '#ffffff' : '#d2dbc8';
     ctx.beginPath();
     // Claw talons left
-    ctx.moveTo(armL, -10 - attack * 3);
-    ctx.lineTo(armL + 5, -8 - attack * 3);
-    ctx.lineTo(armL, -6 - attack * 3);
+    ctx.moveTo(armL, -10 - attack * 3 + armTwitch);
+    ctx.lineTo(armL + 5, -8 - attack * 3 + armTwitch);
+    ctx.lineTo(armL, -6 - attack * 3 + armTwitch);
     // Claw talons right
-    ctx.moveTo(armR, 6 + attack * 3);
-    ctx.lineTo(armR + 5, 8 + attack * 3);
-    ctx.lineTo(armR, 10 + attack * 3);
+    ctx.moveTo(armR, 6 + attack * 3 - armTwitch);
+    ctx.lineTo(armR + 5, 8 + attack * 3 - armTwitch);
+    ctx.lineTo(armR, 10 + attack * 3 - armTwitch);
     ctx.fill();
 
     // Dripping Fresh Blood on Claw Tips
@@ -364,6 +371,8 @@ export class ZombieRenderer {
     const stride = sp > 5 ? Math.sin(z.walkDist * 2.8) * 8.5 : 0;
     const attack = z.attackAnim;
     const clawSwipe = Math.sin(z.attackTimer * 18) * (10 * attack);
+    const idleReach = Math.sin(z.animTimer * 2.8 + z.wobble) * (sp > 5 ? 0 : 3.2);
+    const handLift = Math.sin(z.animTimer * 4.1 + z.id) * 1.7;
 
     // Scissor Legs (lean, predatory)
     ctx.fillStyle = flash ? '#ffffff' : '#38280f';
@@ -395,30 +404,30 @@ export class ZombieRenderer {
     }
 
     // Feral Elongated Arms
-    const armL = 20 + (attack > 0 ? clawSwipe : stride * 0.5);
-    const armR = 20 + (attack > 0 ? -clawSwipe : -stride * 0.5);
+    const armL = 20 + (attack > 0 ? clawSwipe : stride * 0.5 + idleReach);
+    const armR = 20 + (attack > 0 ? -clawSwipe : -stride * 0.5 - idleReach * 0.75);
 
     ctx.strokeStyle = flash ? '#ffffff' : '#c48f2b';
     ctx.lineWidth = 3.8;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(-2, -8); ctx.lineTo(armL, -6 - attack * 3.5);
-    ctx.moveTo(-2, 8); ctx.lineTo(armR, 6 + attack * 3.5);
+    ctx.moveTo(-2, -8); ctx.lineTo(armL, -6 - attack * 3.5 + handLift);
+    ctx.moveTo(-2, 8); ctx.lineTo(armR, 6 + attack * 3.5 - handLift);
     ctx.stroke();
 
     // Razor-sharp curved talons
     ctx.fillStyle = flash ? '#ffffff' : '#e6ded1';
     ctx.beginPath();
-    ctx.arc(armL + 2.5, -6 - attack * 3.5, 2.5, 0, Math.PI * 2);
-    ctx.arc(armR + 2.5, 6 + attack * 3.5, 2.5, 0, Math.PI * 2);
+    ctx.arc(armL + 2.5, -6 - attack * 3.5 + handLift, 2.5, 0, Math.PI * 2);
+    ctx.arc(armR + 2.5, 6 + attack * 3.5 - handLift, 2.5, 0, Math.PI * 2);
     ctx.fill();
 
     // Blood tips
     if (!flash) {
       ctx.fillStyle = '#ff1122';
       ctx.beginPath();
-      ctx.arc(armL + 4, -6 - attack * 3.5, 1.6, 0, Math.PI * 2);
-      ctx.arc(armR + 4, 6 + attack * 3.5, 1.6, 0, Math.PI * 2);
+      ctx.arc(armL + 4, -6 - attack * 3.5 + handLift, 1.6, 0, Math.PI * 2);
+      ctx.arc(armR + 4, 6 + attack * 3.5 - handLift, 1.6, 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -460,6 +469,7 @@ export class ZombieRenderer {
     const stride = sp > 5 ? Math.sin(z.walkDist * 1.2) * 5.5 : 0;
     const attack = z.attackAnim;
     const slam = Math.sin(z.attackTimer * 9) * (9 * attack);
+    const heave = Math.sin(z.animTimer * 2 + z.wobble) * (sp > 5 ? 1.1 : 2.4);
 
     // Heavy iron-reinforced combat treads
     ctx.fillStyle = flash ? '#ffffff' : '#17141f';
@@ -490,30 +500,30 @@ export class ZombieRenderer {
     }
 
     // Heavy Sledgehammer Arms
-    const fistL = 22 + (attack > 0 ? slam : stride * 0.35);
-    const fistR = 22 + (attack > 0 ? -slam : -stride * 0.35);
+    const fistL = 22 + (attack > 0 ? slam : stride * 0.35 + heave);
+    const fistR = 22 + (attack > 0 ? -slam : -stride * 0.35 - heave);
 
     ctx.strokeStyle = flash ? '#ffffff' : '#632e69';
     ctx.lineWidth = 8.5;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(-4, -14); ctx.lineTo(fistL, -10);
-    ctx.moveTo(-4, 14); ctx.lineTo(fistR, 10);
+    ctx.moveTo(-4, -14); ctx.lineTo(fistL, -10 - heave * 0.35);
+    ctx.moveTo(-4, 14); ctx.lineTo(fistR, 10 + heave * 0.35);
     ctx.stroke();
 
     // Massive Spiked Armored Knuckle Plates
     ctx.fillStyle = flash ? '#ffffff' : '#2b122e';
     ctx.beginPath();
-    ctx.arc(fistL + 2, -10, 6, 0, Math.PI * 2);
-    ctx.arc(fistR + 2, 10, 6, 0, Math.PI * 2);
+    ctx.arc(fistL + 2, -10 - heave * 0.35, 6, 0, Math.PI * 2);
+    ctx.arc(fistR + 2, 10 + heave * 0.35, 6, 0, Math.PI * 2);
     ctx.fill();
 
     // Knuckle Spikes
     if (!flash) {
       ctx.fillStyle = '#ff8800';
       ctx.beginPath();
-      ctx.moveTo(fistL + 6, -12); ctx.lineTo(fistL + 11, -10); ctx.lineTo(fistL + 6, -8);
-      ctx.moveTo(fistR + 6, 8); ctx.lineTo(fistR + 11, 10); ctx.lineTo(fistR + 6, 12);
+      ctx.moveTo(fistL + 6, -12 - heave * 0.35); ctx.lineTo(fistL + 11, -10 - heave * 0.35); ctx.lineTo(fistL + 6, -8 - heave * 0.35);
+      ctx.moveTo(fistR + 6, 8 + heave * 0.35); ctx.lineTo(fistR + 11, 10 + heave * 0.35); ctx.lineTo(fistR + 6, 12 + heave * 0.35);
       ctx.fill();
     }
 
@@ -551,6 +561,8 @@ export class ZombieRenderer {
     const sp = Math.hypot(z.vx, z.vy);
     const waddle = sp > 5 ? Math.sin(z.walkDist * 1.5) * 5 : 0;
     const pulse = 1 + Math.sin(z.animTimer * 6) * 0.08;
+    const strain = z.attackAnim * (1 + Math.sin(z.attackTimer * 8) * 0.25);
+    const armSway = Math.sin(z.animTimer * 2.4 + z.wobble) * 1.8;
 
     // Swollen deformed feet
     ctx.fillStyle = flash ? '#ffffff' : '#2e1511';
@@ -616,8 +628,8 @@ export class ZombieRenderer {
     ctx.lineWidth = 4.8;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(2, -12); ctx.lineTo(16 + waddle * 0.4, -13);
-    ctx.moveTo(2, 12); ctx.lineTo(16 - waddle * 0.4, 13);
+    ctx.moveTo(2, -12); ctx.lineTo(16 + waddle * 0.4 + strain * 2, -13 + armSway);
+    ctx.moveTo(2, 12); ctx.lineTo(16 - waddle * 0.4 + strain * 2, 13 - armSway);
     ctx.stroke();
 
     // Drooling Grotesque Head sunken into neck
@@ -653,6 +665,8 @@ export class ZombieRenderer {
   private static renderSpitter(ctx: CanvasRenderingContext2D, z: Zombie, flash: boolean): void {
     const sp = Math.hypot(z.vx, z.vy);
     const stride = sp > 5 ? Math.sin(z.walkDist * 2.0) * 6 : 0;
+    const idleSway = Math.sin(z.animTimer * 2.5 + z.wobble) * (sp > 5 ? 0 : 2.1);
+    const spitTwitch = Math.sin(z.animTimer * 5.2 + z.id) * 1.2;
 
     // Slender clawed feet
     ctx.fillStyle = flash ? '#ffffff' : '#162e1e';
@@ -686,8 +700,8 @@ export class ZombieRenderer {
     ctx.lineWidth = 3.6;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(0, -8); ctx.lineTo(15, -6);
-    ctx.moveTo(0, 8); ctx.lineTo(15, 6);
+    ctx.moveTo(0, -8); ctx.lineTo(15 + idleSway, -6 + spitTwitch);
+    ctx.moveTo(0, 8); ctx.lineTo(15 - idleSway, 6 - spitTwitch);
     ctx.stroke();
 
     // Acid-Corroded Beak / Maw
@@ -768,7 +782,8 @@ export class ZombieRenderer {
     }
 
     // Golden Claws
-    const armReach = 18 + (attack > 0 ? Math.sin(z.attackTimer * 14) * 8 : stride * 0.4);
+    const idleReach = Math.sin(z.animTimer * 2.8 + z.wobble) * (sp > 5 ? 0 : 2.5);
+    const armReach = 18 + (attack > 0 ? Math.sin(z.attackTimer * 14) * 8 : stride * 0.4 + idleReach);
     ctx.strokeStyle = flash ? '#ffffff' : '#e6c84c';
     ctx.lineWidth = 4.2;
     ctx.lineCap = 'round';
