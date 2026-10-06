@@ -762,7 +762,7 @@ export class GunLoadout {
   private weaponHudLayout(canvasW: number, canvasH: number, campaignGear = false) {
     const x = 10;
     const width = Math.min(canvasW - 20, canvasW < 760 ? 176 : 218);
-    const infoHeight = (canvasH < 650 ? 94 : 108) + (campaignGear ? 24 : 0);
+    const infoHeight = 108 + (campaignGear ? 24 : 0);
     const infoY = canvasH - infoHeight - 10;
     const listTop = canvasH < 650 ? 155 : 208; // Below the health/equipment HUD.
     const rowHeight = canvasH < 650 ? 29 : 34;
@@ -842,22 +842,15 @@ export class GunLoadout {
       ctx.fillStyle = '#324045'; ctx.fillRect(x + 9, infoY + 47, width - 18, 3);
       ctx.fillStyle = '#d9ae68'; ctx.fillRect(x + 9, infoY + 47, (width - 18) * active.reloadProgress, 3);
     } else { ctx.fillStyle = 'rgba(255,255,255,.1)'; ctx.fillRect(x + 9, infoY + 49, width - 18, 1); }
-    const dashReady = player.dashCooldown <= 0;
     ctx.textAlign = 'left'; ctx.font = '700 10px Segoe UI, Arial';
-    ctx.fillStyle = '#dfc289'; ctx.fillText(`G · ${language === 'en' ? 'Grenade' : 'Lựu đạn'} ${this.grenadesCurrent}/${this.maxGrenades}`, x + 11, infoY + 65);
-    ctx.fillStyle = dashReady ? '#8ec3c7' : '#9aa7a8';
-    ctx.fillText(dashReady ? (language === 'en' ? 'Shift · Dodge ready' : 'Shift · Lướt sẵn')
-      : `${language === 'en' ? 'Shift · Dodge' : 'Shift · Lướt'} ${player.dashCooldown.toFixed(1)}s`, x + 11, infoY + 82);
-    if (infoHeight > 100) {
-      ctx.fillStyle = this.ragePercent >= 100 || this.isRageActive ? '#d6a078' : '#aab7b7';
-      const rage = this.isRageActive ? `${language === 'en' ? 'Rage' : 'Nộ'} ${this.rageActiveTimer.toFixed(1)}s`
-        : this.rageCooldownTimer > 0 ? `${language === 'en' ? 'Rage cooldown' : 'Nộ hồi chiêu'} ${this.rageCooldownTimer.toFixed(1)}s`
-        : this.ragePercent >= 100 ? (language === 'en' ? 'Rage ready' : 'Nộ sẵn sàng') : `${language === 'en' ? 'Rage' : 'Nộ'} ${Math.floor(this.ragePercent)}%`;
-      ctx.fillText(`F  ${rage}`, x + 11, infoY + 99);
-    } else {
-      ctx.textAlign = 'right'; ctx.fillStyle = '#b7a092';
-      ctx.fillText(`F · ${language === 'en' ? 'Rage' : 'Nộ'} ${Math.floor(this.ragePercent)}%`, x + width - 9, infoY + 65, width * .48);
-    }
+    ctx.fillStyle = '#dfc289';
+    ctx.fillText(`G - ${language === 'en' ? 'Grenade' : 'Lựu đạn'}`, x + 11, infoY + 65);
+    ctx.textAlign = 'right';
+    ctx.fillText(`${this.grenadesCurrent}/${this.maxGrenades}`, x + width - 10, infoY + 65);
+    ctx.textAlign = 'left'; ctx.fillStyle = '#8ec3c7';
+    ctx.fillText(`Shift - ${language === 'en' ? 'Dodge' : 'Lướt'}`, x + 11, infoY + 82);
+    ctx.fillStyle = this.ragePercent >= 100 || this.isRageActive ? '#d6a078' : '#aab7b7';
+    ctx.fillText(`F - ${language === 'en' ? 'Rage' : 'Nộ'}`, x + 11, infoY + 99);
     if (campaignGear) {
       ctx.textAlign = 'left'; ctx.font = '700 9px Segoe UI, Arial';
       ctx.fillStyle = '#a9d9d2';
