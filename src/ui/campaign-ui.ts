@@ -58,7 +58,7 @@ export class CampaignUI {
   private backdrop?: HTMLCanvasElement;
   private backdropLanguage?: 'vi' | 'en';
   private resultAnimationStartedAt = 0;
-  private language: 'vi' | 'en' = 'vi';
+  private language: 'vi' | 'en' = 'en';
 
   showResult(result: CampaignResult): void {
     this.result = result;

@@ -31,7 +31,7 @@ export class MenuUI {
   private pointerY = -1;
   private backdrop?: HTMLCanvasElement;
   private backdropLanguage?: 'vi' | 'en';
-  private language: 'vi' | 'en' = 'vi';
+  private language: 'vi' | 'en' = 'en';
 
   setPointer(x: number, y: number): void {
     this.pointerX = x;
@@ -345,7 +345,7 @@ export class MenuUI {
 
   draw(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
     this.titlePulse += 0.02;
-    this.language = save?.data.language ?? 'vi';
+    this.language = save?.data.language ?? 'en';
 
     switch (this.currentScreen) {
       case 'main': this.drawMainMenu(ctx, w, h, save); break;
@@ -515,7 +515,7 @@ export class MenuUI {
     this.drawStaticBackdrop(ctx, w, h, .24);
     const l = this.settingsLayout(w, h);
     const english = save?.data.language === 'en';
-    const language = save?.data.language ?? 'vi';
+    const language = save?.data.language ?? 'en';
     const musicEnabled = save?.data.musicEnabled ?? true;
     ctx.save();
     drawWornPanel(ctx, l.x, l.y, l.panelW, l.panelH, true);

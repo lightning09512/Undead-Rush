@@ -90,7 +90,7 @@ const DEFAULT_SAVE: SaveData = {
   stagesCompleted: 0,
   completedStages: [],
   soundEnabled: true,
-  language: 'vi',
+  language: 'en',
   musicEnabled: true,
   campaign: newCampaign(),
 };
@@ -153,7 +153,7 @@ export class SaveSystem {
         this.data = { ...DEFAULT_SAVE, ...parsed,
           unlockedCharacters: [...new Set([...ALL_CHARACTER_IDS, ...(parsed.unlockedCharacters ?? [])])],
           bestScore: Math.max(0, Math.floor(Number(parsed.bestScore) || 0)),
-          language: parsed.language === 'en' ? 'en' : 'vi',
+          language: parsed.language === 'vi' ? 'vi' : 'en',
           musicEnabled: typeof parsed.musicEnabled === 'boolean' ? parsed.musicEnabled : true,
           campaign };
         if (needsUpgradeMigration) this.save();
