@@ -30,14 +30,17 @@ export const ASSETS_CONFIG: Record<string, AssetConfig> = {
 export class SpriteLoader {
   private images: Map<string, HTMLImageElement> = new Map();
   private whiteImages: Map<string, HTMLCanvasElement> = new Map();
-  private loadPromises: Promise<void>[] = [];
+  private loadPromise: Promise<void> | null = null;
   public ready = false;
 
-  constructor() {
-    this.preloadAll();
+  /** Start sprite decoding only when the player enters a run. */
+  load(): void {
+    if (this.ready || this.loadPromise) return;
+    this.loadPromise = this.preloadAll();
   }
 
-  private preloadAll() {
+  private preloadAll(): Promise<void> {
+    const loadPromises: Promise<void>[] = [];
     for (const key in ASSETS_CONFIG) {
       const config = ASSETS_CONFIG[key];
       const img = new Image();
@@ -70,10 +73,10 @@ export class SpriteLoader {
         };
         img.src = config.path;
       });
-      this.loadPromises.push(p);
+      loadPromises.push(p);
     }
 
-    Promise.all(this.loadPromises).then(() => {
+    return Promise.all(loadPromises).then(() => {
       this.ready = true;
       console.info('Undead Rush sprites ready.');
     });

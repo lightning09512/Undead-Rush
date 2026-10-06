@@ -7,7 +7,7 @@ import { STAGES } from '../data/meta';
 import { getUiTerm, sentenceCaseDisplay } from '../data/localization';
 import { createQuarantineBackdrop, drawBloodHandprint, drawWornPanel } from './horror-texture';
 
-export type MenuScreen = 'main' | 'newgame' | 'savegame' | 'settings' | 'campaign' | 'playing' | 'paused' | 'gameover' | 'stage_complete' | 'hunter_profile' | 'tutorial';
+export type MenuScreen = 'main' | 'newgame' | 'savegame' | 'settings' | 'campaign' | 'playing' | 'paused' | 'gameover' | 'hunter_profile' | 'tutorial';
 
 export class MenuUI {
   currentScreen: MenuScreen = 'main';
@@ -15,13 +15,13 @@ export class MenuUI {
   // Game over stats
   finalTime = 0;
   finalKills = 0;
-  finalLevel = 0;
   finalScore = 0;
   finalGold = 0;
   confirmNewGame = false;
   newGameStep: 'mode' | 'difficulty' = 'mode';
   selectedCampaignDifficulty: CampaignDifficulty = 'normal';
   canWatchRevive = true;
+  reviveAdAvailable = false;
   reviveAdPending = false;
 
   // Animation
@@ -148,7 +148,6 @@ export class MenuUI {
       case 'settings': return this.handleSettingsClick(x, y, w, h, audio, save);
       case 'paused': return this.handlePauseClick(x, y, w, h, audio);
       case 'gameover': return this.handleGameOverClick(x, y, w, h, audio);
-      case 'stage_complete': return this.handleStageCompleteClick(x, y, w, h, audio);
       case 'hunter_profile': return this.handleHunterProfileClick(x, y, w, h, audio);
       case 'tutorial': return this.handleTutorialClick(x, y, w, h, audio);
     }
@@ -310,26 +309,10 @@ export class MenuUI {
       return 'menu';
     }
     // Revive ad
-    if (!this.canWatchRevive || this.reviveAdPending) return null;
+    if (!this.canWatchRevive || !this.reviveAdAvailable || this.reviveAdPending) return null;
     if (x >= bx && x <= bx + btnW && y >= buttonY + gap * 2 && y <= buttonY + gap * 2 + btnH) {
       audio.menuSelect();
       return 'revive_ad';
-    }
-    return null;
-  }
-
-  private handleStageCompleteClick(x: number, y: number, w: number, h: number, audio: Audio): string | null {
-    const btnW = 200;
-    const btnH = 45;
-    const bx = (w - btnW) / 2;
-
-    if (x >= bx && x <= bx + btnW && y >= h * 0.65 && y <= h * 0.65 + btnH) {
-      audio.menuSelect();
-      return 'next_stage';
-    }
-    if (x >= bx && x <= bx + btnW && y >= h * 0.73 && y <= h * 0.73 + btnH) {
-      audio.menuSelect();
-      return 'menu';
     }
     return null;
   }
@@ -371,7 +354,6 @@ export class MenuUI {
       case 'settings': this.drawSettings(ctx, w, h, save); break;
       case 'paused': this.drawPause(ctx, w, h, save); break;
       case 'gameover': this.drawGameOver(ctx, w, h, save); break;
-      case 'stage_complete': this.drawStageComplete(ctx, w, h, save); break;
       case 'hunter_profile': this.drawHunterProfile(ctx, w, h, save); break;
       case 'tutorial': this.drawTutorial(ctx, w, h, save); break;
     }
@@ -676,47 +658,14 @@ export class MenuUI {
     }
     this.drawFieldButton(ctx, l.buttonX, l.buttonY, l.buttonW, l.buttonH, english ? 'Try again' : 'Chơi lại', C.cyan, true);
     this.drawFieldButton(ctx, l.buttonX, l.buttonY + l.gap, l.buttonW, l.buttonH, english ? 'Main menu' : 'Menu chính', C.textSoft);
+    const reviveStatus = this.reviveAdPending ? (english ? 'Please wait' : 'Vui lòng chờ')
+      : !this.canWatchRevive ? (english ? 'Used' : 'Đã dùng')
+      : this.reviveAdAvailable ? (english ? 'Watch ad' : 'Xem quảng cáo')
+      : (english ? 'Unavailable' : 'Không khả dụng');
     this.drawFieldButton(ctx, l.buttonX, l.buttonY + l.gap * 2, l.buttonW, l.buttonH,
       this.reviveAdPending ? (english ? 'Loading ad' : 'Đang tải quảng cáo') : (english ? 'Revive' : 'Hồi sinh'), C.health, false,
-      this.reviveAdPending ? (english ? 'Please wait' : 'Vui lòng chờ') : this.canWatchRevive ? (english ? 'Watch ad' : 'Xem quảng cáo') : (english ? 'Used' : 'Đã dùng'),
-      !this.canWatchRevive || this.reviveAdPending);
+      reviveStatus, !this.canWatchRevive || !this.reviveAdAvailable || this.reviveAdPending);
   }
-  private drawStageComplete(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
-    const english = save?.data.language === 'en';
-    this.drawStaticBackdrop(ctx, w, h, 0.35);
-    const panelW = Math.min(520, w - 32);
-    const panelH = Math.min(400, h * 0.58);
-    drawWornPanel(ctx, (w - panelW) / 2, Math.max(12, h * 0.04), panelW, panelH, true);
-    this.drawBloodAtmosphere(ctx, w, h, 0.34);
-
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    ctx.fillStyle = C.text;
-    ctx.font = `900 ${Math.min(38, panelW * 0.085)}px 'Arial Black', Impact, sans-serif`;
-    ctx.fillText(english ? 'Run complete' : 'Đã hoàn thành màn', w / 2, h * 0.15, panelW - 42);
-
-    const minutes = Math.floor(this.finalTime / 60);
-    const seconds = Math.floor(this.finalTime % 60);
-
-    ctx.fillStyle = C.textSoft;
-    ctx.font = `${Math.min(17, Math.max(13, w * 0.04))}px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText(english ? `⏱ Time: ${minutes}m ${seconds}s` : `⏱ Thời gian: ${minutes} phút ${seconds} giây`, w / 2, h * 0.30, panelW - 42);
-    ctx.fillText(english ? `💀 Kills: ${this.finalKills}` : `💀 Hạ gục: ${this.finalKills}`, w / 2, h * 0.36, panelW - 42);
-    ctx.fillText(english ? `⭐ Level: ${this.finalLevel}` : `⭐ Cấp độ: ${this.finalLevel}`, w / 2, h * 0.42, panelW - 42);
-
-    ctx.fillStyle = C.amberBright;
-    ctx.font = `bold ${Math.min(20, Math.max(14, w * 0.045))}px 'Segoe UI', Arial, sans-serif`;
-    ctx.fillText(english ? `💰 +${this.finalGold} gold` : `💰 +${this.finalGold} vàng`, w / 2, h * 0.52, panelW - 42);
-
-    const btnW = 200;
-    const btnH = 45;
-    const bx = (w - btnW) / 2;
-
-    this.drawFieldButton(ctx, bx, h * 0.65, btnW, btnH, english ? 'Next mission' : 'Màn tiếp theo', C.cyan, true);
-    this.drawFieldButton(ctx, bx, h * 0.73, btnW, btnH, english ? 'Main menu' : 'Menu chính', C.dangerBright);
-  }
-
   private drawHunterProfile(ctx: CanvasRenderingContext2D, w: number, h: number, save?: SaveSystem): void {
     const english = save?.data.language === 'en';
     this.drawStaticBackdrop(ctx, w, h, 0.3);
@@ -789,16 +738,6 @@ export class MenuUI {
       ctx.font = `${w < 480 || landscape ? 10.5 : 12}px 'Segoe UI', Arial, sans-serif`;
       section.lines.forEach((line, j) => ctx.fillText(line, tx, ty + 21 + j * lineH, cellW - 12));
     });
-  }
-
-  private drawBloodAtmosphere(ctx: CanvasRenderingContext2D, w: number, h: number, strength: number): void {
-    ctx.save();
-    const vignette = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.15, w / 2, h / 2, Math.max(w, h) * 0.72);
-    vignette.addColorStop(0, 'rgba(0,0,0,0)');
-    vignette.addColorStop(1, `rgba(3, 8, 11, ${strength * 0.48})`);
-    ctx.fillStyle = vignette;
-    ctx.fillRect(0, 0, w, h);
-    ctx.restore();
   }
 
   private drawFieldButton(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number,

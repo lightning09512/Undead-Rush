@@ -51,6 +51,7 @@ export class CampaignUI {
   private gunListNeedsSync = true;
   focusedCharacter = 'survivor';
   canWatchRevive = true;
+  reviveAdAvailable = false;
   reviveAdPending = false;
   impossibleDeath = false;
   private buttons: Button[] = [];
@@ -737,9 +738,11 @@ export class CampaignUI {
       this.add(x + 22, y + h - 54, bw, 36, english ? 'Main menu' : 'Menu chính', 'main');
       this.add(x + w - bw - 22, y + h - 54, bw, 36, english ? 'New game' : 'Game mới', 'retry');
     } else {
-      this.add(x + 22, y + h - 96, w - 44, 32,
-        this.reviveAdPending ? (english ? 'Loading ad…' : 'Đang tải quảng cáo…') : (english ? 'Revive · watch an ad' : 'Hồi sinh · xem quảng cáo'), 'revive_ad',
-        !this.canWatchRevive || this.reviveAdPending);
+      const reviveLabel = this.reviveAdPending ? (english ? 'Loading ad…' : 'Đang tải quảng cáo…')
+        : this.reviveAdAvailable ? (english ? 'Revive · watch an ad' : 'Hồi sinh · xem quảng cáo')
+        : (english ? 'Revive unavailable · no ad provider' : 'Không thể hồi sinh · chưa có quảng cáo');
+      this.add(x + 22, y + h - 96, w - 44, 32, reviveLabel, 'revive_ad',
+        !this.canWatchRevive || !this.reviveAdAvailable || this.reviveAdPending);
       this.add(x + 22, y + h - 54, bw, 36, english ? 'Armory' : 'Kho vũ khí', 'return_armory');
       this.add(x + w - bw - 22, y + h - 54, bw, 36, english ? 'Retry' : 'Thử lại', 'retry');
     }

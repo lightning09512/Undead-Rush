@@ -33,32 +33,32 @@ export class HUD {
     const hpRatio = Math.min(1, Math.max(0, player.hp / player.maxHp));
 
     // ─── 1. Mode header ───
-    const xpBarH = 22;
+    const topBarHeight = 22;
     // Dark metallic obsidian base
     ctx.fillStyle = C.background;
-    ctx.fillRect(0, 0, w, xpBarH);
+    ctx.fillRect(0, 0, w, topBarHeight);
 
     if (campaign) {
-      ctx.fillStyle = '#c7a875'; ctx.fillRect(0, xpBarH - 2, w, 2);
+      ctx.fillStyle = '#c7a875'; ctx.fillRect(0, topBarHeight - 2, w, 2);
       ctx.fillStyle = '#f1e9d5'; ctx.font = 'bold 12px Segoe UI, Arial'; ctx.textBaseline = 'middle';
       ctx.textAlign = 'left'; ctx.fillText(`${getUiTerm('campaign', language)} ${campaign.stage.id}/10`, 12, 10);
       ctx.textAlign = 'right';
       ctx.fillStyle = '#e5c684';
       ctx.fillText(`${campaign.credits} ${getUiTerm('credits', language)}${campaign.creditGain ? `   +${campaign.creditGain}` : ''}`, w - 14, 10);
     } else if (survival) {
-      ctx.fillStyle = C.border; ctx.fillRect(0, xpBarH - 2, w, 2);
-      ctx.fillStyle = C.cyan; ctx.fillRect(0, xpBarH - 2, Math.min(w, 160), 2);
+      ctx.fillStyle = C.border; ctx.fillRect(0, topBarHeight - 2, w, 2);
+      ctx.fillStyle = C.cyan; ctx.fillRect(0, topBarHeight - 2, Math.min(w, 160), 2);
       ctx.textBaseline = 'middle'; ctx.font = `bold 11px 'Segoe UI', Arial, sans-serif`;
       ctx.textAlign = 'left'; ctx.fillStyle = C.cyanBright;
-      ctx.fillText(language === 'en' ? 'SCORE' : 'ĐIỂM', 12, xpBarH / 2 - 1);
+      ctx.fillText(language === 'en' ? 'SCORE' : 'ĐIỂM', 12, topBarHeight / 2 - 1);
       ctx.textAlign = 'right'; ctx.fillStyle = C.text;
-      ctx.fillText(Math.floor(survival.score).toLocaleString(language === 'en' ? 'en-US' : 'vi-VN'), w - 14, xpBarH / 2 - 1);
+      ctx.fillText(Math.floor(survival.score).toLocaleString(language === 'en' ? 'en-US' : 'vi-VN'), w - 14, topBarHeight / 2 - 1);
     }
 
     // Campaign run time and kill count are reported on the results screen.
     // Survival keeps its live wave clock and kill tally.
     const clockH = compact ? 29 : 34;
-    const clockY = compact ? 126 : xpBarH + 6;
+    const clockY = compact ? 126 : topBarHeight + 6;
     if (!campaign) {
       // ─── 2. Top-Center: Game Clock & Kill Count Pill ───
       const minutes = Math.floor(gameTime / 60);
@@ -123,12 +123,12 @@ export class HUD {
     if (bossBarActive) {
       const bossName = campaignBossActive ? campaign!.bossName! : survival!.bossName!;
       const bossHp = campaignBossActive ? campaign!.bossHpRatio : survival!.bossHpRatio;
-      const bossBarY = campaignBossActive ? xpBarH + 5 : compact ? clockY + clockH + 8 : w < 1240 ? 141 : clockY + clockH + 7;
+      const bossBarY = campaignBossActive ? topBarHeight + 5 : compact ? clockY + clockH + 8 : w < 1240 ? 141 : clockY + clockH + 7;
       this.drawBossHealthBar(ctx, w, pad, bossBarY, compact, bossName, bossHp ?? 1, language);
     }
 
     // ─── 3. Top-Left: Equipment Slots (6 Weapons + 6 Passives) ───
-    const equipmentY = xpBarH + 8 + (campaignBossActive ? 64 : 0);
+    const equipmentY = topBarHeight + 8 + (campaignBossActive ? 64 : 0);
     this.drawEquipmentSlots(ctx, pad, equipmentY, player, slotSize);
 
     // ─── 4. Player HP Bar (Below Equipment Slots) ───
@@ -162,7 +162,7 @@ export class HUD {
     ctx.restore();
 
     // ─── 5. Top-Right: Minimap ───
-    if (!campaign) this.drawMinimap(ctx, w, h, pad, xpBarH + 8, player, zombies, mapPickups, camera, undefined, language);
+    if (!campaign) this.drawMinimap(ctx, w, h, pad, topBarHeight + 8, player, zombies, mapPickups, camera, undefined, language);
 
     // ─── 6. Mobile Touch Joystick ───
     if (input.isJoystickVisible) {

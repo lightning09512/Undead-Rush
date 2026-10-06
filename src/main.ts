@@ -25,6 +25,8 @@ import { spriteLoader } from './graphics/assets-config';
 import { EntityRenderer } from './graphics/entity-renderer';
 
 import { Spawner, SURVIVAL_HORDE_MULTIPLIER } from './systems/spawner';
+import { getSurvivalBossSelection, hasLivingSurvivalBoss, isSurvivalWaveSpawnBudgetExhausted } from './systems/survival-flow';
+import { getCampaignDifficultyFactors, shouldShowCampaignSkillDirections } from './systems/campaign-difficulty';
 import { WeaponSystem } from './systems/weapons';
 import { SaveSystem } from './systems/save';
 import { adWrapper } from './systems/ads';
@@ -258,11 +260,7 @@ const CAMPAIGN_PORTAL_SCATTER: ReadonlyArray<readonly [number, number]> = [
 ];
 
 function campaignDifficultyFactors(): { health: number; damage: number } {
-  switch (save.data.campaign.difficulty) {
-    case 'hard': return { health: 1.3, damage: 1.3 };
-    case 'impossible': return { health: 1.5, damage: 1.5 };
-    default: return { health: 1, damage: 1 };
-  }
+  return getCampaignDifficultyFactors(save.data.campaign.difficulty);
 }
 
 function applyCampaignDifficultyToMob(mob: Zombie): void {
@@ -285,7 +283,7 @@ function campaignStageMobHealthMultiplier(stageId: number, mobId: string): numbe
 }
 
 function showCampaignSkillDirections(): boolean {
-  return gameMode !== 'stage' || save.data.campaign.difficulty === 'normal';
+  return shouldShowCampaignSkillDirections(gameMode, save.data.campaign.difficulty);
 }
 
 let lastCreditGain = 0;
@@ -295,7 +293,7 @@ let campaignSupplyNoticeTimer = 0;
 let campaignMedkitFlashTimer = 0;
 let playerDamageFlashTimer = 0;
 let goldEarned = 0;
-let hasRevive = false;     // from perm upgrade or ad
+let hasRevive = false;     // from a permanent upgrade
 let previewEncounter = false;
 let campaignWavePreview = false;
 let previewCleanCapture = false;
@@ -360,6 +358,9 @@ let bossAttackPhase = 0;
 adWrapper.init({
   onRewarded: (placement) => {
     if (placement === 'revive') {
+      // A valid provider must complete the one request started from the death UI.
+      // This also makes duplicate SDK callbacks harmless.
+      if (!menuUI.reviveAdPending && !campaignUI.reviveAdPending) return;
       menuUI.reviveAdPending = false;
       campaignUI.reviveAdPending = false;
       const stillAtDeathScreen = menuUI.currentScreen === 'gameover' ||
@@ -376,10 +377,6 @@ adWrapper.init({
       particles.emit(player.x, player.y, 30, '#ffff00', 200, 0.8, 5);
       audio.revive();
       adWrapper.gameplayStart();
-    } else if (placement === 'double_gold') {
-      save.data.gold += goldEarned; // double it
-      save.save();
-      menuUI.finalGold = goldEarned * 2;
     }
   },
   onSkipped: (placement) => {
@@ -395,6 +392,8 @@ adWrapper.init({
     }
   },
 });
+menuUI.reviveAdAvailable = adWrapper.isAvailable();
+campaignUI.reviveAdAvailable = adWrapper.isAvailable();
 
 // ─── Main Loop ───
 function gameLoop(timestamp: number): void {
@@ -408,7 +407,7 @@ function gameLoop(timestamp: number): void {
   syncMusicForThreat();
   input.touchButtonsEnabled = menuUI.currentScreen === 'playing' && !paused;
 
-  if (!spriteLoader.ready) {
+  if (menuUI.currentScreen === 'playing' && !spriteLoader.ready) {
     ctx.fillStyle = '#060906';
     ctx.fillRect(0, 0, viewportWidth, viewportHeight);
     ctx.fillStyle = '#ffffff';
@@ -471,13 +470,6 @@ function gameLoop(timestamp: number): void {
       return;
     }
     if (menuUI.currentScreen === 'gameover') {
-      renderMeasured(timestamp, () => {
-        drawGame();
-        menuUI.draw(ctx, viewportWidth, viewportHeight, save);
-      });
-      return;
-    }
-    if (menuUI.currentScreen === 'stage_complete' as any) {
       renderMeasured(timestamp, () => {
         drawGame();
         menuUI.draw(ctx, viewportWidth, viewportHeight, save);
@@ -601,24 +593,11 @@ function handleMenuAction(action: string | null): void {
       startGame();
       break;
     case 'revive_ad':
-      if (menuUI.canWatchRevive && !menuUI.reviveAdPending &&
+      if (adWrapper.isAvailable() && menuUI.canWatchRevive && !menuUI.reviveAdPending &&
           !(gameMode === 'stage' && save.data.campaign.difficulty === 'impossible')) {
         menuUI.reviveAdPending = true;
         campaignUI.reviveAdPending = true;
         adWrapper.showRewarded('revive');
-      }
-      break;
-    case 'double_gold_ad':
-      adWrapper.showRewarded('double_gold');
-      break;
-    case 'next_stage':
-      currentStageIndex++;
-      if (currentStageIndex < STAGES.length) {
-        campaignUI.selectedStage = currentStageIndex;
-        campaignUI.page = 'briefing';
-        menuUI.currentScreen = 'campaign';
-      } else {
-        campaignUI.page = 'stages'; menuUI.currentScreen = 'campaign';
       }
       break;
   }
@@ -1867,9 +1846,9 @@ function updateSurvivalWaves(dt: number): ReturnType<Spawner['updateWave']> {
     if (survivalPhaseTimer > 0) return [];
     survivalWave++;
     if (survivalWave % 3 === 0) {
-      const cycleBoss = Math.floor((Math.ceil(survivalWave / 3) - 1) / STAGES.length);
-      const profileIndex = (Math.ceil(survivalWave / 3) - 1) % STAGES.length;
-      survivalBossStageId = STAGES[profileIndex].id;
+      const selection = getSurvivalBossSelection(survivalWave, STAGES.length)!;
+      const cycleBoss = selection.circuit;
+      survivalBossStageId = STAGES[selection.stageIndex].id;
       survivalBossSummonsSpawned = 0;
       survivalPhase = 'boss-warning';
       survivalPhaseTimer = 3.4 + Math.min(.8, cycleBoss * .15);
@@ -1898,7 +1877,7 @@ function updateSurvivalWaves(dt: number): ReturnType<Spawner['updateWave']> {
     // The authored wave is complete once its spawn budget is exhausted. Keep
     // any stragglers alive, but don't let one off-screen or stuck zombie stop
     // Survival from advancing forever.
-    if (survivalSpawnRemaining === 0) {
+    if (isSurvivalWaveSpawnBudgetExhausted(survivalSpawnRemaining)) {
       survivalPhase = 'intermission';
       survivalPhaseTimer = 4.2;
     }
@@ -1907,8 +1886,8 @@ function updateSurvivalWaves(dt: number): ReturnType<Spawner['updateWave']> {
 
   // Boss adds remain active after their summoner dies. They must not hold the
   // next Survival wave hostage; only the boss itself controls this phase.
-  const survivalBossAlive = survivalPhase === 'boss' && zombies.pool.getActive()
-    .some(z => z.isBoss && z.campaignBossId === survivalBossStageId && z.hp > 0);
+  const survivalBossAlive = survivalPhase === 'boss' &&
+    hasLivingSurvivalBoss(zombies.pool.getActive(), survivalBossStageId);
   if (survivalPhase === 'boss' && !survivalBossAlive) {
     survivalPhase = 'intermission';
     survivalPhaseTimer = 5.2;
@@ -2044,7 +2023,6 @@ function checkStageObjective(): void {
 
     menuUI.finalTime = gameTime;
     menuUI.finalKills = player.kills;
-    menuUI.finalLevel = 1;
     menuUI.finalGold = gold;
     campaignUI.selectedStage = currentStageIndex;
     campaignUI.showResult({ time: gameTime, kills: player.kills, reward: gold,
@@ -2870,6 +2848,7 @@ function applyPermUpgrades(): void {
 }
 
 function startGame(): void {
+  spriteLoader.load();
   if (gameMode === 'stage') persistCampaignAmmo();
   input.campaignMode = gameMode === 'stage';
   resetGame();

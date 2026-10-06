@@ -13,7 +13,7 @@ Tổng hợp các khu vực và đấu trường trùm của 10 màn Chiến d�
 ## Chế độ chơi
 
 - **Chiến dịch:** 10 màn có mục tiêu, khu vực và trùm riêng. Chọn độ khó Bình thường, Khó hoặc Cực khó trước khi bắt đầu.
-- **Sinh tồn:** chống lại các đợt xác sống ngày càng dồn dập, tích lũy XP, chọn nâng cấp trong lượt và đối đầu trùm.
+- **Sinh tồn:** chống các đợt xác sống liên tiếp, thu thập mảnh điểm để lập kỷ lục và đối đầu các trùm luân phiên.
 - Chọn nhân vật với thế mạnh riêng; thu thập vũ khí, đạn và vật phẩm hỗ trợ để thích nghi với trận chiến.
 
 ## Điều khiển
@@ -46,6 +46,7 @@ Các lệnh khác:
 ```bash
 npm run build    # Kiểm tra TypeScript và tạo bản build
 npm run preview  # Xem thử bản build
+npm test         # Kiểm tra hồi quy cho save, điểm, spawn và quảng cáo
 ```
 
 ## Công nghệ

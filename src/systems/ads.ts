@@ -1,8 +1,8 @@
-// ─── Ad Wrapper Module (Stubs) ───
-// Easy to swap for CrazyGames / Poki SDK later.
-// No actual ads during gameplay.
+// ─── Ad Wrapper ───
+// The project has no configured ad provider. Rewarded placements stay unavailable
+// until a real SDK is integrated; never simulate a completed ad or grant rewards.
 
-export type AdPlacement = 'revive' | 'double_gold';
+export type AdPlacement = 'revive';
 
 export interface AdCallbacks {
   onRewarded: (placement: AdPlacement) => void;
@@ -14,70 +14,30 @@ class AdWrapper {
   private initialized = false;
   private callbacks: AdCallbacks | null = null;
 
-  /** Initialize the ad SDK (stub: always succeeds) */
+  /** Register callbacks. This does not imply that an ad provider is configured. */
   init(callbacks: AdCallbacks): void {
     this.callbacks = callbacks;
     this.initialized = true;
-    console.log('[Ads] Ad wrapper initialized (stub mode)');
   }
 
-  /** Check if ads are available */
+  /** No ad SDK is configured in this build. */
   isAvailable(): boolean {
-    return this.initialized;
+    return false;
   }
 
-  /**
-   * Show a rewarded ad.
-   * In stub mode, this immediately triggers the reward callback.
-   * Replace the body of this method with actual SDK calls.
-   */
+  /** Fail closed until a real rewarded-ad provider is integrated. */
   showRewarded(placement: AdPlacement): void {
     if (!this.initialized || !this.callbacks) {
-      console.warn('[Ads] Not initialized');
+      console.warn('[Ads] Rewarded ad requested before initialization');
       return;
     }
-
-    console.log(`[Ads] Showing rewarded ad for: ${placement}`);
-
-    // ─── STUB: Simulate ad completion after a short delay ───
-    // In production, replace with:
-    //   CrazyGames: window.CrazyGames.SDK.ad.requestAd('rewarded', ...)
-    //   Poki: PokiSDK.rewardedBreak().then(...)
-    setTimeout(() => {
-      console.log(`[Ads] Rewarded ad completed for: ${placement}`);
-      this.callbacks!.onRewarded(placement);
-    }, 500);
+    this.callbacks.onError(placement, 'not_configured');
   }
 
-  /**
-   * Notify the SDK that gameplay is starting (pause ads).
-   * Called automatically when a run begins.
-   */
-  gameplayStart(): void {
-    console.log('[Ads] Gameplay started - ads paused');
-    // CrazyGames: window.CrazyGames.SDK.game.gameplayStart()
-    // Poki: PokiSDK.gameplayStart()
-  }
-
-  /**
-   * Notify the SDK that gameplay has stopped.
-   * Called automatically on game over / pause.
-   */
-  gameplayStop(): void {
-    console.log('[Ads] Gameplay stopped - ads enabled');
-    // CrazyGames: window.CrazyGames.SDK.game.gameplayStop()
-    // Poki: PokiSDK.gameplayStop()
-  }
-
-  /**
-   * Show an interstitial ad (between runs).
-   * Stub: does nothing.
-   */
-  showInterstitial(): void {
-    console.log('[Ads] Interstitial ad requested (stub: skipped)');
-    // CrazyGames: window.CrazyGames.SDK.ad.requestAd('midgame', ...)
-    // Poki: PokiSDK.commercialBreak()
-  }
+  /** Provider lifecycle hooks are intentionally inert until an SDK is configured. */
+  gameplayStart(): void {}
+  gameplayStop(): void {}
+  showInterstitial(): void {}
 }
 
 // Singleton

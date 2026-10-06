@@ -1,8 +1,7 @@
 // ─── Player Entity ───
 
 import { PLAYER_DEFAULTS, MAP_CONFIG } from '../data/items';
-import { UPGRADES, MAX_WEAPON_SLOTS, MAX_PASSIVE_SLOTS } from '../data/upgrades';
-import type { UpgradeDef } from '../data/upgrades';
+import { UPGRADES } from '../data/upgrades';
 import { Camera } from '../core/camera';
 import { EntityRenderer } from '../graphics/entity-renderer';
 import type { GunLoadout } from '../systems/gun-loadout';
@@ -166,46 +165,6 @@ export class Player {
     if (this.loadout) {
       this.loadout.applyUpgradeEffect(upgradeId, current + 1);
     }
-  }
-
-  countWeaponSlotsUsed(): number {
-    let n = 0;
-    for (const [id, level] of this.upgrades) {
-      if (level <= 0) continue;
-      const def = UPGRADES.find((u) => u.id === id);
-      if (def?.category === 'weapon') n++;
-    }
-    return n;
-  }
-
-  countPassiveSlotsUsed(): number {
-    let n = 0;
-    for (const [id, level] of this.upgrades) {
-      if (level <= 0) continue;
-      const def = UPGRADES.find((u) => u.id === id);
-      if (def && (def.category === 'stat' || def.category === 'effect')) n++;
-    }
-    return n;
-  }
-
-  /** Can pick this upgrade on level-up (respects owned weapons and slots). */
-  canPickUpgrade(def: UpgradeDef): boolean {
-    // If upgrade requires a specific gun, only offer it if player possesses that gun!
-    if (def.gunReq && (!this.loadout || !this.loadout.hasGun(def.gunReq))) {
-      return false;
-    }
-
-    const current = this.upgrades.get(def.id) || 0;
-    if (current >= def.maxLevel) return false;
-    if (current > 0) return true;
-
-    if (def.category === 'weapon') {
-      return this.countWeaponSlotsUsed() < MAX_WEAPON_SLOTS;
-    }
-    if (def.category === 'stat' || def.category === 'effect') {
-      return this.countPassiveSlotsUsed() < MAX_PASSIVE_SLOTS;
-    }
-    return false;
   }
 
   recalcStats(): void {

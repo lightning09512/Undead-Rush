@@ -3,9 +3,9 @@ import type { ZombieTypeDef } from './zombies';
 
 export type GameLanguage = 'vi' | 'en';
 
-const PROTECTED_TERMS = /\b(?:undead rush|wasd|esc|shift|hp|xp|p-9|ar-7|smg-9|sg-12|dmr-55|bulldog|lmg-6|flamer|rpg-4|railgun|rail lance|howler captain|the pump maw|the triage butcher|rat king|the abomination|gatebreaker|three-mouthed chorus|death knight|rail warden|specimen zero|broodmother|the buried heart|đội trưởng còi hú|họng bơm|đồ tể khu cấp cứu|vua chuột|hợp xướng ba miệng|kẻ phá cổng|kẻ gác đường ray|mẫu thử số không|nhện mẫu chúa|trái tim chôn sống)\b/gi;
+const PROTECTED_TERMS = /\b(?:undead rush|wasd|esc|shift|hp|p-9|ar-7|smg-9|sg-12|dmr-55|bulldog|lmg-6|flamer|rpg-4|railgun|rail lance|howler captain|the pump maw|the triage butcher|rat king|the abomination|gatebreaker|three-mouthed chorus|death knight|rail warden|specimen zero|broodmother|the buried heart|đội trưởng còi hú|họng bơm|đồ tể khu cấp cứu|vua chuột|hợp xướng ba miệng|kẻ phá cổng|kẻ gác đường ray|mẫu thử số không|nhện mẫu chúa|trái tim chôn sống)\b/gi;
 const PREFERRED_TERM_CASE: Record<string, string> = {
-  'undead rush': 'Undead Rush', wasd: 'WASD', esc: 'Esc', shift: 'Shift', hp: 'HP', xp: 'XP',
+  'undead rush': 'Undead Rush', wasd: 'WASD', esc: 'Esc', shift: 'Shift', hp: 'HP',
   'p-9': 'P-9', 'ar-7': 'AR-7', 'smg-9': 'SMG-9', 'sg-12': 'SG-12', 'dmr-55': 'DMR-55',
   bulldog: 'Bulldog', 'lmg-6': 'LMG-6', flamer: 'Flamer', 'rpg-4': 'RPG-4', railgun: 'Railgun', 'rail lance': 'Rail Lance',
   'howler captain': 'Howler Captain', 'the pump maw': 'The Pump Maw', 'the triage butcher': 'The Triage Butcher',
