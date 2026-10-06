@@ -1,11 +1,3 @@
-import zombieNormalImg from '../assets/normal_zombie-removebg-preview.png';
-import zombieRunnerImg from '../assets/runner-removebg-preview.png';
-import zombieTankImg from '../assets/Tank-removebg-preview.png';
-import zombieBossImg from '../assets/Boss-removebg-preview.png';
-import zombieExploderImg from '../assets/Exploder-removebg-preview.png';
-import zombieSpitterImg from '../assets/Spitter-removebg-preview.png';
-import zombieGlowingImg from '../assets/Glowing-removebg-preview.png';
-
 export interface AssetConfig {
   name: string;
   path: string;
@@ -14,15 +6,8 @@ export interface AssetConfig {
 }
 
 export const ASSETS_CONFIG: Record<string, AssetConfig> = {
-  // Entities
-  'zombie_normal': { name: 'zombie_normal', path: zombieNormalImg, scale: 64 },
-  'zombie_runner': { name: 'zombie_runner', path: zombieRunnerImg, scale: 54 },
-  'zombie_tank': { name: 'zombie_tank', path: zombieTankImg, scale: 105 },
-  'zombie_boss': { name: 'zombie_boss', path: zombieBossImg, scale: 195 },
-  'zombie_exploder': { name: 'zombie_exploder', path: zombieExploderImg, scale: 75 },
-  'zombie_spitter': { name: 'zombie_spitter', path: zombieSpitterImg, scale: 64 },
-  'zombie_glowing': { name: 'zombie_glowing', path: zombieGlowingImg, scale: 64 },
-
+  // Zombie visuals are drawn by the active procedural renderers. There are no
+  // bitmap zombie assets to preload into the CrazyGames build.
 };
 
 export class SpriteLoader {
