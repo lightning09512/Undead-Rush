@@ -6,6 +6,8 @@ import gameMusicTwo from '../assets/03. Music 2.mp3';
 import gameMusicThree from '../assets/04. Music 3.mp3';
 import { getBossIdFromType, getBossSignature } from '../data/boss-signatures';
 
+const gameAssetUrl = (path: string): string => `${import.meta.env.BASE_URL}${path}`;
+
 type MusicScene = 'menu' | 'calm' | 'combat' | 'campaignBoss' | 'boss' | 'paused';
 export type WeaponSoundType = 'pistol' | 'rifle' | 'smg' | 'shotgun' | 'drone' | 'dmr' | 'lmg' | 'flamer' | 'rpg' | 'rail';
 interface MusicDeck {
@@ -69,17 +71,17 @@ export class Audio {
   private get recordedAudioFiles(): Array<[string, string]> {
     const zombieFiles = Array.from({ length: 24 }, (_, index) => [
       `zombie-${index + 1}`,
-      `/assets/audio/zombies/zombie-${index + 1}.wav`,
+      gameAssetUrl(`assets/audio/zombies/zombie-${index + 1}.wav`),
     ] as [string, string]);
     return [
       ...zombieFiles,
-      ['gun-pistol', '/assets/audio/weapons/cz.wav'],
-      ['gun-rifle', '/assets/audio/weapons/sks.wav'],
-      ['gun-shotgun', '/assets/audio/weapons/shotty.wav'],
-      ['reload-rifle', '/assets/audio/reload/rifle-reload.wav'],
-      ['reload-shotgun-first-shell', '/assets/audio/reload/shotgun-first-shell.mp3'],
-      ['reload-shotgun-shells', '/assets/audio/reload/shotgun-shells.mp3'],
-      ['reload-shotgun-rack', '/assets/audio/reload/shotgun-rack.mp3'],
+      ['gun-pistol', gameAssetUrl('assets/audio/weapons/cz.wav')],
+      ['gun-rifle', gameAssetUrl('assets/audio/weapons/sks.wav')],
+      ['gun-shotgun', gameAssetUrl('assets/audio/weapons/shotty.wav')],
+      ['reload-rifle', gameAssetUrl('assets/audio/reload/rifle-reload.wav')],
+      ['reload-shotgun-first-shell', gameAssetUrl('assets/audio/reload/shotgun-first-shell.mp3')],
+      ['reload-shotgun-shells', gameAssetUrl('assets/audio/reload/shotgun-shells.mp3')],
+      ['reload-shotgun-rack', gameAssetUrl('assets/audio/reload/shotgun-rack.mp3')],
     ];
   }
 
