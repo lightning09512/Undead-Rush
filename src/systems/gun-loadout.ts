@@ -2,7 +2,7 @@
 
 import { Player } from '../entities/player';
 import { BulletSystem } from '../entities/bullets';
-import { Audio } from '../core/audio';
+import { Audio, type WeaponSoundType } from '../core/audio';
 import { Camera } from '../core/camera';
 import { Input } from '../core/input';
 import { drawGunArt } from '../graphics/campaign-menu-art';
@@ -16,7 +16,7 @@ export interface GunDef {
   shortName: string;   // 'AR-7', 'SG-12', 'SMG-9'
   slotKey: string;     // '1', '2', '3'
   type: 'rifle' | 'shotgun' | 'smg';
-  soundType?: 'pistol' | 'rifle' | 'shotgun' | 'smg';
+  soundType?: Exclude<WeaponSoundType, 'drone'>;
   magSize: number;     // 30, 8, 40
   fireRate: number;    // shots per sec: 9.1 (545 RPM), 2.1 (126 RPM), 13.0 (780 RPM)
   rpm: number;         // 545, 126, 780
@@ -101,27 +101,27 @@ export function createCampaignGunDefs(campaignProgression = true): GunDef[] {
     { id:'p9', name:'P-9', shortName:'P-9', slotKey:'1', type:'rifle', soundType:'pistol', magSize:12, fireRate:3.1, rpm:186, baseDamage:14,
       bulletSpeed:900, bulletColor:'#ddd1b3', reloadDuration:1.65, spreadBase:.02, spreadMax:.07, recoilImpulse:2.5,
       campaignOnly:true, campaignCost:0, unlockStage:1, reserveMagazines:8 },
-    { ...ar7, campaignOnly:true, campaignCost:180, unlockStage:2, reserveMagazines:6 },
-    { ...smg9, campaignOnly:true, campaignCost:260, unlockStage:3, reserveMagazines:5 },
-    { ...sg12, campaignOnly:true, campaignCost:360, unlockStage:4, reserveMagazines:6 },
+    { ...ar7, soundType:'rifle', campaignOnly:true, campaignCost:180, unlockStage:2, reserveMagazines:6 },
+    { ...smg9, soundType:'smg', campaignOnly:true, campaignCost:260, unlockStage:3, reserveMagazines:5 },
+    { ...sg12, soundType:'shotgun', campaignOnly:true, campaignCost:360, unlockStage:4, reserveMagazines:6 },
     { id:'dmr55', name:'DMR-55', shortName:'DMR-55', slotKey:'5', type:'rifle', magSize:10, fireRate:2.2, rpm:132,
       baseDamage:48, bulletSpeed:1420, bulletColor:'#e8d8a2', reloadDuration:2.15, spreadBase:.004, spreadMax:.035, recoilImpulse:8.2,
-      campaignOnly:true, campaignCost:520, unlockStage:5, reserveMagazines:7, extraPierce:1 },
+      soundType:'dmr', campaignOnly:true, campaignCost:520, unlockStage:5, reserveMagazines:7, extraPierce:1 },
     { id:'bulldog', name:'BULLDOG-10', shortName:'BULLDOG', slotKey:'6', type:'shotgun', magSize:10, fireRate:2.5, rpm:150,
       baseDamage:17, pellets:10, bulletSpeed:990, bulletColor:'#ffb653', reloadDuration:2.4, spreadBase:.21, spreadMax:.34, recoilImpulse:14,
-      campaignOnly:true, campaignCost:700, unlockStage:6, reserveMagazines:6 },
+      soundType:'shotgun', campaignOnly:true, campaignCost:700, unlockStage:6, reserveMagazines:6 },
     { id:'lmg6', name:'LMG-6', shortName:'LMG-6', slotKey:'7', type:'smg', magSize:72, fireRate:11.5, rpm:690,
       baseDamage:19, bulletSpeed:1130, bulletColor:'#ffd45b', reloadDuration:3.0, spreadBase:.025, spreadMax:.15, recoilImpulse:6.4,
-      campaignOnly:true, campaignCost:920, unlockStage:7, reserveMagazines:4 },
+      soundType:'lmg', campaignOnly:true, campaignCost:920, unlockStage:7, reserveMagazines:4 },
     { id:'flamer8', name:'FLAMER-8', shortName:'FLAMER', slotKey:'8', type:'smg', magSize:48, fireRate:8.5, rpm:510,
       baseDamage:10, bulletSpeed:680, bulletColor:'#ff7444', reloadDuration:2.7, spreadBase:.04, spreadMax:.19, recoilImpulse:3.8,
-      campaignOnly:true, campaignCost:1180, unlockStage:8, reserveMagazines:4, extraBurnDamage:16 },
+      soundType:'flamer', campaignOnly:true, campaignCost:1180, unlockStage:8, reserveMagazines:4, extraBurnDamage:16 },
     { id:'rpg4', name:'RPG-4', shortName:'RPG-4', slotKey:'9', type:'rifle', magSize:4, fireRate:.72, rpm:43,
       baseDamage:92, bulletSpeed:620, bulletColor:'#ff8e47', reloadDuration:2.8, spreadBase:.006, spreadMax:.04, recoilImpulse:15,
-      campaignOnly:true, campaignCost:1500, unlockStage:9, reserveMagazines:5, extraBlastRadius:92 },
+      soundType:'rpg', campaignOnly:true, campaignCost:1500, unlockStage:9, reserveMagazines:5, extraBlastRadius:92 },
     { id:'rail_lance', name:'RAIL LANCE', shortName:'RAIL', slotKey:'0', type:'rifle', magSize:6, fireRate:1.05, rpm:63,
       baseDamage:112, bulletSpeed:1660, bulletColor:'#75d5df', reloadDuration:2.45, spreadBase:0, spreadMax:.018, recoilImpulse:13,
-      campaignOnly:true, campaignCost:1950, unlockStage:10, reserveMagazines:5, extraPierce:3 },
+      soundType:'rail', campaignOnly:true, campaignCost:1950, unlockStage:10, reserveMagazines:5, extraPierce:3 },
   ];
   if (!campaignProgression) return guns;
   // Small Campaign-only power steps help later chapters keep pace with their
@@ -373,7 +373,7 @@ export class GunLoadout {
     }
 
     if (audio) {
-      audio.reloadRack(targetIdx >= 0 ? this.slots[targetIdx].def.type : 'rifle');
+      audio.reloadRack(targetIdx >= 0 ? (this.slots[targetIdx].def.soundType ?? this.slots[targetIdx].def.type) : 'rifle');
     }
     return true;
   }
@@ -511,7 +511,7 @@ export class GunLoadout {
     slot.soundMilestones = { insert: false, rack: false };
 
     if (audio) {
-      audio.reloadStart(slot.def.type);
+      audio.reloadStart(slot.def.soundType ?? slot.def.type);
     }
   }
 
@@ -606,11 +606,11 @@ export class GunLoadout {
         // Milestone sounds
         if (slot.reloadProgress >= 0.42 && !slot.soundMilestones.insert) {
           slot.soundMilestones.insert = true;
-          audio.reloadInsert(slot.def.type);
+          audio.reloadInsert(slot.def.soundType ?? slot.def.type);
         }
         if (slot.reloadProgress >= 0.88 && !slot.soundMilestones.rack) {
           slot.soundMilestones.rack = true;
-          audio.reloadRack(slot.def.type);
+          audio.reloadRack(slot.def.soundType ?? slot.def.type);
         }
 
         // Finish reload

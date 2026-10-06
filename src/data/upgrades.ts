@@ -176,7 +176,7 @@ export const UPGRADES: UpgradeDef[] = [
   {
     id: 'pickup_radius',
     name: 'Từ Trường Thu Gom',
-    description: '+30% bán kính hút ngọc XP',
+    description: '+30% bán kính hút mảnh điểm',
     icon: '🧲',
     maxLevel: 5,
     category: 'stat',

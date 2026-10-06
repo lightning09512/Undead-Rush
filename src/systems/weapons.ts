@@ -200,7 +200,7 @@ export class WeaponSystem {
           const angle = Math.atan2(nearest.y - droneY, nearest.x - droneX);
           bullets.fire(
             droneX, droneY, angle,
-            Math.round(player.bulletDamage * 0.5), 400, 3, '#88ffaa',
+            Math.max(1, Math.round(player.bulletDamage * 0.25)), 400, 3, '#88ffaa',
             0, 0, 0, 0, 'drone'
           );
           audio.droneShoot(Math.cos(this.droneAngles[i]) * 0.28);

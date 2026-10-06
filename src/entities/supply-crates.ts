@@ -132,7 +132,7 @@ export class SupplyCrateSystem {
     if (crate.tier === 'legendary') {
       if (rand < 0.4) return 'weapon_part';
       if (rand < 0.7) return 'health_pack';
-      return 'xp_chest';
+      return 'score_cache';
     } else if (crate.tier === 'rare') {
       if (rand < 0.3) return 'weapon_part';
       if (rand < 0.6) return 'health_pack';
@@ -141,7 +141,7 @@ export class SupplyCrateSystem {
     } else {
       // Common
       if (rand < 0.4) return 'health_pack';
-      if (rand < 0.6) return 'xp_chest';
+      if (rand < 0.6) return 'score_cache';
       if (rand < 0.75) return 'magnet';
       return 'weapon_part';
     }

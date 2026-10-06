@@ -8,7 +8,7 @@ export interface ItemDef {
   size: number;
   /** Duration in seconds for timed buffs, 0 for instant */
   duration: number;
-  /** Effect value (XP amount, HP heal, speed mult, etc.) */
+  /** Effect value (score, HP heal, speed multiplier, etc.) */
   value: number;
   /** Spawn weight for random spawning */
   weight: number;
@@ -16,9 +16,9 @@ export interface ItemDef {
   minTime: number;
 }
 
-export const XP_GEM_SMALL: ItemDef = {
-  id: 'xp_small',
-  name: 'XP Gem',
+export const SCORE_SHARD_SMALL: ItemDef = {
+  id: 'score_small',
+  name: 'Mảnh điểm',
   color: '#73b9cf',
   glowColor: '#3d859d',
   size: 5,
@@ -28,9 +28,9 @@ export const XP_GEM_SMALL: ItemDef = {
   minTime: 0,
 };
 
-export const XP_GEM_MEDIUM: ItemDef = {
-  id: 'xp_medium',
-  name: 'XP Crystal',
+export const SCORE_SHARD_MEDIUM: ItemDef = {
+  id: 'score_medium',
+  name: 'Mảnh điểm lớn',
   color: '#9cc8aa',
   glowColor: '#54876a',
   size: 7,
@@ -40,9 +40,9 @@ export const XP_GEM_MEDIUM: ItemDef = {
   minTime: 0,
 };
 
-export const XP_GEM_LARGE: ItemDef = {
-  id: 'xp_large',
-  name: 'XP Prism',
+export const SCORE_SHARD_LARGE: ItemDef = {
+  id: 'score_large',
+  name: 'Mảnh điểm hiếm',
   color: '#e0b875',
   glowColor: '#aa7941',
   size: 10,
@@ -52,7 +52,7 @@ export const XP_GEM_LARGE: ItemDef = {
   minTime: 60,
 };
 
-export const XP_GEMS = [XP_GEM_SMALL, XP_GEM_MEDIUM, XP_GEM_LARGE];
+export const SCORE_SHARDS = [SCORE_SHARD_SMALL, SCORE_SHARD_MEDIUM, SCORE_SHARD_LARGE];
 
 export const MAP_ITEMS: ItemDef[] = [
   {
@@ -78,8 +78,8 @@ export const MAP_ITEMS: ItemDef[] = [
     minTime: 30,
   },
   {
-    id: 'xp_chest',
-    name: 'XP Chest',
+    id: 'score_cache',
+    name: 'Rương điểm',
     color: '#efc76a',
     glowColor: '#ad813a',
     size: 14,
@@ -89,8 +89,8 @@ export const MAP_ITEMS: ItemDef[] = [
     minTime: 45,
   },
   {
-    id: 'double_xp',
-    name: 'Double XP',
+    id: 'double_score',
+    name: 'Nhân đôi điểm',
     color: '#8ed3d5',
     glowColor: '#468f9c',
     size: 11,
@@ -160,11 +160,6 @@ export const PLAYER_DEFAULTS = {
   pickupRadius: 60,
   invulnDuration: 0.5,     // seconds after being hit
 };
-
-// ─── XP Level Curve ───
-export function xpForLevel(level: number): number {
-  return Math.floor(20 + level * 15 + level * level * 2);
-}
 
 // ─── Weapon Parts System (like Monster Breakout) ───
 export interface WeaponPartDef {

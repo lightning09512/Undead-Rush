@@ -5,8 +5,8 @@ import { CAMPAIGN_ATTACKS, STAGES, type CampaignAttackKind } from '../data/meta'
 import { runCampaignChecks } from './campaign-checks';
 
 interface Snapshot {
-  screen: string; playerHp: number; kills: number; xp: number; gems: number;
-  hits: number; attacks: number; deaths: number; drops: number; phases: string[];
+  screen: string; playerHp: number; kills: number; score: number; shards: number;
+  hits: number; attacks: number; deaths: number; points: number; phases: string[];
   creature: { type: string; hp: number; x: number; y: number; phase: string; flash: number;
     attack: string; moveProgress: number; campaignPhase: number } | null;
 }
@@ -176,10 +176,10 @@ export function mountHorrorPreview(host: PreviewHost): void {
         const killDeadline = performance.now() + 5500;
         while (host.snapshot().deaths === 0 && performance.now() < killDeadline) { host.shoot(); await wait(90); }
         const dead = host.snapshot();
-        if (dead.hits === 0 || dead.deaths !== 1 || dead.drops !== type.xpValue || dead.kills !== 1) {
-          throw new Error(`${type.id}: projectile/death/XP reward failed: ${JSON.stringify(dead)}`);
+        if (dead.hits === 0 || dead.deaths !== 1 || dead.points !== type.scoreValue || dead.kills !== 1) {
+          throw new Error(`${type.id}: projectile/death/score reward failed: ${JSON.stringify(dead)}`);
         }
-        results.textContent += `PASS ${type.id}: di chuyển → báo đòn → gây sát thương → đạn trúng → chết → ${dead.drops} XP\n`;
+        results.textContent += `PASS ${type.id}: di chuyển → báo đòn → gây sát thương → đạn trúng → chết → ${dead.points} điểm rơi\n`;
         await wait(400);
       }
       results.textContent += 'PASS Tất cả kiểm tra tích hợp. Save thường không được đọc/ghi.\n';
@@ -193,6 +193,6 @@ export function mountHorrorPreview(host: PreviewHost): void {
   })(); });
   window.setInterval(() => {
     const s = host.snapshot();
-    status.textContent = `${s.screen} • HP ${s.playerHp} • hạ ${s.kills}\n${s.creature ? `${s.creature.type} • ${s.creature.phase} • HP ${s.creature.hp.toFixed(0)}${s.creature.attack ? `\nChiêu ${s.creature.attack} • ${Math.round(s.creature.moveProgress * 100)}% • pha ${s.creature.campaignPhase}` : ''}` : 'Không có quái'}\nĐạn trúng ${s.hits} • ra đòn ${s.attacks} • chết ${s.deaths} • XP rơi ${s.drops}`;
+    status.textContent = `${s.screen} • HP ${s.playerHp} • hạ ${s.kills} • điểm ${s.score}\n${s.creature ? `${s.creature.type} • ${s.creature.phase} • HP ${s.creature.hp.toFixed(0)}${s.creature.attack ? `\nChiêu ${s.creature.attack} • ${Math.round(s.creature.moveProgress * 100)}% • pha ${s.creature.campaignPhase}` : ''}` : 'Không có quái'}\nĐạn trúng ${s.hits} • ra đòn ${s.attacks} • chết ${s.deaths} • ${s.points} điểm rơi • ${s.shards} mảnh điểm`;
   }, 150);
 }

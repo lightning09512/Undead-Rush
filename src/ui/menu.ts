@@ -16,6 +16,7 @@ export class MenuUI {
   finalTime = 0;
   finalKills = 0;
   finalLevel = 0;
+  finalScore = 0;
   finalGold = 0;
   confirmNewGame = false;
   newGameStep: 'mode' | 'difficulty' = 'mode';
@@ -662,7 +663,7 @@ export class MenuUI {
     const rows = [
       [english ? 'Time' : 'Thời gian', `${Math.floor(this.finalTime / 60)}:${Math.floor(this.finalTime % 60).toString().padStart(2, '0')}`, C.cyanBright],
       [english ? 'Kills' : 'Hạ gục', `${this.finalKills}`, C.text],
-      [english ? 'Level' : 'Cấp độ', `${this.finalLevel}`, C.text],
+      [english ? 'Score' : 'Điểm', Math.floor(this.finalScore).toLocaleString(english ? 'en-US' : 'vi-VN'), C.cyanBright],
       [english ? 'Recovered' : 'Thu hồi', `+${this.finalGold} ${getUiTerm('gold', english ? 'en' : 'vi')}`, C.amberBright],
     ];
     for (let i = 0; i < rows.length; i++) {
@@ -732,7 +733,7 @@ export class MenuUI {
       [english ? 'Gold earned' : 'Vàng tích lũy', `${save.data.gold}`, C.amber],
       [english ? 'Longest survival' : 'Sống sót lâu nhất', `${Math.floor(save.data.bestTime / 60)}:${Math.floor(save.data.bestTime % 60).toString().padStart(2, '0')}`, C.cyan],
       [english ? 'Kill record' : 'Kỷ lục hạ gục', `${save.data.bestKills}`, C.text],
-      [english ? 'Highest level' : 'Cấp cao nhất', `${save.data.bestLevel}`, C.text],
+      [english ? 'Highest score' : 'Điểm cao nhất', `${save.data.bestScore.toLocaleString(english ? 'en-US' : 'vi-VN')}`, C.cyanBright],
       [english ? 'Runs played' : 'Tổng lượt chơi', `${save.data.totalGamesPlayed}`, C.text],
       [english ? 'Total kills' : 'Tổng hạ gục', `${save.data.totalKills}`, C.text],
       [english ? 'Missions complete' : 'Màn đã hoàn thành', `${save.data.completedStages.length} / ${STAGES.length}`, C.health],
@@ -765,12 +766,12 @@ export class MenuUI {
     const columns = landscape || w >= 650 ? 2 : 1;
     const sections = english ? [
       { title: 'Controls', color: C.cyan, lines: ['WASD / arrows: move', 'Hold left mouse: fire · R: reload', 'Shift: dodge · G: grenade · F: rage', '1 / 2 / 3: switch weapon · Esc: pause', 'Touch: left stick to move, right buttons to act'] },
-      { title: 'Survival', color: C.text, lines: ['A run ends when you are killed.', 'Collect XP to improve your loadout.', 'Keep moving and leave yourself an escape route.'] },
+      { title: 'Survival', color: C.text, lines: ['A run ends when you are killed.', 'Collect score shards to raise your run score.', 'Keep moving and leave yourself an escape route.'] },
       { title: 'Supplies', color: C.amber, lines: ['Green: health · cyan: information', 'Amber: ammo, parts, and rare gear', 'Shoot supply crates to break them open.'] },
       { title: 'Read the enemy', color: C.dangerBright, lines: ['Telegraphs show an attack’s direction and reach.', 'Dodge sideways when the spider or Rat King lunges.', 'Clear heavy attacks, then strike back.'] },
     ] : [
       { title: 'Điều khiển', color: C.cyan, lines: ['WASD / phím mũi tên: di chuyển', 'Giữ chuột trái: bắn · R: nạp đạn', 'Shift: lướt · G: lựu đạn · F: nộ', '1 / 2 / 3: đổi súng · Esc: tạm dừng', 'Cảm ứng: cần trái để di chuyển, nút phải để hành động'] },
-      { title: 'Sinh tồn', color: C.text, lines: ['Lượt chơi kết thúc khi bạn gục ngã.', 'Thu thập XP để tăng cường trang bị.', 'Luôn di chuyển và giữ đường rút lui.'] },
+      { title: 'Sinh tồn', color: C.text, lines: ['Lượt chơi kết thúc khi bạn gục ngã.', 'Thu thập mảnh điểm để nâng điểm số của lượt chơi.', 'Luôn di chuyển và giữ đường rút lui.'] },
       { title: 'Tiếp tế', color: C.amber, lines: ['Xanh lá: hồi máu · xanh lam: thông tin', 'Màu hổ phách: đạn, linh kiện và trang bị hiếm', 'Bắn thùng tiếp tế để phá vỡ chúng.'] },
       { title: 'Đọc đòn quái', color: C.dangerBright, lines: ['Tín hiệu báo hướng và tầm đánh.', 'Né ngang khi nhện hoặc Vua Chuột lao tới.', 'Tránh đòn nặng rồi phản công.'] },
     ];

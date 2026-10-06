@@ -1,6 +1,6 @@
 // ─── Player Entity ───
 
-import { PLAYER_DEFAULTS, MAP_CONFIG, xpForLevel } from '../data/items';
+import { PLAYER_DEFAULTS, MAP_CONFIG } from '../data/items';
 import { UPGRADES, MAX_WEAPON_SLOTS, MAX_PASSIVE_SLOTS } from '../data/upgrades';
 import type { UpgradeDef } from '../data/upgrades';
 import { Camera } from '../core/camera';
@@ -60,10 +60,9 @@ export class Player {
   invulnTimer = 0;
   flashTimer = 0;
 
-  // XP / Leveling
-  xp = 0;
-  level = 1;
-  xpToNext: number;
+  // Survival score from collected shards, supply caches and airdrops.
+  score = 0;
+  scoreMultiplier = 1;
 
   // Kills
   kills = 0;
@@ -111,7 +110,6 @@ export class Player {
     this.fireRange = PLAYER_DEFAULTS.fireRange;
     this.pickupRadius = PLAYER_DEFAULTS.pickupRadius;
     this.invulnDuration = PLAYER_DEFAULTS.invulnDuration;
-    this.xpToNext = xpForLevel(1);
   }
 
   reset(): void {
@@ -128,9 +126,8 @@ export class Player {
     this.fireRange = PLAYER_DEFAULTS.fireRange;
     this.pickupRadius = PLAYER_DEFAULTS.pickupRadius;
     this.invulnDuration = PLAYER_DEFAULTS.invulnDuration;
-    this.xp = 0;
-    this.level = 1;
-    this.xpToNext = xpForLevel(1);
+    this.score = 0;
+    this.scoreMultiplier = 1;
     this.kills = 0;
     this.upgrades.clear();
     this.buffs.clear();
@@ -353,19 +350,11 @@ export class Player {
     this.hp = Math.min(this.maxHp, this.hp + amount);
   }
 
-  addXp(amount: number): boolean {
-    let xpMult = 1;
-    const doubleXp = this.buffs.get('double_xp');
-    if (doubleXp) xpMult = doubleXp.value;
-
-    this.xp += Math.round(amount * xpMult);
-    if (this.xp >= this.xpToNext) {
-      this.xp -= this.xpToNext;
-      this.level++;
-      this.xpToNext = xpForLevel(this.level);
-      return true; // leveled up
-    }
-    return false;
+  addScore(amount: number): number {
+    const multiplier = this.scoreMultiplier * (this.buffs.get('double_score')?.value ?? 1);
+    const points = Math.max(0, Math.round(amount * multiplier));
+    this.score += points;
+    return points;
   }
 
   update(dt: number): void {

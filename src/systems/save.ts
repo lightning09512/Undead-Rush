@@ -6,6 +6,8 @@ export interface SaveData {
   // Best scores
   bestTime: number;
   bestKills: number;
+  bestScore: number;
+  /** Retained so saves from the removed Survival level system remain readable. */
   bestLevel: number;
   totalKills: number;
   totalGamesPlayed: number;
@@ -74,6 +76,7 @@ const SAVE_KEY = 'undead_rush_save';
 const DEFAULT_SAVE: SaveData = {
   bestTime: 0,
   bestKills: 0,
+  bestScore: 0,
   bestLevel: 0,
   totalKills: 0,
   totalGamesPlayed: 0,
@@ -146,6 +149,7 @@ export class SaveSystem {
         }
         this.data = { ...DEFAULT_SAVE, ...parsed,
           unlockedCharacters: [...new Set([...ALL_CHARACTER_IDS, ...(parsed.unlockedCharacters ?? [])])],
+          bestScore: Math.max(0, Math.floor(Number(parsed.bestScore) || 0)),
           language: parsed.language === 'en' ? 'en' : 'vi',
           musicEnabled: typeof parsed.musicEnabled === 'boolean' ? parsed.musicEnabled : true,
           campaign };
@@ -166,24 +170,24 @@ export class SaveSystem {
     }
   }
 
-  /** Calculate gold earned from a run */
-  calculateGold(timeSurvived: number, kills: number, level: number): number {
+  /** Calculate gold earned from a run. Score replaces the former level bonus. */
+  calculateGold(timeSurvived: number, kills: number, score: number): number {
     const timeBonus = Math.floor(timeSurvived / 10);
     const killBonus = Math.floor(kills / 5);
-    const levelBonus = level * 3;
-    return timeBonus + killBonus + levelBonus;
+    const scoreBonus = Math.floor(Math.max(0, score) / 100);
+    return timeBonus + killBonus + scoreBonus;
   }
 
   /** Record end-of-run stats */
-  recordRun(timeSurvived: number, kills: number, level: number): number {
+  recordRun(timeSurvived: number, kills: number, score: number): number {
     this.data.totalGamesPlayed++;
     this.data.totalKills += kills;
 
     if (timeSurvived > this.data.bestTime) this.data.bestTime = timeSurvived;
     if (kills > this.data.bestKills) this.data.bestKills = kills;
-    if (level > this.data.bestLevel) this.data.bestLevel = level;
+    if (score > this.data.bestScore) this.data.bestScore = score;
 
-    const gold = this.calculateGold(timeSurvived, kills, level);
+    const gold = this.calculateGold(timeSurvived, kills, score);
     this.data.gold += gold;
     this.data.totalGoldEarned += gold;
 

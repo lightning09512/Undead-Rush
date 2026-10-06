@@ -7,6 +7,7 @@ import gameMusicThree from '../assets/04. Music 3.mp3';
 import { getBossIdFromType, getBossSignature } from '../data/boss-signatures';
 
 type MusicScene = 'menu' | 'calm' | 'combat' | 'campaignBoss' | 'boss' | 'paused';
+export type WeaponSoundType = 'pistol' | 'rifle' | 'smg' | 'shotgun' | 'drone' | 'dmr' | 'lmg' | 'flamer' | 'rpg' | 'rail';
 interface MusicDeck {
   element: HTMLAudioElement;
   gain: GainNode;
@@ -18,7 +19,7 @@ const MENU_TRACK = { key: 'menu', url: menuMusic };
 const GAME_TRACKS: Record<Exclude<MusicScene, 'menu' | 'paused'>, { key: string; url: string }> = {
   calm: { key: 'game-1', url: gameMusicOne },
   combat: { key: 'game-2', url: gameMusicTwo },
-  campaignBoss: { key: 'game-2', url: gameMusicTwo },
+  campaignBoss: { key: 'game-3', url: gameMusicThree },
   boss: { key: 'game-3', url: gameMusicThree },
 };
 
@@ -41,6 +42,7 @@ export class Audio {
   private lastBossProjectilePassTime = 0;
   private activeBossCueVoices = 0;
   private lastDroneShotTime = 0;
+  private lastFlamerShotTime = 0;
   private lastCreditPickupTime = 0;
   private lastSupplyPickupTime = 0;
   private lastObjectiveSoundTime = 0;
@@ -334,7 +336,7 @@ export class Audio {
 
   private playRecorded(
     key: string,
-    options: { volume?: number; pan?: number; rate?: number; offset?: number; duration?: number; lowpass?: number; priority?: number; onEnded?: () => void } = {},
+    options: { volume?: number; pan?: number; rate?: number; offset?: number; duration?: number; fadeOut?: number; lowpass?: number; priority?: number; onEnded?: () => void } = {},
   ): boolean {
     if (!this.ctx || !this.sfxGain) return false;
     const priority = options.priority ?? 1;
@@ -375,7 +377,15 @@ export class Audio {
     const nodes: AudioNode[] = [source, gain];
     source.buffer = buffer;
     source.playbackRate.value = options.rate ?? 1;
-    gain.gain.setValueAtTime(options.volume ?? 0.6, this.ctx.currentTime);
+    const now = this.ctx.currentTime;
+    const volume = options.volume ?? 0.6;
+    gain.gain.setValueAtTime(volume, now);
+    if (options.fadeOut && options.fadeOut > 0) {
+      const playbackDuration = duration / Math.max(.01, options.rate ?? 1);
+      const fadeDuration = Math.min(options.fadeOut, playbackDuration * .45);
+      gain.gain.setValueAtTime(volume, now + playbackDuration - fadeDuration);
+      gain.gain.exponentialRampToValueAtTime(.001, now + playbackDuration);
+    }
     source.connect(gain);
 
     let last: AudioNode = gain;
@@ -459,7 +469,7 @@ export class Audio {
    * 3. Muzzle blast air roar (filtered noise decay)
    * 4. Mechanical brass casing drop / bolt cycle click
    */
-  shoot(weaponType: 'pistol' | 'rifle' | 'smg' | 'shotgun' | 'drone' = 'pistol'): void {
+  shoot(weaponType: WeaponSoundType = 'pistol'): void {
     if (!this.ensureContext() || !this.ctx || !this.sfxGain) return;
 
     if (weaponType === 'shotgun') {
@@ -470,25 +480,44 @@ export class Audio {
       this.droneShoot();
       return;
     }
+    if (weaponType === 'flamer') {
+      this.flamerShot();
+      return;
+    }
+    if (weaponType === 'rpg') {
+      this.grenadeLaunch();
+      return;
+    }
+    if (weaponType === 'rail') {
+      this.railShot();
+      return;
+    }
 
-    const shotAssets: Record<'pistol' | 'rifle' | 'smg', { key: string; offset: number; duration: number; volume: number; rate: number; lowpass: number }> = {
-      pistol: { key: 'gun-pistol', offset: 2.8, duration: 0.22, volume: 0.38, rate: 0.98 + Math.random() * 0.04, lowpass: 5000 },
-      rifle: { key: 'gun-rifle', offset: 0.3, duration: 0.24, volume: 0.40, rate: 0.98 + Math.random() * 0.04, lowpass: 5200 },
-      smg: { key: 'gun-rifle', offset: 6.0, duration: 0.19, volume: 0.31, rate: 1.08 + Math.random() * 0.06, lowpass: 5400 },
+    const shotAssets: Record<'pistol' | 'rifle' | 'smg' | 'shotgun' | 'dmr' | 'lmg',
+      { key: string; offset: number; duration: number; fadeOut?: number; volume: number; rate: number; lowpass: number }> = {
+      pistol: { key: 'gun-pistol', offset: 2.8, duration: 0.82, fadeOut: .16, volume: 0.34, rate: 0.98 + Math.random() * 0.04, lowpass: 4700 },
+      rifle: { key: 'gun-rifle', offset: 0.3, duration: 0.24, volume: 0.34, rate: 0.98 + Math.random() * 0.04, lowpass: 4600 },
+      smg: { key: 'gun-rifle', offset: 6.0, duration: 0.19, volume: 0.27, rate: 1.08 + Math.random() * 0.06, lowpass: 5000 },
+      shotgun: { key: 'gun-shotgun', offset: 0, duration: 0.26, volume: 0.4, rate: 0.99 + Math.random() * 0.02, lowpass: 4700 },
+      dmr: { key: 'gun-rifle', offset: 0.3, duration: 0.29, volume: 0.36, rate: 0.91 + Math.random() * 0.025, lowpass: 3900 },
+      lmg: { key: 'gun-rifle', offset: 6.0, duration: 0.2, volume: 0.28, rate: 0.94 + Math.random() * 0.035, lowpass: 4100 },
     };
     const shot = shotAssets[weaponType];
-    if (this.playRecorded(shot.key, { offset: shot.offset, duration: shot.duration, volume: shot.volume, lowpass: shot.lowpass, rate: shot.rate, priority: 3 })) return;
+    if (this.playRecorded(shot.key, { offset: shot.offset, duration: shot.duration, fadeOut: shot.fadeOut,
+      volume: shot.volume, lowpass: shot.lowpass, rate: shot.rate, priority: 3 })) return;
 
     const ctx = this.ctx;
     const t = ctx.currentTime;
 
     // Small variation keeps automatic fire from sounding like a perfectly repeated sample.
-    const pitchDetune = (Math.random() - 0.5) * (weaponType === 'smg' ? 0.11 : 0.075);
+    const pitchDetune = (Math.random() - 0.5) * (weaponType === 'smg' || weaponType === 'lmg' ? 0.11 : 0.075);
     const profile = weaponType === 'rifle'
-      ? { pitch: 205, crack: 0.40, snap: 0.055, body: 0.09, roar: 0.25, tail: 0.13 }
-      : weaponType === 'smg'
-        ? { pitch: 250, crack: 0.34, snap: 0.05, body: 0.075, roar: 0.20, tail: 0.09 }
-        : { pitch: 172, crack: 0.37, snap: 0.05, body: 0.08, roar: 0.22, tail: 0.10 };
+      ? { pitch: 190, crack: 0.31, body: 0.075, roar: 0.18, tail: 0.13 }
+      : weaponType === 'dmr'
+        ? { pitch: 158, crack: 0.36, body: 0.09, roar: 0.21, tail: 0.17 }
+        : weaponType === 'smg' || weaponType === 'lmg'
+          ? { pitch: 225, crack: 0.26, body: 0.06, roar: 0.15, tail: 0.09 }
+          : { pitch: 172, crack: 0.30, body: 0.07, roar: 0.17, tail: 0.10 };
     const baseFreq = profile.pitch * (1 + pitchDetune);
 
     // ── Layer 1: Supersonic Ballistic Crack (High-velocity sharp whip) ──
@@ -513,21 +542,6 @@ export class Audio {
       crackSrc.start(t, Math.random());
       crackSrc.stop(t + 0.04);
     }
-
-    // High snap chirp (firing pin & shockwave transient)
-    const snapOsc = ctx.createOscillator();
-    const snapGain = ctx.createGain();
-    snapOsc.type = 'triangle';
-    snapOsc.frequency.setValueAtTime((weaponType === 'smg' ? 1750 : 1350) * (1 + pitchDetune), t);
-    snapOsc.frequency.exponentialRampToValueAtTime(weaponType === 'smg' ? 240 : 145, t + 0.025);
-
-    snapGain.gain.setValueAtTime(profile.snap, t);
-    snapGain.gain.exponentialRampToValueAtTime(0.001, t + 0.018);
-
-    snapOsc.connect(snapGain);
-    snapGain.connect(this.sfxGain);
-    snapOsc.start(t);
-    snapOsc.stop(t + 0.02);
 
     // ── Layer 2: Gunpowder Explosion & Low Punch (Body) ──
     const boomOsc = ctx.createOscillator();
@@ -561,7 +575,7 @@ export class Audio {
       bodyFilter.type = 'lowpass';
       bodyFilter.frequency.setValueAtTime(780 + Math.random() * 260, t);
       bodyFilter.frequency.exponentialRampToValueAtTime(130, t + profile.tail + 0.08);
-      bodyGain.gain.setValueAtTime(weaponType === 'smg' ? 0.30 : 0.34, t);
+      bodyGain.gain.setValueAtTime(weaponType === 'smg' || weaponType === 'lmg' ? 0.20 : 0.23, t);
       bodyGain.gain.exponentialRampToValueAtTime(0.001, t + profile.tail + 0.1);
       bodySrc.connect(bodyFilter);
       bodyFilter.connect(bodyGain);
@@ -596,11 +610,11 @@ export class Audio {
       const actionGain = ctx.createGain();
       action.buffer = this.noiseBuffer;
       actionFilter.type = 'bandpass';
-      actionFilter.frequency.setValueAtTime(weaponType === 'smg' ? 2250 : 1700, t + 0.045);
-      actionFilter.Q.value = 2.6;
+      actionFilter.frequency.setValueAtTime(weaponType === 'smg' || weaponType === 'lmg' ? 1850 : 1420, t + 0.045);
+      actionFilter.Q.value = 1.05;
       actionGain.gain.setValueAtTime(0.0001, t);
-      actionGain.gain.setValueAtTime(0.065, t + 0.045);
-      actionGain.gain.exponentialRampToValueAtTime(0.001, t + 0.082);
+      actionGain.gain.setValueAtTime(0.035, t + 0.045);
+      actionGain.gain.exponentialRampToValueAtTime(0.001, t + 0.092);
       action.connect(actionFilter);
       actionFilter.connect(actionGain);
       actionGain.connect(this.sfxGain);
@@ -615,7 +629,7 @@ export class Audio {
       reflectionFilter.frequency.setValueAtTime(640 + Math.random() * 260, t + 0.075);
       reflectionFilter.Q.value = 0.72;
       reflectionGain.gain.setValueAtTime(0.0001, t);
-      reflectionGain.gain.setValueAtTime(0.04, t + 0.075);
+      reflectionGain.gain.setValueAtTime(0.025, t + 0.075);
       reflectionGain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
       reflection.connect(reflectionFilter);
       reflectionFilter.connect(reflectionGain);
@@ -631,7 +645,8 @@ export class Audio {
   shotgun(): void {
     if (!this.ensureContext() || !this.ctx || !this.sfxGain) return;
 
-    if (this.playRecorded('gun-shotgun', { duration: 0.26, volume: 0.46, lowpass: 5000, rate: 0.99 + Math.random() * 0.02, priority: 3 })) return;
+    if (this.playRecorded('gun-shotgun', { duration: 0.68, fadeOut: .15, volume: 0.46, lowpass: 5000,
+      rate: 0.99 + Math.random() * 0.02, priority: 3 })) return;
 
     const ctx = this.ctx;
     const t = ctx.currentTime;
@@ -717,6 +732,65 @@ export class Audio {
     }
   }
 
+  /** Soft fuel ignition and a broad flame rush for the Campaign flamethrower. */
+  private flamerShot(): void {
+    if (!this.ensureContext() || !this.ctx || !this.sfxGain || !this.noiseBuffer) return;
+    const now = performance.now();
+    if (now - this.lastFlamerShotTime < 82) return;
+    this.lastFlamerShotTime = now;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const hiss = ctx.createBufferSource();
+    const hissFilter = ctx.createBiquadFilter();
+    const hissGain = ctx.createGain();
+    hiss.buffer = this.noiseBuffer;
+    hiss.playbackRate.value = .72 + Math.random() * .16;
+    hissFilter.type = 'bandpass';
+    hissFilter.frequency.setValueAtTime(920 + Math.random() * 260, t);
+    hissFilter.frequency.exponentialRampToValueAtTime(420, t + .115);
+    hissFilter.Q.value = .52;
+    hissGain.gain.setValueAtTime(.0001, t);
+    hissGain.gain.linearRampToValueAtTime(.13, t + .012);
+    hissGain.gain.exponentialRampToValueAtTime(.001, t + .13);
+    hiss.connect(hissFilter); hissFilter.connect(hissGain); hissGain.connect(this.sfxGain);
+    hiss.onended = () => { hiss.disconnect(); hissFilter.disconnect(); hissGain.disconnect(); };
+    hiss.start(t, Math.random() * 1.4); hiss.stop(t + .14);
+  }
+
+  /** A sharp electrical discharge with a low transformer thump, without a pitched sci-fi beep. */
+  private railShot(): void {
+    if (!this.ensureContext() || !this.ctx || !this.sfxGain || !this.noiseBuffer) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const crack = ctx.createBufferSource();
+    const crackFilter = ctx.createBiquadFilter();
+    const crackGain = ctx.createGain();
+    crack.buffer = this.noiseBuffer;
+    crack.playbackRate.value = .86 + Math.random() * .18;
+    crackFilter.type = 'bandpass';
+    crackFilter.frequency.setValueAtTime(3100 + Math.random() * 650, t);
+    crackFilter.frequency.exponentialRampToValueAtTime(980, t + .085);
+    crackFilter.Q.value = .72;
+    crackGain.gain.setValueAtTime(.3, t);
+    crackGain.gain.exponentialRampToValueAtTime(.001, t + .09);
+    crack.connect(crackFilter); crackFilter.connect(crackGain); crackGain.connect(this.sfxGain);
+    crack.onended = () => { crack.disconnect(); crackFilter.disconnect(); crackGain.disconnect(); };
+    crack.start(t, Math.random() * 1.3); crack.stop(t + .1);
+
+    const body = ctx.createBufferSource();
+    const bodyFilter = ctx.createBiquadFilter();
+    const bodyGain = ctx.createGain();
+    body.buffer = this.noiseBuffer;
+    bodyFilter.type = 'lowpass';
+    bodyFilter.frequency.setValueAtTime(640, t);
+    bodyFilter.frequency.exponentialRampToValueAtTime(115, t + .22);
+    bodyGain.gain.setValueAtTime(.24, t);
+    bodyGain.gain.exponentialRampToValueAtTime(.001, t + .24);
+    body.connect(bodyFilter); bodyFilter.connect(bodyGain); bodyGain.connect(this.sfxGain);
+    body.onended = () => { body.disconnect(); bodyFilter.disconnect(); bodyGain.disconnect(); };
+    body.start(t, Math.random() * 1.3); body.stop(t + .25);
+  }
+
   /**
    * High-tech pulse sound for combat drones
    */
@@ -725,107 +799,78 @@ export class Audio {
     const now = performance.now();
     if (now - this.lastDroneShotTime < 82) return;
     this.lastDroneShotTime = now;
-
-    if (this.playRecorded('gun-rifle', {
-      offset: 9.7,
-      duration: 0.34,
-      volume: 0.68,
-      rate: 1.04 + Math.random() * 0.04,
-      pan,
-      priority: 2,
-    })) return;
-
+    if (!this.noiseBuffer) return;
     const ctx = this.ctx;
     const t = ctx.currentTime;
     const panner = ctx.createStereoPanner();
     panner.pan.setValueAtTime(Math.max(-1, Math.min(1, pan)), t);
     panner.connect(this.sfxGain);
 
-    // Compact rifle report: sharp muzzle crack, short low body, and a tiny action clack.
-    if (this.noiseBuffer) {
-      const crack = ctx.createBufferSource();
-      const crackFilter = ctx.createBiquadFilter();
-      const crackGain = ctx.createGain();
-      crack.buffer = this.noiseBuffer;
-      crackFilter.type = 'bandpass';
-      crackFilter.frequency.setValueAtTime(3200 + Math.random() * 900, t);
-      crackFilter.Q.value = 1.25;
-      crackGain.gain.setValueAtTime(0.72, t);
-      crackGain.gain.exponentialRampToValueAtTime(0.001, t + 0.034);
-      crack.connect(crackFilter);
-      crackFilter.connect(crackGain);
-      crackGain.connect(panner);
-      crack.start(t, Math.random());
-      crack.stop(t + 0.04);
+    const crack = ctx.createBufferSource();
+    const crackFilter = ctx.createBiquadFilter();
+    const crackGain = ctx.createGain();
+    crack.buffer = this.noiseBuffer;
+    crackFilter.type = 'bandpass';
+    crackFilter.frequency.setValueAtTime(2600 + Math.random() * 600, t);
+    crackFilter.Q.value = .72;
+    crackGain.gain.setValueAtTime(.2, t);
+    crackGain.gain.exponentialRampToValueAtTime(.001, t + .028);
+    crack.connect(crackFilter); crackFilter.connect(crackGain); crackGain.connect(panner);
+    crack.onended = () => { crack.disconnect(); crackFilter.disconnect(); crackGain.disconnect(); };
+    crack.start(t, Math.random() * 1.4); crack.stop(t + .035);
 
-      const body = ctx.createBufferSource();
-      const bodyFilter = ctx.createBiquadFilter();
-      const bodyGain = ctx.createGain();
-      body.buffer = this.noiseBuffer;
-      bodyFilter.type = 'lowpass';
-      bodyFilter.frequency.setValueAtTime(980, t);
-      bodyFilter.frequency.exponentialRampToValueAtTime(190, t + 0.12);
-      bodyGain.gain.setValueAtTime(0.72, t);
-      bodyGain.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
-      body.connect(bodyFilter);
-      bodyFilter.connect(bodyGain);
-      bodyGain.connect(panner);
-      body.start(t, Math.random());
-      body.stop(t + 0.14);
-
-      const action = ctx.createBufferSource();
-      const actionFilter = ctx.createBiquadFilter();
-      const actionGain = ctx.createGain();
-      action.buffer = this.noiseBuffer;
-      actionFilter.type = 'bandpass';
-      actionFilter.frequency.setValueAtTime(2100, t + 0.035);
-      actionFilter.Q.value = 2.5;
-      actionGain.gain.setValueAtTime(0.0001, t);
-      actionGain.gain.setValueAtTime(0.16, t + 0.035);
-      actionGain.gain.exponentialRampToValueAtTime(0.001, t + 0.075);
-      action.connect(actionFilter);
-      actionFilter.connect(actionGain);
-      actionGain.connect(panner);
-      action.start(t + 0.035, Math.random());
-      action.stop(t + 0.08);
-    }
-
-    const thump = ctx.createOscillator();
-    const thumpGain = ctx.createGain();
-    thump.type = 'triangle';
-    thump.frequency.setValueAtTime(135 + Math.random() * 25, t);
-    thump.frequency.exponentialRampToValueAtTime(52, t + 0.085);
-    thumpGain.gain.setValueAtTime(0.19, t);
-    thumpGain.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
-    thump.connect(thumpGain);
-    thumpGain.connect(panner);
-    thump.start(t);
-    thump.stop(t + 0.095);
+    const body = ctx.createBufferSource();
+    const bodyFilter = ctx.createBiquadFilter();
+    const bodyGain = ctx.createGain();
+    body.buffer = this.noiseBuffer;
+    bodyFilter.type = 'lowpass';
+    bodyFilter.frequency.setValueAtTime(620, t);
+    bodyFilter.frequency.exponentialRampToValueAtTime(170, t + .09);
+    bodyGain.gain.setValueAtTime(.16, t);
+    bodyGain.gain.exponentialRampToValueAtTime(.001, t + .1);
+    body.connect(bodyFilter); bodyFilter.connect(bodyGain); bodyGain.connect(panner);
+    body.onended = () => { body.disconnect(); bodyFilter.disconnect(); bodyGain.disconnect(); panner.disconnect(); };
+    body.start(t, Math.random() * 1.4); body.stop(t + .105);
   }
 
   /**
    * Pneumatic grenade launcher firing thump
    */
   grenadeLaunch(): void {
-    if (!this.ensureContext() || !this.ctx || !this.sfxGain) return;
+    if (!this.ensureContext() || !this.ctx || !this.sfxGain || !this.noiseBuffer) return;
     const ctx = this.ctx;
     const t = ctx.currentTime;
-    const osc = ctx.createOscillator();
+    const source = ctx.createBufferSource();
+    const filter = ctx.createBiquadFilter();
     const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(280, t);
-    osc.frequency.exponentialRampToValueAtTime(75, t + 0.12);
-    gain.gain.setValueAtTime(0.38, t);
-    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
-    osc.connect(gain);
-    gain.connect(this.sfxGain);
-    osc.start(t);
-    osc.stop(t + 0.15);
+    source.buffer = this.noiseBuffer;
+    source.playbackRate.value = .68 + Math.random() * .12;
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(760, t);
+    filter.frequency.exponentialRampToValueAtTime(145, t + .18);
+    filter.Q.value = .55;
+    gain.gain.setValueAtTime(.0001, t);
+    gain.gain.linearRampToValueAtTime(.26, t + .01);
+    gain.gain.exponentialRampToValueAtTime(.001, t + .21);
+    source.connect(filter); filter.connect(gain); gain.connect(this.sfxGain);
+    source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); };
+    source.start(t, Math.random() * 1.3); source.stop(t + .22);
+
+    const valve = ctx.createBufferSource();
+    const valveFilter = ctx.createBiquadFilter();
+    const valveGain = ctx.createGain();
+    valve.buffer = this.noiseBuffer;
+    valveFilter.type = 'bandpass'; valveFilter.frequency.value = 1900; valveFilter.Q.value = .62;
+    valveGain.gain.setValueAtTime(.11, t);
+    valveGain.gain.exponentialRampToValueAtTime(.001, t + .045);
+    valve.connect(valveFilter); valveFilter.connect(valveGain); valveGain.connect(this.sfxGain);
+    valve.onended = () => { valve.disconnect(); valveFilter.disconnect(); valveGain.disconnect(); };
+    valve.start(t, Math.random() * 1.4); valve.stop(t + .05);
   }
 
   // ─── Tactical Reload & Weapon Action Sound Effects ───
 
-  private reloadClack(delay: number, pitch: number, brightness: number, volume: number): void {
+  private reloadClack(delay: number, bodyCutoff: number, brightness: number, volume: number): void {
     if (!this.ensureContext() || !this.ctx || !this.sfxGain) return;
     const ctx = this.ctx;
     const t = ctx.currentTime + delay;
@@ -837,31 +882,33 @@ export class Audio {
       metal.buffer = this.noiseBuffer;
       filter.type = 'bandpass';
       filter.frequency.setValueAtTime(brightness, t);
-      filter.frequency.exponentialRampToValueAtTime(Math.max(180, brightness * 0.42), t + 0.065);
-      filter.Q.value = 2.2;
-      gain.gain.setValueAtTime(volume * 0.52, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.075);
+      filter.frequency.exponentialRampToValueAtTime(Math.max(320, brightness * 0.58), t + 0.045);
+      filter.Q.value = .78;
+      gain.gain.setValueAtTime(volume * .62, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + .052);
       metal.connect(filter);
       filter.connect(gain);
       gain.connect(this.sfxGain);
+      metal.onended = () => { metal.disconnect(); filter.disconnect(); gain.disconnect(); };
       metal.start(t, Math.random() * 1.5);
-      metal.stop(t + 0.08);
-    }
+      metal.stop(t + .057);
 
-    const ring = ctx.createOscillator();
-    const ringGain = ctx.createGain();
-    ring.type = 'triangle';
-    ring.frequency.setValueAtTime(pitch, t);
-    ring.frequency.exponentialRampToValueAtTime(Math.max(90, pitch * 0.58), t + 0.055);
-    ringGain.gain.setValueAtTime(volume * 0.3, t);
-    ringGain.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
-    ring.connect(ringGain);
-    ringGain.connect(this.sfxGain);
-    ring.start(t);
-    ring.stop(t + 0.065);
+      const body = ctx.createBufferSource();
+      const bodyFilter = ctx.createBiquadFilter();
+      const bodyGain = ctx.createGain();
+      body.buffer = this.noiseBuffer;
+      bodyFilter.type = 'lowpass';
+      bodyFilter.frequency.setValueAtTime(Math.max(330, bodyCutoff), t);
+      bodyFilter.frequency.exponentialRampToValueAtTime(150, t + .075);
+      bodyGain.gain.setValueAtTime(volume * .22, t);
+      bodyGain.gain.exponentialRampToValueAtTime(.001, t + .082);
+      body.connect(bodyFilter); bodyFilter.connect(bodyGain); bodyGain.connect(this.sfxGain);
+      body.onended = () => { body.disconnect(); bodyFilter.disconnect(); bodyGain.disconnect(); };
+      body.start(t, Math.random() * 1.5); body.stop(t + .085);
+    }
   }
 
-  private reloadSlide(delay: number, duration: number, pitchFrom: number, pitchTo: number, brightness: number): void {
+  private reloadSlide(delay: number, duration: number, brightness: number): void {
     if (!this.ensureContext() || !this.ctx || !this.sfxGain || !this.noiseBuffer) return;
     const ctx = this.ctx;
     const t = ctx.currentTime + delay;
@@ -874,77 +921,85 @@ export class Audio {
     filter.frequency.exponentialRampToValueAtTime(Math.max(250, brightness * 0.48), t + duration);
     filter.Q.value = 1.05;
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.linearRampToValueAtTime(0.16, t + 0.025);
-    gain.gain.setValueAtTime(0.12, t + duration * 0.55);
+    gain.gain.linearRampToValueAtTime(0.13, t + 0.025);
+    gain.gain.setValueAtTime(0.09, t + duration * 0.55);
     gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
     scrape.connect(filter);
     filter.connect(gain);
     gain.connect(this.sfxGain);
+    scrape.onended = () => { scrape.disconnect(); filter.disconnect(); gain.disconnect(); };
     scrape.start(t, Math.random() * 1.5);
     scrape.stop(t + duration + 0.01);
-
-    const bolt = ctx.createOscillator();
-    const boltFilter = ctx.createBiquadFilter();
-    const boltGain = ctx.createGain();
-    bolt.type = 'sawtooth';
-    bolt.frequency.setValueAtTime(pitchFrom, t);
-    bolt.frequency.exponentialRampToValueAtTime(pitchTo, t + duration);
-    boltFilter.type = 'lowpass';
-    boltFilter.frequency.value = 1050;
-    boltGain.gain.setValueAtTime(0.0001, t);
-    boltGain.gain.linearRampToValueAtTime(0.055, t + 0.025);
-    boltGain.gain.exponentialRampToValueAtTime(0.001, t + duration);
-    bolt.connect(boltFilter);
-    boltFilter.connect(boltGain);
-    boltGain.connect(this.sfxGain);
-    bolt.start(t);
-    bolt.stop(t + duration + 0.01);
   }
 
   /** Magazine release followed by the metal magazine clearing the receiver. */
-  reloadStart(weaponType: 'rifle' | 'shotgun' | 'smg' = 'rifle'): void {
+  reloadStart(weaponType: Exclude<WeaponSoundType, 'drone'> = 'rifle'): void {
     if (!this.ensureContext()) return;
     const isShotgun = weaponType === 'shotgun';
-    if (isShotgun && this.playRecorded('reload-shotgun-first-shell', { volume: 0.48, rate: 0.98 + Math.random() * 0.04, priority: 2 })) return;
-    const brightness = weaponType === 'smg' ? 1450 : isShotgun ? 720 : 980;
-    this.reloadClack(0, isShotgun ? 180 : 225, brightness, 0.46);
-    this.reloadSlide(0.035, isShotgun ? 0.15 : 0.105, 720, 260, brightness * 0.92);
-    this.reloadClack(0.13, isShotgun ? 145 : 190, brightness * 0.72, 0.33);
+    if (isShotgun && this.playRecorded('reload-shotgun-first-shell', {
+      offset: 0, duration: .145, volume: .34, rate: .98 + Math.random() * .04, priority: 2,
+    })) return;
+    if (!isShotgun && this.playRecorded('reload-rifle', {
+      offset: .15, duration: .21, volume: .32, rate: this.reloadSampleRate(weaponType), priority: 2,
+    })) return;
+    const brightness = this.reloadBrightness(weaponType);
+    this.reloadClack(0, isShotgun ? 460 : 520, brightness, 0.34);
+    this.reloadSlide(0.035, isShotgun ? 0.15 : 0.105, brightness * 0.92);
+    this.reloadClack(0.13, isShotgun ? 390 : 430, brightness * 0.72, 0.25);
   }
 
   /** Fresh magazine seats with a dense, weighty metal-on-metal slap. */
-  reloadInsert(weaponType: 'rifle' | 'shotgun' | 'smg' = 'rifle'): void {
+  reloadInsert(weaponType: Exclude<WeaponSoundType, 'drone'> = 'rifle'): void {
     if (!this.ensureContext()) return;
     if (weaponType === 'shotgun') {
-      if (this.playRecorded('reload-shotgun-shells', { volume: 0.42, rate: 0.96 + Math.random() * 0.08, priority: 2 })) return;
-      this.reloadClack(0, 300, 1150, 0.42);
-      this.reloadClack(0.045, 870, 1900, 0.24);
+      if (this.playRecorded('reload-shotgun-shells', {
+        offset: .675, duration: .63, volume: .32, rate: .96 + Math.random() * .08, priority: 2,
+      })) return;
+      this.reloadClack(0, 560, 1150, 0.34);
+      this.reloadClack(0.045, 680, 1900, 0.2);
       return;
     }
-    const isSmg = weaponType === 'smg';
-    if (this.playRecorded('reload-rifle', {
-      offset: 0.94,
-      duration: 0.55,
-      volume: isSmg ? 0.4 : 0.48,
-      rate: isSmg ? 1.08 : 1,
-      priority: 2,
-    })) return;
-    this.reloadClack(0, isSmg ? 285 : 245, isSmg ? 1550 : 1150, 0.56);
-    this.reloadClack(0.035, isSmg ? 1050 : 760, isSmg ? 2100 : 1650, 0.3);
+    const brightness = this.reloadBrightness(weaponType);
+    this.reloadClack(0, weaponType === 'smg' || weaponType === 'lmg' ? 620 : 560, brightness, 0.38);
+    this.reloadClack(0.035, weaponType === 'smg' || weaponType === 'lmg' ? 760 : 680, brightness * 1.35, 0.2);
   }
 
   /** Bolt or pump action scrapes forward, then snaps into battery. */
-  reloadRack(weaponType: 'rifle' | 'shotgun' | 'smg' = 'rifle'): void {
+  reloadRack(weaponType: Exclude<WeaponSoundType, 'drone'> = 'rifle'): void {
     if (!this.ensureContext()) return;
     if (weaponType === 'shotgun') {
-      if (this.playRecorded('reload-shotgun-rack', { volume: 0.52, rate: 0.97 + Math.random() * 0.06 })) return;
-      this.reloadSlide(0, 0.2, 980, 230, 1300);
-      this.reloadClack(0.17, 190, 780, 0.58);
+      if (this.playRecorded('reload-shotgun-rack', {
+        offset: .61, duration: .48, volume: .4, rate: .97 + Math.random() * .06,
+      })) return;
+      this.reloadSlide(0, 0.2, 1300);
+      this.reloadClack(0.17, 460, 780, 0.42);
       return;
     }
-    const isSmg = weaponType === 'smg';
-    this.reloadSlide(0, isSmg ? 0.12 : 0.16, isSmg ? 1150 : 920, 190, isSmg ? 1750 : 1200);
-    this.reloadClack(isSmg ? 0.105 : 0.14, 205, isSmg ? 1250 : 840, 0.56);
+    if (this.playRecorded('reload-rifle', {
+      offset: 1.04, duration: .44, volume: .31, rate: this.reloadSampleRate(weaponType), priority: 2,
+    })) return;
+    const isCompact = weaponType === 'smg' || weaponType === 'lmg';
+    const brightness = this.reloadBrightness(weaponType);
+    this.reloadSlide(0, isCompact ? 0.12 : 0.16, brightness);
+    this.reloadClack(isCompact ? 0.105 : 0.14, isCompact ? 520 : 450, brightness * .7, 0.36);
+  }
+
+  private reloadBrightness(weaponType: Exclude<WeaponSoundType, 'drone'>): number {
+    switch (weaponType) {
+      case 'shotgun': return 720;
+      case 'smg': return 1450;
+      case 'lmg': return 1080;
+      case 'dmr': case 'rail': return 840;
+      case 'rpg': return 620;
+      case 'flamer': return 560;
+      default: return 980;
+    }
+  }
+
+  private reloadSampleRate(weaponType: Exclude<WeaponSoundType, 'drone'>): number {
+    return weaponType === 'smg' || weaponType === 'lmg' ? 1.08
+      : weaponType === 'dmr' || weaponType === 'rail' ? .92
+        : weaponType === 'rpg' ? .82 : .98;
   }
 
   private lastEmptyClickTime = 0;
@@ -952,7 +1007,7 @@ export class Audio {
     const now = performance.now();
     if (now - this.lastEmptyClickTime < 180) return;
     this.lastEmptyClickTime = now;
-    this.playTone(1800, 0.02, 'square', 0.12);
+    this.reloadClack(0, 520, 2600, 0.16);
   }
 
   /** A short, grounded impact and air rush for the rage skill, with no arcade-like pitch sweep. */
@@ -1044,12 +1099,54 @@ export class Audio {
   }
 
   private lastPlayerHitTime = 0;
+  private lastHealingSoundTime = 0;
 
   playerHit(): void {
     const now = performance.now();
     if (now - this.lastPlayerHitTime < 180) return;
     this.lastPlayerHitTime = now;
     this.playTone(180, 0.1, 'triangle', 0.22);
+  }
+
+  /** Soft, sustained recovery cue with an airy texture; no arcade-style beeps. */
+  healing(): void {
+    const now = performance.now();
+    if (now - this.lastHealingSoundTime < 260) return;
+    this.lastHealingSoundTime = now;
+    if (!this.ensureContext() || !this.ctx || !this.sfxGain) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+
+    for (const [frequency, delay, peak] of [[174, 0, .075], [261, .055, .038]] as const) {
+      const voice = ctx.createOscillator();
+      const envelope = ctx.createGain();
+      voice.type = 'sine';
+      voice.frequency.setValueAtTime(frequency, t + delay);
+      envelope.gain.setValueAtTime(.0001, t + delay);
+      envelope.gain.linearRampToValueAtTime(peak, t + delay + .11);
+      envelope.gain.setValueAtTime(peak * .72, t + delay + .25);
+      envelope.gain.exponentialRampToValueAtTime(.001, t + delay + .68);
+      voice.connect(envelope); envelope.connect(this.sfxGain);
+      voice.onended = () => { voice.disconnect(); envelope.disconnect(); };
+      voice.start(t + delay); voice.stop(t + delay + .7);
+    }
+
+    if (this.noiseBuffer) {
+      const breath = ctx.createBufferSource();
+      const filter = ctx.createBiquadFilter();
+      const envelope = ctx.createGain();
+      breath.buffer = this.noiseBuffer;
+      breath.playbackRate.value = .82;
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(1050, t);
+      filter.frequency.exponentialRampToValueAtTime(360, t + .56);
+      envelope.gain.setValueAtTime(.0001, t);
+      envelope.gain.linearRampToValueAtTime(.045, t + .08);
+      envelope.gain.exponentialRampToValueAtTime(.001, t + .6);
+      breath.connect(filter); filter.connect(envelope); envelope.connect(this.sfxGain);
+      breath.onended = () => { breath.disconnect(); filter.disconnect(); envelope.disconnect(); };
+      breath.start(t, Math.random() * .3, .62); breath.stop(t + .62);
+    }
   }
 
   /** Quiet, weighty boot steps with a little grit; cadence follows player speed. */

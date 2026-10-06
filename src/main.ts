@@ -10,7 +10,7 @@ import { SpatialGrid } from './core/spatial';
 import { Player } from './entities/player';
 import { BulletSystem, Bullet } from './entities/bullets';
 import { ZombieSystem, Zombie } from './entities/zombies';
-import { XpGemSystem } from './entities/xp-gems';
+import { ScoreShardSystem } from './entities/score-shards';
 import { CampaignCredits } from './entities/campaign-credits';
 import { ParticleSystem } from './entities/particles';
 import { ExplosionEffects } from './entities/explosion-effects';
@@ -88,7 +88,7 @@ const audio = new Audio();
 const player = new Player();
 const bullets = new BulletSystem();
 const zombies = new ZombieSystem();
-const xpGems = new XpGemSystem();
+const scoreShards = new ScoreShardSystem();
 const campaignCredits = new CampaignCredits();
 const particles = new ParticleSystem();
 const explosionEffects = new ExplosionEffects();
@@ -293,12 +293,13 @@ let creditGainTimer = 0;
 let campaignSupplyNotice = '';
 let campaignSupplyNoticeTimer = 0;
 let campaignMedkitFlashTimer = 0;
+let playerDamageFlashTimer = 0;
 let goldEarned = 0;
 let hasRevive = false;     // from perm upgrade or ad
 let previewEncounter = false;
 let campaignWavePreview = false;
 let previewCleanCapture = false;
-const previewAudit = { hits: 0, attacks: 0, deaths: 0, drops: 0, phases: new Set<string>() };
+const previewAudit = { hits: 0, attacks: 0, deaths: 0, points: 0, phases: new Set<string>() };
 type MusicThreat = 'calm' | 'combat' | 'boss';
 let activeMusicThreat: MusicThreat = 'calm';
 let hasSeenZombiesThisRun = false;
@@ -323,15 +324,15 @@ function syncMusicForThreat(): void {
     return;
   }
 
-  // Campaign boss rooms keep Music 2 throughout the encounter and its clear;
-  // the same track continues until the player leaves gameplay for the result/menu flow.
+  // Campaign switches to Music 3 when its boss spawns and keeps it through the
+  // boss clear until the stage ends. Survival uses boss presence instead.
   const campaignBossRoomMusic = gameMode === 'stage' && stageBossSpawned;
   let bossAlive = false;
   for (const z of zombies.pool.getActive()) {
     if (z.hp <= 0) continue;
     // Once a run has had enemies, combat music stays latched through empty waves.
     hasSeenZombiesThisRun = true;
-    // Boss music has priority for the entire boss encounter, including off-screen.
+    // Survival boss music has priority while the boss is alive, including off-screen.
     if (z.isBoss && !campaignBossRoomMusic) {
       bossAlive = true;
       break;
@@ -339,12 +340,12 @@ function syncMusicForThreat(): void {
   }
 
   if (bossAlive || campaignBossRoomMusic) hasSeenZombiesThisRun = true;
-  // Music 1 is strictly pre-combat. Music 2 stays through empty waves and the
-  // full Campaign boss room; Music 3 remains reserved for Survival bosses.
+  // Music 1 is strictly pre-combat. Music 2 stays through empty waves and
+  // resumes after a Survival boss dies. Campaign boss rooms use Music 3.
   activeMusicThreat = bossAlive ? 'boss' : hasSeenZombiesThisRun ? 'combat' : 'calm';
 
-  // Campaign boss rooms have an explicit scene mapped to Music 2. It remains
-  // selected after the boss dies because stageBossSpawned stays true until exit.
+  // stageBossSpawned remains true after the boss dies, so Music 3 continues
+  // until Campaign leaves gameplay for the result flow.
   audio.setMusicScene(campaignBossRoomMusic ? 'campaignBoss' : activeMusicThreat);
 }
 
@@ -626,6 +627,7 @@ function handleMenuAction(action: string | null): void {
 function updateGame(dt: number): void {
   gameTime += dt;
   campaignMedkitFlashTimer = Math.max(0, campaignMedkitFlashTimer - dt);
+  playerDamageFlashTimer = Math.max(0, playerDamageFlashTimer - dt);
   if (gameMode === 'stage') setCampaignGateState(stageObjectiveIndex, stageBossSpawned, bossKilledThisRun, campaignActiveWaveZones);
 
   // ─── Stage mode: check completion ───
@@ -1068,17 +1070,12 @@ function updateGame(dt: number): void {
     }
   }
 
-  // ─── XP Gems ───
-  const collected = gameMode === 'endless' ? xpGems.update(dt, player.x, player.y, player.pickupRadius) : [];
-  for (const gem of collected) {
-    const leveledUp = player.addXp(gem.value);
-    audio.xpPickup();
-    particles.emit(player.x, player.y, 3, gem.color, 50, 0.2, 2);
-
-    if (leveledUp) {
-      audio.levelUp();
-      camera.shake(3, 0.15);
-    }
+  // ─── Survival Score Shards ───
+  const collected = gameMode === 'endless' ? scoreShards.update(dt, player.x, player.y, player.pickupRadius) : [];
+  for (const shard of collected) {
+    player.addScore(shard.value);
+    audio.creditPickup();
+    particles.emit(player.x, player.y, 3, shard.color, 50, 0.2, 2);
   }
 
   if (gameMode === 'stage') {
@@ -1188,7 +1185,8 @@ function handlePickup(itemId: string, value: number, duration: number): void {
     }
     return;
   }
-  audio.xpPickup();
+  if (itemId === 'score_cache') audio.creditPickup();
+  else audio.xpPickup();
 
   switch (itemId) {
     case 'health_pack':
@@ -1197,27 +1195,16 @@ function handlePickup(itemId: string, value: number, duration: number): void {
       damageNumbers.spawn(player.x, player.y, value, '#44ff44');
       break;
     case 'magnet':
-      xpGems.magnetizeAll();
+      scoreShards.magnetizeAll();
       particles.emit(player.x, player.y, 15, '#ff8800', 100, 0.5, 4);
       break;
-    case 'xp_chest':
-      player.addXp(value);
+    case 'score_cache':
+      player.addScore(value);
       particles.emit(player.x, player.y, 20, '#ffdd00', 120, 0.6, 5);
       camera.shake(3, 0.15);
-      // Check for level up after adding XP
-      if (player.xp >= player.xpToNext) {
-        // The level up will be caught on the next XP gem collection
-        // Force it here
-        while (player.xp >= player.xpToNext) {
-          player.xp -= player.xpToNext;
-          player.level++;
-          player.xpToNext = Math.floor(20 + player.level * 15 + player.level * player.level * 2);
-          audio.levelUp();
-        }
-      }
       break;
-    case 'double_xp':
-      player.buffs.set('double_xp', { duration, value });
+    case 'double_score':
+      player.buffs.set('double_score', { duration, value });
       break;
     case 'speed_boost':
       player.buffs.set('speed_boost', { duration, value });
@@ -1231,8 +1218,8 @@ function handlePickup(itemId: string, value: number, duration: number): void {
       handleScreenBomb();
       break;
     case 'airdrop':
-      // Big XP
-      player.addXp(value);
+      // Airdrops add a large score bonus.
+      player.addScore(value);
       particles.emit(player.x, player.y, 25, '#ffaa00', 150, 0.8, 6);
       camera.shake(5, 0.2);
       break;
@@ -1258,14 +1245,14 @@ function handleCrateDestruction(crate: any): void {
     player.heal(30);
     particles.emit(crate.x, crate.y, 8, '#ff4444', 60, 0.4, 3);
     damageNumbers.spawn(crate.x, crate.y, 30, '#44ff44');
-  } else if (dropType === 'xp_chest') {
-    player.addXp(100);
+  } else if (dropType === 'score_cache') {
+    player.addScore(100);
     particles.emit(crate.x, crate.y, 20, '#ffdd00', 120, 0.6, 5);
   } else if (dropType === 'shield') {
     player.buffs.set('shield', { duration: 8, value: 1 });
     particles.emit(crate.x, crate.y, 10, '#8888ff', 80, 0.4, 3);
   } else if (dropType === 'magnet') {
-    xpGems.magnetizeAll();
+    scoreShards.magnetizeAll();
     particles.emit(crate.x, crate.y, 15, '#ff8800', 100, 0.5, 4);
   }
 }
@@ -1321,17 +1308,20 @@ function persistCampaignAmmo(force = false): void {
 function applyPlayerDamage(amount: number): ReturnType<Player['takeDamage']> {
   const hit = player.takeDamage(amount);
   const stock = save.data.campaign;
-  if (!hit.dead || gameMode !== 'stage' || previewEncounter || stock.medKits <= 0) return hit;
+  if (!hit.dead || gameMode !== 'stage' || previewEncounter || stock.medKits <= 0) {
+    if (hit.damaged) playerDamageFlashTimer = Math.max(playerDamageFlashTimer, .28);
+    return hit;
+  }
 
   stock.medKits--;
   const healed = Math.max(1, Math.ceil(player.maxHp * .5));
   player.hp = Math.min(player.maxHp, healed);
   player.invulnTimer = Math.max(player.invulnTimer, 1.1);
   player.flashTimer = 0;
-  campaignMedkitFlashTimer = .9;
+  campaignMedkitFlashTimer = 1.05;
   particles.emit(player.x, player.y, 28, '#67ef91', 145, .72, 4.5);
   damageNumbers.spawn(player.x, player.y - 24, healed, '#70f09a', false, '+');
-  audio.supplyPickup('med');
+  audio.healing();
   save.save();
   return { damaged: false, dead: false, actualDamage: 0, medkitUsed: true };
 }
@@ -1374,11 +1364,11 @@ function handlePlayerDeath(): void {
 
   // Preview the reward here; commit the run only if the player declines revive
   // by retrying or returning to the menu.
-  goldEarned = save.calculateGold(gameTime, player.kills, player.level);
+  goldEarned = save.calculateGold(gameTime, player.kills, player.score);
 
   menuUI.finalTime = gameTime;
   menuUI.finalKills = player.kills;
-  menuUI.finalLevel = player.level;
+  menuUI.finalScore = player.score;
   menuUI.finalGold = goldEarned;
   menuUI.currentScreen = 'gameover';
 }
@@ -1386,7 +1376,7 @@ function handlePlayerDeath(): void {
 function endRun(): number {
   if (gameMode !== 'endless') return 0;
   if (gameTime < 1) return 0;
-  const gold = save.recordRun(gameTime, player.kills, player.level);
+  const gold = save.recordRun(gameTime, player.kills, player.score);
   return gold;
 }
 
@@ -1806,7 +1796,7 @@ function spawnCampaignBoss(stage: typeof STAGES[number]): void {
   boss.hp = Math.round(stage.bossHp * bossEndurance * difficulty.health); boss.maxHp = boss.hp;
   boss.damage = Math.round((20 + stage.id * 2) * difficulty.damage);
   boss.speed = 32;
-  boss.xpValue = 80 + stage.id * 15;
+  boss.scoreValue = 80 + stage.id * 15;
   campaignBossAddsSpawned = 0;
   campaignNestCharge = null;
   const chargeConfig = stage.bossRoomNestCharge;
@@ -1905,14 +1895,21 @@ function updateSurvivalWaves(dt: number): ReturnType<Spawner['updateWave']> {
     const spawns = spawner.updateWave(dt, gameTime, zombies.pool.activeCount, camera,
       player.x, player.y, survivalSpawnRemaining);
     survivalSpawnRemaining = Math.max(0, survivalSpawnRemaining - spawns.length);
-    if (survivalSpawnRemaining === 0 && zombies.pool.activeCount === 0) {
+    // The authored wave is complete once its spawn budget is exhausted. Keep
+    // any stragglers alive, but don't let one off-screen or stuck zombie stop
+    // Survival from advancing forever.
+    if (survivalSpawnRemaining === 0) {
       survivalPhase = 'intermission';
       survivalPhaseTimer = 4.2;
     }
     return spawns;
   }
 
-  if (survivalPhase === 'boss' && zombies.pool.activeCount === 0) {
+  // Boss adds remain active after their summoner dies. They must not hold the
+  // next Survival wave hostage; only the boss itself controls this phase.
+  const survivalBossAlive = survivalPhase === 'boss' && zombies.pool.getActive()
+    .some(z => z.isBoss && z.campaignBossId === survivalBossStageId && z.hp > 0);
+  if (survivalPhase === 'boss' && !survivalBossAlive) {
     survivalPhase = 'intermission';
     survivalPhaseTimer = 5.2;
   }
@@ -1938,7 +1935,7 @@ function spawnSurvivalBoss(stage: StageDef): void {
   boss.maxHp = boss.hp;
   boss.damage = 20 + stage.id * 2;
   boss.speed = 32;
-  boss.xpValue = 200 + stage.id * 35;
+  boss.scoreValue = 200 + stage.id * 35;
   campaignBossDirector.reset();
   camera.shake(7, .35);
   particles.emit(boss.x, boss.y, 36, '#9f4942', 140, .8, 5);
@@ -2047,7 +2044,7 @@ function checkStageObjective(): void {
 
     menuUI.finalTime = gameTime;
     menuUI.finalKills = player.kills;
-    menuUI.finalLevel = player.level;
+    menuUI.finalLevel = 1;
     menuUI.finalGold = gold;
     campaignUI.selectedStage = currentStageIndex;
     campaignUI.showResult({ time: gameTime, kills: player.kills, reward: gold,
@@ -2063,7 +2060,7 @@ function handleZombieDeath(z: Zombie): void {
   if (z.hp > 0 || z.deathHandled) return;
   z.deathHandled = true;
   bloodStains.add(z.x, z.y, z.size, z.isBoss, z.facingAngle);
-  if (gameMode === 'endless') horrorRemains.add(z);
+  if (gameMode === 'endless' || gameMode === 'stage') horrorRemains.add(z);
 
   player.kills++;
   weapons.loadout.addRageOnKill();
@@ -2173,8 +2170,8 @@ function handleZombieDeath(z: Zombie): void {
       && mapPickups.pool.getActive().filter(item => item.itemId === 'health_pack').length < 10) {
       mapPickups.spawnHealthPickup(z.x, z.y, z.isElite ? 40 : 30);
     }
-  } else xpGems.drop(z.x, z.y, z.xpValue);
-  if (horrorPreview) { previewAudit.deaths++; previewAudit.drops += z.xpValue; }
+  } else scoreShards.drop(z.x, z.y, z.scoreValue);
+  if (horrorPreview) { previewAudit.deaths++; previewAudit.points += z.scoreValue; }
 
   const [zombieScreenX] = camera.worldToWindowScreen(z.x, z.y);
   const [playerScreenX] = camera.worldToWindowScreen(player.x, player.y);
@@ -2366,7 +2363,7 @@ function drawGame(): void {
     propRenderer.draw(ctx, camera, 'ground', true, save.data.language);
   }
 
-  if (gameMode === 'endless') {
+  if (gameMode === 'endless' || gameMode === 'stage') {
     horrorRemains.draw(ctx, camera);
   }
   const showSkillDirections = showCampaignSkillDirections();
@@ -2379,7 +2376,7 @@ function drawGame(): void {
   mapPickups.draw(ctx, camera, save.data.language);
   supplyCrates.draw(ctx, camera);
   if (campaignStage) campaignCredits.draw(ctx, camera);
-  else xpGems.draw(ctx, camera);
+  else scoreShards.draw(ctx, camera);
   bullets.draw(ctx, camera);
   enemyProjectiles.draw(ctx, camera);
   drawPickupRadius();
@@ -2410,6 +2407,8 @@ function drawGame(): void {
   
   LightingRenderer.get().drawVignette(ctx, campaignStage ? .25 : 1);
 
+  if (menuUI.currentScreen === 'playing') drawPlayerStatusFlash();
+
   if (previewCleanCapture) return;
 
   // HUD
@@ -2426,7 +2425,7 @@ function drawGame(): void {
       exitActive: stageExitActive, exitActivated: stageExitActivated,
       credits: save.data.campaign.credits, creditGain: creditGainTimer > 0 ? lastCreditGain : 0 } : undefined,
     gameMode === 'endless' && !previewEncounter ? {
-      wave: Math.max(1, survivalWave), phase: survivalPhase,
+      wave: Math.max(1, survivalWave), phase: survivalPhase, score: player.score,
       bossName: survivalPhase === 'boss' || survivalPhase === 'boss-warning'
         ? (() => { const stage = STAGES.find(value => value.id === survivalBossStageId); return stage ? getStageCopy(stage, save.data.language).bossName : undefined; })() : undefined,
       bossHpRatio: survivalBossForHud ? survivalBossForHud.hp / Math.max(1, survivalBossForHud.maxHp) : 0,
@@ -2447,13 +2446,6 @@ function drawGame(): void {
       medKits: save.data.campaign.medKits,
       flashlightLevel: save.data.campaign.flashlightLevel,
     } : undefined, save.data.language);
-    if (gameMode === 'stage' && campaignMedkitFlashTimer > 0) {
-      ctx.save();
-      ctx.globalAlpha = Math.min(.7, campaignMedkitFlashTimer * .8);
-      ctx.strokeStyle = '#67ef91'; ctx.lineWidth = 5;
-      ctx.strokeRect(2.5, 2.5, viewportWidth - 5, viewportHeight - 5);
-      ctx.restore();
-    }
     drawTouchActionButtons(ctx, viewportWidth, viewportHeight, {
       dashCooldown: player.dashCooldown,
       dashCooldownMax: player.dashMaxCooldown,
@@ -2488,6 +2480,27 @@ function drawGame(): void {
   hud.drawDamageFeedback(ctx, viewportWidth, viewportHeight, player.hp / player.maxHp, player.flashTimer);
 }
 
+/** Brief full-screen color feedback stays beneath HUD text and world controls. */
+function drawPlayerStatusFlash(): void {
+  if (campaignMedkitFlashTimer <= 0 && playerDamageFlashTimer <= 0) return;
+  ctx.save();
+  if (campaignMedkitFlashTimer > 0) {
+    const strength = campaignMedkitFlashTimer / 1.05;
+    ctx.globalCompositeOperation = 'screen';
+    ctx.fillStyle = `rgba(75, 255, 135, ${.22 * strength})`;
+    ctx.fillRect(0, 0, viewportWidth, viewportHeight);
+    ctx.fillStyle = `rgba(203, 255, 218, ${.08 * strength})`;
+    ctx.fillRect(0, 0, viewportWidth, viewportHeight);
+  }
+  if (playerDamageFlashTimer > 0) {
+    const strength = playerDamageFlashTimer / .28;
+    ctx.globalCompositeOperation = 'screen';
+    ctx.fillStyle = `rgba(255, 37, 43, ${.2 * strength})`;
+    ctx.fillRect(0, 0, viewportWidth, viewportHeight);
+  }
+  ctx.restore();
+}
+
 function drawPickupRadius(): void {
   const [sx, sy] = camera.worldToScreen(player.x, player.y);
   ctx.strokeStyle = 'rgba(0, 229, 255, 0.18)';
@@ -2520,7 +2533,7 @@ function drawActiveBuffs(): void {
     // Progress bar
     const buffColor = key === 'speed_boost'
       ? UI_PALETTE.health
-      : key === 'double_xp'
+      : key === 'double_score'
         ? UI_PALETTE.amber
         : UI_PALETTE.cyan;
     ctx.fillStyle = buffColor;
@@ -2530,7 +2543,7 @@ function drawActiveBuffs(): void {
     ctx.fillStyle = UI_PALETTE.textSoft;
     const buffLabels: Record<string, [string, string]> = {
       speed_boost: ['Tăng tốc', 'Speed boost'],
-      double_xp: ['Nhân đôi XP', 'Double XP'],
+      double_score: ['Điểm ×2', 'Score ×2'],
       invincible: ['Bất tử', 'Invulnerability'],
       freeze: ['Đóng băng', 'Freeze'],
       shield: ['Lá chắn', 'Shield'],
@@ -2830,6 +2843,9 @@ function applyPermUpgrades(): void {
       case 'perm_fire_rate':
         player.fireRate = PLAYER_DEFAULTS.fireRate * val;
         break;
+      case 'perm_xp_mult':
+        player.scoreMultiplier = val;
+        break;
       case 'perm_revive':
         hasRevive = true;
         break;
@@ -2914,6 +2930,7 @@ function resetGame(): void {
   campaignUI.reviveAdPending = false;
   campaignUI.impossibleDeath = false;
   campaignMedkitFlashTimer = 0;
+  playerDamageFlashTimer = 0;
   setCampaignGeometry();
   bossWeaponDrop = null;
   stageObjectiveIndex = 0;
@@ -2959,7 +2976,7 @@ function resetGame(): void {
   zombies.pool.releaseAll();
   horrorRemains.clear();
   bloodStains.clear();
-  xpGems.pool.releaseAll();
+  scoreShards.pool.releaseAll();
   particles.pool.releaseAll();
   enemyProjectiles.pool.releaseAll();
   damageNumbers.clear();
@@ -3006,7 +3023,7 @@ if (import.meta.env.DEV && horrorPreview) {
       previewEncounter = true;
       gameMode = 'endless';
       startGame();
-      previewAudit.hits = previewAudit.attacks = previewAudit.deaths = previewAudit.drops = 0;
+      previewAudit.hits = previewAudit.attacks = previewAudit.deaths = previewAudit.points = 0;
       previewAudit.phases.clear();
       player.x = wall ? 995 : 2000;
       player.y = wall ? 720 : 2000;
@@ -3022,7 +3039,7 @@ if (import.meta.env.DEV && horrorPreview) {
       // Map and boss previews are always isolated from the player's real save.
       previewEncounter = true;
       campaignWavePreview = false;
-      previewAudit.hits = previewAudit.attacks = previewAudit.deaths = previewAudit.drops = 0;
+      previewAudit.hits = previewAudit.attacks = previewAudit.deaths = previewAudit.points = 0;
       previewAudit.phases.clear();
       gameMode = 'stage'; currentStageIndex = stageIndex;
       startGame();
@@ -3082,7 +3099,7 @@ if (import.meta.env.DEV && horrorPreview) {
     snapshot() {
       const z = zombies.pool.getActive()[0];
       return { screen: menuUI.currentScreen, playerHp: player.hp, kills: player.kills,
-        xp: player.xp, gems: xpGems.pool.activeCount, ...previewAudit, phases: [...previewAudit.phases],
+        score: player.score, shards: scoreShards.pool.activeCount, ...previewAudit, phases: [...previewAudit.phases],
         creature: z ? { type: z.typeId, hp: z.hp, x: z.x, y: z.y, phase: z.specialState, flash: z.flashTimer,
           attack: z.campaignAttackKind, moveProgress: z.campaignAttackProgress, campaignPhase: z.campaignPhase } : null };
     },

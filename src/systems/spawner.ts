@@ -45,7 +45,9 @@ export class Spawner {
     return result;
   }
 
-  beginWave(): void { this.spawnTimer = 0; }
+  // Queue the first batch immediately when an authored wave starts. Subsequent
+  // batches still follow the configured spawn rate.
+  beginWave(): void { this.spawnTimer = 1; }
 
   /** Get list of zombies that should be spawned this frame */
   update(

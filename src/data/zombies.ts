@@ -6,7 +6,7 @@ export interface ZombieTypeDef {
   hp: number;
   speed: number;         // pixels per second
   damage: number;
-  xpValue: number;
+  scoreValue: number;
   size: number;          // radius
   color: string;
   /** For ranged zombies */
@@ -23,7 +23,7 @@ export interface ZombieTypeDef {
   minTime: number;
   /** Boss flag */
   isBoss?: boolean;
-  /** Glowing flag - drops extra XP */
+  /** Glowing flag - drops extra score */
   isGlowing?: boolean;
 }
 
@@ -51,11 +51,11 @@ export interface CampaignVariantAttackDef extends HorrorAttackDef {
 
 /** Additional body-horror archetypes shared by Survival and authored Campaign zones. */
 export const HORROR_TYPES: ZombieTypeDef[] = [
-  { id: 'spider', name: 'Nhện đột biến', hp: 48, speed: 83, damage: 12, xpValue: 10, size: 19, color: '#93816d', weight: 10, minTime: 25 },
-  { id: 'armed', name: 'Kẻ hành hình', hp: 95, speed: 51, damage: 19, xpValue: 18, size: 19, color: '#a69e86', weight: 7, minTime: 55 },
-  { id: 'rat_king', name: 'Vua chuột', hp: 160, speed: 39, damage: 22, xpValue: 28, size: 30, color: '#89786c', weight: 4, minTime: 85 },
-  { id: 'mutant', name: 'Kẻ đột biến', hp: 250, speed: 34, damage: 28, xpValue: 36, size: 28, color: '#9e897a', weight: 3, minTime: 115 },
-  { id: 'multihead', name: 'Hợp thể ba đầu', hp: 320, speed: 43, damage: 24, xpValue: 45, size: 29, color: '#ad9f8c', weight: 2, minTime: 155 },
+  { id: 'spider', name: 'Nhện đột biến', hp: 48, speed: 83, damage: 12, scoreValue: 10, size: 19, color: '#93816d', weight: 10, minTime: 25 },
+  { id: 'armed', name: 'Kẻ hành hình', hp: 95, speed: 51, damage: 19, scoreValue: 18, size: 19, color: '#a69e86', weight: 7, minTime: 55 },
+  { id: 'rat_king', name: 'Vua chuột', hp: 160, speed: 39, damage: 22, scoreValue: 28, size: 30, color: '#89786c', weight: 4, minTime: 85 },
+  { id: 'mutant', name: 'Kẻ đột biến', hp: 250, speed: 34, damage: 28, scoreValue: 36, size: 28, color: '#9e897a', weight: 3, minTime: 115 },
+  { id: 'multihead', name: 'Hợp thể ba đầu', hp: 320, speed: 43, damage: 24, scoreValue: 45, size: 29, color: '#ad9f8c', weight: 2, minTime: 155 },
 ];
 
 /** Distances are in world pixels, timings in seconds. Aim locks at windup. */
@@ -69,11 +69,11 @@ export const HORROR_ATTACKS: Record<HorrorTypeId, HorrorAttackDef> = {
 
 /** Campaign-only threats stay out of the shared Survival roster. */
 export const CAMPAIGN_VARIANT_TYPES: ZombieTypeDef[] = [
-  { id: 'orange_mutant', name: 'Đột biến cam', hp: 145, speed: 53, damage: 15, xpValue: 17, size: 20, color: '#c66b32', weight: 4, minTime: 0 },
-  { id: 'red_mutant', name: 'Đột biến đỏ', hp: 270, speed: 39, damage: 22, xpValue: 29, size: 25, color: '#843638', weight: 2.2, minTime: 0 },
-  { id: 'gunner', name: 'Xạ thủ xác sống', hp: 96, speed: 42, damage: 11, xpValue: 18, size: 18, color: '#73766b', weight: 3, minTime: 0, ranged: true, attackRange: 380, projectileSpeed: 430 },
-  { id: 'gunner_orange', name: 'Xạ thủ đột biến cam', hp: 158, speed: 36, damage: 15, xpValue: 25, size: 21, color: '#a8643b', weight: 1.7, minTime: 0, ranged: true, attackRange: 410, projectileSpeed: 475 },
-  { id: 'gunner_red', name: 'Xạ thủ đột biến đỏ', hp: 220, speed: 33, damage: 19, xpValue: 32, size: 23, color: '#783238', weight: 1.2, minTime: 0, ranged: true, attackRange: 440, projectileSpeed: 520 },
+  { id: 'orange_mutant', name: 'Đột biến cam', hp: 145, speed: 53, damage: 15, scoreValue: 17, size: 20, color: '#c66b32', weight: 4, minTime: 0 },
+  { id: 'red_mutant', name: 'Đột biến đỏ', hp: 270, speed: 39, damage: 22, scoreValue: 29, size: 25, color: '#843638', weight: 2.2, minTime: 0 },
+  { id: 'gunner', name: 'Xạ thủ xác sống', hp: 96, speed: 42, damage: 11, scoreValue: 18, size: 18, color: '#73766b', weight: 3, minTime: 0, ranged: true, attackRange: 380, projectileSpeed: 430 },
+  { id: 'gunner_orange', name: 'Xạ thủ đột biến cam', hp: 158, speed: 36, damage: 15, scoreValue: 25, size: 21, color: '#a8643b', weight: 1.7, minTime: 0, ranged: true, attackRange: 410, projectileSpeed: 475 },
+  { id: 'gunner_red', name: 'Xạ thủ đột biến đỏ', hp: 220, speed: 33, damage: 19, scoreValue: 32, size: 23, color: '#783238', weight: 1.2, minTime: 0, ranged: true, attackRange: 440, projectileSpeed: 520 },
 ];
 
 const CAMPAIGN_VARIANT_ATTACKS: Record<CampaignVariantId, CampaignVariantAttackDef> = {
@@ -109,7 +109,7 @@ export const ZOMBIE_TYPES: ZombieTypeDef[] = [
     hp: 30,
     speed: 60,
     damage: 10,
-    xpValue: 5,
+    scoreValue: 5,
     size: 14,
     color: '#5a8a3c',
     weight: 50,
@@ -121,7 +121,7 @@ export const ZOMBIE_TYPES: ZombieTypeDef[] = [
     hp: 20,
     speed: 130,
     damage: 8,
-    xpValue: 8,
+    scoreValue: 8,
     size: 11,
     color: '#c9a030',
     weight: 20,
@@ -133,7 +133,7 @@ export const ZOMBIE_TYPES: ZombieTypeDef[] = [
     hp: 140,
     speed: 35,
     damage: 25,
-    xpValue: 25,
+    scoreValue: 25,
     size: 22,
     color: '#6b3a6b',
     weight: 4,
@@ -145,7 +145,7 @@ export const ZOMBIE_TYPES: ZombieTypeDef[] = [
     hp: 35,
     speed: 80,
     damage: 5,
-    xpValue: 15,
+    scoreValue: 15,
     size: 16,
     color: '#d94a38',
     weight: 7,
@@ -160,7 +160,7 @@ export const ZOMBIE_TYPES: ZombieTypeDef[] = [
     hp: 50,
     speed: 40,
     damage: 12,
-    xpValue: 12,
+    scoreValue: 12,
     size: 15,
     color: '#3aaa5c',
     weight: 10,
@@ -175,7 +175,7 @@ export const ZOMBIE_TYPES: ZombieTypeDef[] = [
     hp: 60,
     speed: 55,
     damage: 10,
-    xpValue: 50,
+    scoreValue: 50,
     size: 14,
     color: '#ffee44',
     weight: 3,
@@ -188,7 +188,7 @@ export const ZOMBIE_TYPES: ZombieTypeDef[] = [
     hp: 2000,
     speed: 30,
     damage: 40,
-    xpValue: 200,
+    scoreValue: 200,
     size: 45,
     color: '#882288',
     weight: 0,
@@ -201,7 +201,7 @@ export const ZOMBIE_TYPES: ZombieTypeDef[] = [
     hp: 4000,
     speed: 45,
     damage: 50,
-    xpValue: 500,
+    scoreValue: 500,
     size: 50,
     color: '#221144',
     weight: 0,

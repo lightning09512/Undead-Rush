@@ -1,5 +1,5 @@
 // ─── Object Pool ───
-// Generic object pool for bullets, zombies, particles, XP gems.
+// Generic object pool for bullets, zombies, particles and score shards.
 // Avoids GC pressure by reusing objects.
 
 export class Pool<T> {

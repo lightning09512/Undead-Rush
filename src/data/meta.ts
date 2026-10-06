@@ -64,12 +64,12 @@ export const PERM_UPGRADES: PermUpgradeDef[] = [
   },
   {
     id: 'perm_xp_mult',
-    name: 'Wisdom',
-    description: 'Earn bonus XP',
+    name: 'Score instinct',
+    description: 'Earn bonus score',
     icon: '📚',
     maxLevel: 3,
     costs: [150, 400, 1000],
-    effect: '+10% XP gain per level',
+    effect: '+10% score gain per level',
     values: [1.10, 1.20, 1.35],
   },
   {

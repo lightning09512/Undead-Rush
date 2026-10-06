@@ -20,7 +20,7 @@ export interface Zombie {
   maxHp: number;
   speed: number;
   damage: number;
-  xpValue: number;
+  scoreValue: number;
   typeId: string;
   // Status
   flashTimer: number;
@@ -77,7 +77,7 @@ export interface Zombie {
 function createZombie(): Zombie {
   return {
     id: 0, x: 0, y: 0, size: 14, color: '#5a8a3c',
-    hp: 30, maxHp: 30, speed: 60, damage: 10, xpValue: 5,
+    hp: 30, maxHp: 30, speed: 60, damage: 10, scoreValue: 5,
     typeId: 'normal',
     flashTimer: 0, burnTimer: 0, burnDamage: 0, bleedTimer: 0, bleedDamage: 0, stunTimer: 0,
     slowTimer: 0, slowMult: 1,
@@ -157,7 +157,7 @@ export class ZombieSystem {
     z.maxHp = z.hp;
     z.speed = typeDef.speed * speedMult;
     z.damage = Math.round(typeDef.damage * damageMult);
-    z.xpValue = typeDef.xpValue;
+    z.scoreValue = typeDef.scoreValue;
     z.typeId = typeDef.id;
     z.isBoss = !!typeDef.isBoss;
     z.campaignBossId = null;
@@ -170,7 +170,7 @@ export class ZombieSystem {
       z.hp = Math.round(z.hp * 2.2);
       z.maxHp = z.hp;
       z.damage = Math.round(z.damage * 1.15);
-      z.xpValue = Math.round(z.xpValue * 2.5);
+      z.scoreValue = Math.round(z.scoreValue * 2.5);
       z.size = Math.round(z.size * 1.12);
     }
     z.explodes = !!typeDef.explodes;

@@ -1,5 +1,5 @@
 import type { Camera } from '../core/camera';
-import type { StageDef, StageBuildingDef, CampaignZone, Point } from '../data/meta';
+import type { StageDef, StageBuildingDef, CampaignLayout, CampaignZone, Point } from '../data/meta';
 import type { GameLanguage } from '../data/localization';
 
 export interface CampaignSpawnCue {
@@ -32,8 +32,18 @@ export interface CampaignObjectiveCue {
   };
 }
 
+interface CampaignBoundarySegment {
+  axis: 'horizontal' | 'vertical';
+  coordinate: number;
+  start: number;
+  end: number;
+  outward: -1 | 1;
+}
+
 /** Small, code-drawn Campaign landmarks and readable objective routes. */
 export class CampaignMapRenderer {
+  private readonly boundarySegments = new WeakMap<CampaignLayout, readonly CampaignBoundarySegment[]>();
+
   draw(ctx: CanvasRenderingContext2D, camera: Camera, stage: StageDef, activeNode: number, bossSpawned: boolean, exitActive = false, exitActivated = false, spawnCue?: CampaignSpawnCue, objectiveCue?: CampaignObjectiveCue, language: GameLanguage = 'vi'): void {
     const route: Point[] = [stage.playerStart, ...stage.objectiveNodes, stage.bossSpawn];
     ctx.save();
@@ -107,8 +117,148 @@ export class CampaignMapRenderer {
   /** Draw static buildings before Campaign lighting so the flashlight shades their walls. */
   drawArchitecture(ctx: CanvasRenderingContext2D, camera: Camera, stage: StageDef): void {
     ctx.save();
+    if (stage.layout) this.drawLayoutBoundaryWalls(ctx, camera, stage, stage.layout);
     for (const building of stage.buildings) this.drawBuilding(ctx, camera, building, stage.accentColor, stage.id);
     ctx.restore();
+  }
+
+  /**
+   * Campaign rooms used to stop at a sharp floor edge, leaving the gray
+   * backdrop to read like an unfinished wall. Draw a raised, location-specific
+   * perimeter just outside the same walkable rectangle union used by movement.
+   * The geometry is cached per layout and only visible segments are painted.
+   */
+  private drawLayoutBoundaryWalls(ctx: CanvasRenderingContext2D, camera: Camera, stage: StageDef, layout: CampaignLayout): void {
+    const palette = this.boundaryPalette(stage.id);
+    for (const segment of this.getBoundarySegments(layout)) {
+      const mid = (segment.start + segment.end) / 2;
+      const length = segment.end - segment.start;
+      const worldX = segment.axis === 'horizontal' ? mid : segment.coordinate;
+      const worldY = segment.axis === 'horizontal' ? segment.coordinate : mid;
+      if (!camera.isVisible(worldX, worldY, length / 2 + 90)) continue;
+
+      const point = (along: number, across: number): [number, number] => segment.axis === 'horizontal'
+        ? camera.worldToScreen(along, segment.coordinate + segment.outward * across)
+        : camera.worldToScreen(segment.coordinate + segment.outward * across, along);
+      const strokeBand = (alongStart: number, alongEnd: number, across: number, width: number,
+        color: string | CanvasGradient): void => {
+        const [x1, y1] = point(alongStart, across);
+        const [x2, y2] = point(alongEnd, across);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      };
+
+      ctx.save();
+      ctx.lineCap = 'butt';
+      ctx.lineJoin = 'bevel';
+      // Cast edge shadow, dark structural core, then a bevelled material face.
+      strokeBand(segment.start, segment.end, 25, 47, 'rgba(0,0,0,.52)');
+      strokeBand(segment.start, segment.end, 18, 40, palette.edge);
+      const [shadeX1, shadeY1] = point(mid, 2);
+      const [shadeX2, shadeY2] = point(mid, 34);
+      const wallShader = ctx.createLinearGradient(shadeX1, shadeY1, shadeX2, shadeY2);
+      wallShader.addColorStop(0, palette.face);
+      wallShader.addColorStop(.58, palette.lowlight);
+      wallShader.addColorStop(1, palette.edge);
+      strokeBand(segment.start, segment.end, 18, 32, wallShader);
+      strokeBand(segment.start, segment.end, 18, 2, palette.lowlight);
+      // A steady highlight follows the inside lip; map lighting is composited
+      // after architecture, so the flashlight naturally shades this geometry.
+      strokeBand(segment.start, segment.end, -2, 2.2, palette.rim);
+
+      const inset = 14;
+      const firstJoint = Math.ceil((segment.start + inset) / 82) * 82;
+      for (let along = firstJoint; along < segment.end - inset; along += 82) {
+        const [x1, y1] = point(along, 2);
+        const [x2, y2] = point(along, 34);
+        ctx.strokeStyle = palette.seam; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        const [bx, by] = point(along, 10);
+        ctx.fillStyle = palette.bolt;
+        ctx.beginPath(); ctx.arc(bx, by, 1.9, 0, Math.PI * 2); ctx.fill();
+        if (stage.id === 3 && Math.round(along / 82) % 3 === 0) {
+          // Small, readable emergency-status lens on hospital wall panels.
+          const [lx, ly] = point(along + 11, 10);
+          ctx.fillStyle = 'rgba(140,220,198,.78)';
+          ctx.beginPath(); ctx.arc(lx, ly, 2.2, 0, Math.PI * 2); ctx.fill();
+        }
+        if ([2, 4, 5, 7].includes(stage.id) && Math.round(along / 82) % 4 === 0) {
+          const [hx1, hy1] = point(along + 8, 13);
+          const [hx2, hy2] = point(along + 17, 24);
+          ctx.strokeStyle = palette.warning; ctx.lineWidth = 3;
+          ctx.beginPath(); ctx.moveTo(hx1, hy1); ctx.lineTo(hx2, hy2); ctx.stroke();
+        }
+      }
+
+      // Subtle material-specific scars break long gray runs without a tiled
+      // texture. Their placement is tied to world coordinates and cannot swim.
+      if (length > 120) {
+        const scarAt = segment.start + length * .63;
+        const [sx1, sy1] = point(scarAt, 8);
+        const [sx2, sy2] = point(scarAt + (segment.axis === 'horizontal' ? 13 : 5), 20);
+        const [sx3, sy3] = point(scarAt + (segment.axis === 'horizontal' ? 22 : 9), 15);
+        ctx.strokeStyle = palette.scar; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(sx1, sy1); ctx.lineTo(sx2, sy2); ctx.lineTo(sx3, sy3); ctx.stroke();
+        const [shineX, shineY] = point(scarAt + (segment.axis === 'horizontal' ? 2 : 1), 8);
+        ctx.fillStyle = palette.chip; ctx.fillRect(shineX, shineY, 5, 2);
+      }
+      ctx.restore();
+    }
+  }
+
+  private getBoundarySegments(layout: CampaignLayout): readonly CampaignBoundarySegment[] {
+    const cached = this.boundarySegments.get(layout);
+    if (cached) return cached;
+
+    const rects = [...layout.zones, ...layout.corridors];
+    const xs = [...new Set(rects.flatMap(rect => [rect.x, rect.x + rect.w]))].sort((a, b) => a - b);
+    const ys = [...new Set(rects.flatMap(rect => [rect.y, rect.y + rect.h]))].sort((a, b) => a - b);
+    const occupied = (column: number, row: number): boolean => {
+      if (column < 0 || row < 0 || column >= xs.length - 1 || row >= ys.length - 1) return false;
+      const x = (xs[column] + xs[column + 1]) / 2;
+      const y = (ys[row] + ys[row + 1]) / 2;
+      return rects.some(rect => x >= rect.x && x < rect.x + rect.w && y >= rect.y && y < rect.y + rect.h);
+    };
+
+    const raw: CampaignBoundarySegment[] = [];
+    for (let row = 0; row < ys.length - 1; row++) for (let column = 0; column < xs.length - 1; column++) {
+      if (!occupied(column, row)) continue;
+      if (!occupied(column, row - 1)) raw.push({ axis: 'horizontal', coordinate: ys[row], start: xs[column], end: xs[column + 1], outward: -1 });
+      if (!occupied(column, row + 1)) raw.push({ axis: 'horizontal', coordinate: ys[row + 1], start: xs[column], end: xs[column + 1], outward: 1 });
+      if (!occupied(column - 1, row)) raw.push({ axis: 'vertical', coordinate: xs[column], start: ys[row], end: ys[row + 1], outward: -1 });
+      if (!occupied(column + 1, row)) raw.push({ axis: 'vertical', coordinate: xs[column + 1], start: ys[row], end: ys[row + 1], outward: 1 });
+    }
+
+    raw.sort((a, b) => a.axis.localeCompare(b.axis) || a.coordinate - b.coordinate || a.outward - b.outward || a.start - b.start);
+    const merged: CampaignBoundarySegment[] = [];
+    for (const edge of raw) {
+      const previous = merged.at(-1);
+      if (previous && previous.axis === edge.axis && previous.coordinate === edge.coordinate &&
+        previous.outward === edge.outward && edge.start <= previous.end + .001) previous.end = Math.max(previous.end, edge.end);
+      else merged.push({ ...edge });
+    }
+    this.boundarySegments.set(layout, merged);
+    return merged;
+  }
+
+  private boundaryPalette(stageId: number): {
+    edge: string; face: string; lowlight: string; rim: string; seam: string;
+    bolt: string; warning: string; scar: string; chip: string;
+  } {
+    const palettes = [
+      { edge: '#28312e', face: '#596258', lowlight: '#3c443e', rim: '#bab18c', seam: 'rgba(31,38,33,.78)', bolt: '#9a967a', warning: '#c5a65e', scar: 'rgba(29,35,31,.8)', chip: 'rgba(214,204,166,.54)' },
+      { edge: '#352c23', face: '#68563d', lowlight: '#483a2c', rim: '#d4b575', seam: 'rgba(38,30,23,.78)', bolt: '#c19c5b', warning: '#dfb354', scar: 'rgba(32,27,21,.82)', chip: 'rgba(232,200,135,.58)' },
+      { edge: '#293431', face: '#687670', lowlight: '#46544e', rim: '#bed1c5', seam: 'rgba(34,45,41,.8)', bolt: '#a9bcae', warning: '#ba6e63', scar: 'rgba(42,53,49,.8)', chip: 'rgba(208,226,210,.58)' },
+      { edge: '#1b2924', face: '#405b4d', lowlight: '#2b4037', rim: '#829a80', seam: 'rgba(18,31,26,.84)', bolt: '#78917c', warning: '#a99968', scar: 'rgba(17,27,24,.84)', chip: 'rgba(153,178,146,.52)' },
+      { edge: '#302f29', face: '#5f6257', lowlight: '#41453c', rim: '#c5b57e', seam: 'rgba(31,34,30,.82)', bolt: '#aaa077', warning: '#d0ad59', scar: 'rgba(32,33,29,.84)', chip: 'rgba(218,202,153,.56)' },
+      { edge: '#312d32', face: '#686369', lowlight: '#464148', rim: '#c9b6b7', seam: 'rgba(35,31,36,.82)', bolt: '#a99a9b', warning: '#c88372', scar: 'rgba(34,29,33,.82)', chip: 'rgba(223,201,198,.56)' },
+      { edge: '#252d30', face: '#58666a', lowlight: '#3b4649', rim: '#aebeb9', seam: 'rgba(26,34,36,.84)', bolt: '#9bacaa', warning: '#d0a35e', scar: 'rgba(24,32,35,.84)', chip: 'rgba(201,215,205,.54)' },
+      { edge: '#203233', face: '#4e6c6b', lowlight: '#344a4a', rim: '#99ceca', seam: 'rgba(24,41,41,.84)', bolt: '#86bdb7', warning: '#91c3b7', scar: 'rgba(23,39,40,.84)', chip: 'rgba(190,227,212,.58)' },
+      { edge: '#34282a', face: '#66514e', lowlight: '#483738', rim: '#c18a7b', seam: 'rgba(37,26,28,.84)', bolt: '#ad786e', warning: '#cb7461', scar: 'rgba(38,24,26,.84)', chip: 'rgba(224,163,144,.56)' },
+      { edge: '#302123', face: '#694344', lowlight: '#472d30', rim: '#c27b72', seam: 'rgba(35,20,23,.86)', bolt: '#b26b66', warning: '#d05c53', scar: 'rgba(39,18,23,.86)', chip: 'rgba(230,130,120,.5)' },
+    ];
+    return palettes[Math.max(0, Math.min(palettes.length - 1, stageId - 1))];
   }
 
   private drawHoldZoneBoundary(ctx: CanvasRenderingContext2D, camera: Camera, zone: CampaignZone, gameTime: number, pulse: number): void {

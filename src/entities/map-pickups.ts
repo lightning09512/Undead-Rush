@@ -103,7 +103,7 @@ function drawLootIcon(ctx: CanvasRenderingContext2D, id: string, x: number, y: n
       ctx.strokeStyle = color; ctx.lineWidth = radius * 0.12;
       ctx.beginPath(); ctx.moveTo(-radius * 0.42, -radius * 0.3); ctx.lineTo(-radius * 0.42, -radius * 0.08); ctx.moveTo(radius * 0.42, -radius * 0.3); ctx.lineTo(radius * 0.42, -radius * 0.08); ctx.stroke();
       break;
-    case 'xp_chest':
+    case 'score_cache':
     case 'airdrop':
       ctx.fillStyle = id === 'airdrop' ? '#5a513a' : '#735327';
       ctx.fillRect(-radius * 0.58, -radius * 0.37, radius * 1.16, radius * 0.78);
@@ -115,7 +115,7 @@ function drawLootIcon(ctx: CanvasRenderingContext2D, id: string, x: number, y: n
       ctx.fillStyle = '#fff1b1';
       ctx.fillRect(-radius * 0.055, -radius * 0.04, radius * 0.11, radius * 0.1);
       break;
-    case 'double_xp':
+    case 'double_score':
       ctx.strokeStyle = '#b8e4e5'; ctx.lineWidth = 2;
       for (const dy of [-radius * 0.2, radius * 0.2]) {
         ctx.beginPath(); ctx.moveTo(-radius * 0.48, dy); ctx.lineTo(radius * 0.35, dy); ctx.lineTo(radius * 0.12, dy - radius * 0.2); ctx.moveTo(radius * 0.35, dy); ctx.lineTo(radius * 0.12, dy + radius * 0.2); ctx.stroke();
@@ -274,7 +274,7 @@ export class MapPickupSystem {
     p.glowColor = '#ff8800';
     p.itemId = 'airdrop';
     p.duration = 0;
-    p.value = 150; // big XP
+    p.value = 150; // large score bonus
     p.life = 25;
     p.isAirdrop = true;
     p.airdropTimer = 3.0; // 3 seconds to land
@@ -431,8 +431,8 @@ export class MapPickupSystem {
       const radius = p.itemId === 'health_pack' ? 9 : Math.max(14, Math.min(19, p.size + 4));
       const color = p.itemId === 'health_pack' ? '#d85855'
         : p.itemId === 'magnet' ? '#d38a56'
-        : p.itemId === 'xp_chest' ? '#d4ad54'
-        : p.itemId === 'double_xp' ? '#8bbcc8'
+        : p.itemId === 'score_cache' ? '#d4ad54'
+        : p.itemId === 'double_score' ? '#8bbcc8'
         : p.itemId === 'speed_boost' ? '#b3b879'
         : p.itemId === 'shield' ? '#779bb4'
         : p.itemId === 'bomb' ? '#d75a43'
@@ -443,8 +443,8 @@ export class MapPickupSystem {
       ctx.globalAlpha = 1;
 
       const labels: Record<string, [string, string]> = {
-        magnet: ['Nam châm', 'Magnet'], xp_chest: ['Rương XP +100', 'XP chest +100'],
-        double_xp: ['XP ×2', 'XP ×2'], speed_boost: ['Tăng tốc', 'Speed boost'],
+        magnet: ['Nam châm', 'Magnet'], score_cache: ['Rương điểm +100', 'Score cache +100'],
+        double_score: ['Điểm ×2', 'Score ×2'], speed_boost: ['Tăng tốc', 'Speed boost'],
         shield: ['Lá chắn', 'Shield'], bomb: ['Nổ toàn màn', 'Screen blast'],
         weapon_part: ['Linh kiện', 'Weapon part'], airdrop: ['Tiếp tế', 'Supplies'],
       };

@@ -1,4 +1,4 @@
-// ─── HUD: Vampire Survivors style top XP bar, 6 weapon + 6 passive slots, HP & Timer ───
+// ─── HUD: Survival score, 6 weapon + 6 passive slots, HP & Timer ───
 
 import { Player } from '../entities/player';
 import { Input } from '../core/input';
@@ -24,7 +24,7 @@ export class HUD {
     mapPickups: MapPickupSystem,
     camera: Camera,
     campaign?: { stage: StageDef; activeNode: number; bossSpawned: boolean; bossName?: string; bossHpRatio?: number; exitActive: boolean; exitActivated: boolean; credits: number; creditGain: number },
-    survival?: { wave: number; phase: 'intermission' | 'regular' | 'boss-warning' | 'boss'; bossName?: string; bossHpRatio?: number },
+    survival?: { wave: number; phase: 'intermission' | 'regular' | 'boss-warning' | 'boss'; bossName?: string; bossHpRatio?: number; score: number },
     language: GameLanguage = 'vi'
   ): void {
     const pad = w < 700 ? 9 : 12;
@@ -32,7 +32,7 @@ export class HUD {
     const slotSize = compact ? 24 : 32;
     const hpRatio = Math.min(1, Math.max(0, player.hp / player.maxHp));
 
-    // ─── 1. Vampire Survivors Full-Width Top XP Bar ───
+    // ─── 1. Mode header ───
     const xpBarH = 22;
     // Dark metallic obsidian base
     ctx.fillStyle = C.background;
@@ -45,45 +45,14 @@ export class HUD {
       ctx.textAlign = 'right';
       ctx.fillStyle = '#e5c684';
       ctx.fillText(`${campaign.credits} ${getUiTerm('credits', language)}${campaign.creditGain ? `   +${campaign.creditGain}` : ''}`, w - 14, 10);
-    } else {
-
-    const xpRatio = Math.min(1, Math.max(0, player.xp / player.xpToNext));
-    if (xpRatio > 0) {
-      const xpGrad = ctx.createLinearGradient(0, 0, w * xpRatio, 0);
-      xpGrad.addColorStop(0, '#477e8b');
-      xpGrad.addColorStop(0.72, C.cyan);
-      xpGrad.addColorStop(1, C.cyanBright);
-      ctx.fillStyle = xpGrad;
-      ctx.fillRect(0, 0, w * xpRatio, xpBarH);
-
-      // Top sheen highlight for glassmorphism juice
-      ctx.fillStyle = 'rgba(239, 247, 242, 0.2)';
-      ctx.fillRect(0, 0, w * xpRatio, xpBarH * 0.38);
-    }
-
-    // Bottom gold separator line
-    ctx.fillStyle = C.border;
-    ctx.fillRect(0, xpBarH - 2, w, 2);
-
-    // LV Badge (top-left inside XP bar)
-    const lvBoxW = 60;
-    ctx.fillStyle = C.amber;
-    ctx.fillRect(8, 2, lvBoxW, xpBarH - 6);
-    ctx.fillStyle = C.black;
-    ctx.font = `bold 12px 'Segoe UI', Arial, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(`LV ${player.level}`, 8 + lvBoxW / 2, xpBarH / 2 - 1);
-
-    // XP Text (centered in XP bar)
-    ctx.fillStyle = '#ffffff';
-    ctx.font = `bold 11px 'Segoe UI', Arial, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.fillText(
-      `${player.xp} / ${player.xpToNext} XP  (${Math.floor(xpRatio * 100)}%)`,
-      w / 2,
-      xpBarH / 2 - 1
-    );
+    } else if (survival) {
+      ctx.fillStyle = C.border; ctx.fillRect(0, xpBarH - 2, w, 2);
+      ctx.fillStyle = C.cyan; ctx.fillRect(0, xpBarH - 2, Math.min(w, 160), 2);
+      ctx.textBaseline = 'middle'; ctx.font = `bold 11px 'Segoe UI', Arial, sans-serif`;
+      ctx.textAlign = 'left'; ctx.fillStyle = C.cyanBright;
+      ctx.fillText(language === 'en' ? 'SCORE' : 'ĐIỂM', 12, xpBarH / 2 - 1);
+      ctx.textAlign = 'right'; ctx.fillStyle = C.text;
+      ctx.fillText(Math.floor(survival.score).toLocaleString(language === 'en' ? 'en-US' : 'vi-VN'), w - 14, xpBarH / 2 - 1);
     }
 
     // Campaign run time and kill count are reported on the results screen.
