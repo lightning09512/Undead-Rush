@@ -141,8 +141,14 @@ function onWalkable(x: number, y: number): boolean {
 
 export function isCampaignWalkable(x: number, y: number, radius = 0): boolean {
   if (!campaignLayout) return true;
-  if (!onWalkable(x, y) || !onWalkable(x - radius, y) || !onWalkable(x + radius, y) ||
-      !onWalkable(x, y - radius) || !onWalkable(x, y + radius)) return false;
+  if (!onWalkable(x, y)) return false;
+  // Sample the full footprint, including diagonal corners. Checking only the
+  // four cardinal points lets a circle clip through the outside of L-shaped
+  // corridor joins and can leave actors wedged against the join.
+  if (radius > 0) for (let i = 0; i < 8; i++) {
+    const angle = i * Math.PI / 4;
+    if (!onWalkable(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius)) return false;
+  }
   for (let i = 0; i < campaignLayout.gates.length; i++) {
     if (isCampaignGateClosed(i)) {
       const g = campaignLayout.gates[i];
@@ -152,31 +158,67 @@ export function isCampaignWalkable(x: number, y: number, radius = 0): boolean {
   return true;
 }
 
+function overlapsCampaignSolid(x: number, y: number, radius: number): boolean {
+  const radiusSq = radius * radius;
+  for (const solids of BUILDING_SOLID_RECTS) for (const solid of solids) {
+    const [localX, localY] = toSolidLocal(x, y, solid);
+    const nearestX = Math.max(-solid.halfWidth, Math.min(solid.halfWidth, localX));
+    const nearestY = Math.max(-solid.halfHeight, Math.min(solid.halfHeight, localY));
+    const dx = localX - nearestX, dy = localY - nearestY;
+    if (dx * dx + dy * dy < radiusSq - 0.01) return true;
+  }
+  return false;
+}
+
+function canOccupyCampaignPosition(x: number, y: number, radius: number): boolean {
+  return isCampaignWalkable(x, y, radius) && !overlapsCampaignSolid(x, y, radius);
+}
+
 export function campaignSpawnPosition(playerX: number, playerY: number, wantedX: number, wantedY: number, radius: number): [number, number] {
   if (!campaignLayout) return [wantedX, wantedY];
-  if (isCampaignWalkable(wantedX, wantedY, radius) && !isInsideBuilding(wantedX, wantedY)) return [wantedX, wantedY];
+  if (canOccupyCampaignPosition(wantedX, wantedY, radius)) return [wantedX, wantedY];
   for (const distance of [170, 230, 290, 110]) {
     for (let i = 0; i < 16; i++) {
       const angle = i * Math.PI / 8;
       const x = playerX + Math.cos(angle) * distance;
       const y = playerY + Math.sin(angle) * distance;
-      if (isCampaignWalkable(x, y, radius) && !isInsideBuilding(x, y)) return [x, y];
+      if (canOccupyCampaignPosition(x, y, radius)) return [x, y];
     }
   }
   return [playerX, playerY];
 }
 
-/** Sweep in short increments so a dash or low-FPS movement cannot skip walls. */
+/** Sweep through the movement and slide along solid edges instead of catching on corners. */
 export function resolveCampaignMovement(fromX: number, fromY: number, toX: number, toY: number, radius: number): [number, number] {
   if (!campaignLayout) return [toX, toY];
   let x = fromX, y = fromY;
-  const steps = Math.max(1, Math.ceil(Math.hypot(toX - fromX, toY - fromY) / 18));
-  const dx = (toX - fromX) / steps, dy = (toY - fromY) / steps;
+  const travelX = toX - fromX, travelY = toY - fromY;
+  const maxStep = Math.max(6, Math.min(14, radius * 0.4 || 8));
+  const steps = Math.max(1, Math.ceil(Math.hypot(travelX, travelY) / maxStep));
+  const dx = travelX / steps, dy = travelY / steps;
+
+  // Recover cleanly if a spawn or a previous correction left the actor just
+  // inside an obstacle. Keep the old location if the push would cross a gate.
+  const [clearX, clearY] = resolveBuildingCollision(x, y, radius);
+  if (canOccupyCampaignPosition(clearX, clearY, radius)) { x = clearX; y = clearY; }
+
+  const tryMove = (nextX: number, nextY: number): [number, number] | null => {
+    const [resolvedX, resolvedY] = resolveBuildingCollision(nextX, nextY, radius);
+    return canOccupyCampaignPosition(resolvedX, resolvedY, radius) ? [resolvedX, resolvedY] : null;
+  };
   for (let i = 0; i < steps; i++) {
-    if (isCampaignWalkable(x + dx, y, radius)) x += dx;
-    if (isCampaignWalkable(x, y + dy, radius)) y += dy;
-    const [clearX, clearY] = resolveBuildingCollision(x, y, radius);
-    if (isCampaignWalkable(clearX, clearY, radius)) { x = clearX; y = clearY; }
+    const diagonal = tryMove(x + dx, y + dy);
+    if (diagonal) { [x, y] = diagonal; continue; }
+
+    // Try the dominant axis first, then the other. This preserves as much
+    // movement as possible along a wall when the diagonal path hits a corner.
+    const axes: Array<[number, number]> = Math.abs(dx) >= Math.abs(dy)
+      ? [[dx, 0], [0, dy]] : [[0, dy], [dx, 0]];
+    for (const [axisX, axisY] of axes) {
+      if (axisX === 0 && axisY === 0) continue;
+      const slide = tryMove(x + axisX, y + axisY);
+      if (slide) [x, y] = slide;
+    }
   }
   return [x, y];
 }
@@ -229,8 +271,7 @@ export function campaignDetourTarget(x: number, y: number, targetX: number, targ
     for (const localX of [-solid.halfWidth - margin, solid.halfWidth + margin])
       for (const localY of [-solid.halfHeight - margin, solid.halfHeight + margin]) {
         const [cornerX, cornerY] = toSolidWorld(localX, localY, solid);
-        if (!isCampaignWalkable(cornerX, cornerY, radius) || isInsideBuilding(cornerX, cornerY) ||
-            segmentHitsBuilding(x, y, cornerX, cornerY)) continue;
+        if (!canOccupyCampaignPosition(cornerX, cornerY, radius) || segmentHitsBuilding(x, y, cornerX, cornerY)) continue;
         const distance = Math.hypot(cornerX - x, cornerY - y);
         if (distance > 520) continue;
         const score = distance + Math.hypot(targetX - cornerX, targetY - cornerY) * .82;
@@ -241,8 +282,13 @@ export function campaignDetourTarget(x: number, y: number, targetX: number, targ
 }
 
 export function resolveBuildingCollision(x: number, y: number, radius: number): [number, number] {
-  for (const solids of BUILDING_SOLID_RECTS) {
-    for (const solid of solids) {
+  const safeRadius = Math.max(0, radius);
+  // A single pass can push an actor out of one collider and back into an
+  // adjacent one. Repeat a few cheap projection passes to settle compound
+  // corners while keeping the work bounded when solids overlap.
+  for (let pass = 0; pass < 6; pass++) {
+    const beforeX = x, beforeY = y;
+    for (const solids of BUILDING_SOLID_RECTS) for (const solid of solids) {
       const [localX, localY] = toSolidLocal(x, y, solid);
       const left = -solid.halfWidth, right = solid.halfWidth;
       const top = -solid.halfHeight, bottom = solid.halfHeight;
@@ -251,28 +297,29 @@ export function resolveBuildingCollision(x: number, y: number, radius: number): 
       const dx = localX - nearestX;
       const dy = localY - nearestY;
       const distanceSq = dx * dx + dy * dy;
-      if (distanceSq >= radius * radius) continue;
+      if (distanceSq >= safeRadius * safeRadius) continue;
 
       let resolvedX = localX, resolvedY = localY;
       if (distanceSq > 0.001) {
         const distance = Math.sqrt(distanceSq);
-        resolvedX += (dx / distance) * (radius - distance);
-        resolvedY += (dy / distance) * (radius - distance);
+        resolvedX += (dx / distance) * (safeRadius - distance + 0.01);
+        resolvedY += (dy / distance) * (safeRadius - distance + 0.01);
       } else {
         const pushLeft = localX - left;
         const pushRight = right - localX;
         const pushTop = localY - top;
         const pushBottom = bottom - localY;
         const nearestEdge = Math.min(pushLeft, pushRight, pushTop, pushBottom);
-        if (nearestEdge === pushLeft) resolvedX = left - radius;
-        else if (nearestEdge === pushRight) resolvedX = right + radius;
-        else if (nearestEdge === pushTop) resolvedY = top - radius;
-        else resolvedY = bottom + radius;
+        if (nearestEdge === pushLeft) resolvedX = left - safeRadius - 0.01;
+        else if (nearestEdge === pushRight) resolvedX = right + safeRadius + 0.01;
+        else if (nearestEdge === pushTop) resolvedY = top - safeRadius - 0.01;
+        else resolvedY = bottom + safeRadius + 0.01;
       }
       const cos = Math.cos(solid.rotation), sin = Math.sin(solid.rotation);
       x = solid.x + resolvedX * cos - resolvedY * sin;
       y = solid.y + resolvedX * sin + resolvedY * cos;
     }
+    if (Math.hypot(x - beforeX, y - beforeY) < 0.01) break;
   }
   return [x, y];
 }

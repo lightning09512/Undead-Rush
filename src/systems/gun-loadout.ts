@@ -229,6 +229,7 @@ export class GunLoadout {
     ammoState: Record<string, CampaignGunAmmoState> = {},
     _stage = 1,
     legacyAmmoPacks = 0,
+    grenades = 2,
   ): void {
     this.campaignMode = true;
     this.campaignGunLevels = { ...levels };
@@ -260,7 +261,7 @@ export class GunLoadout {
     for (const slot of this.slots.filter(value => !this.unlockedGunIds.has(value.def.id))) slot.reserveAmmo = 0;
     const primary = available.some(slot => slot.def.id === equipped) ? equipped : 'p9';
     this.activeSlotIndex = Math.max(0, this.slots.findIndex(slot => slot.def.id === primary));
-    this.grenadesCurrent = 2;
+    this.grenadesCurrent = Math.max(0, Math.min(this.maxGrenades, Math.floor(grenades)));
   }
 
   getCampaignAmmoState(): Record<string, CampaignGunAmmoState> {
@@ -742,7 +743,7 @@ export class GunLoadout {
       player.x,
       player.y,
       angle,
-      85,
+      120,
       490,
       8,
       '#ff6600',

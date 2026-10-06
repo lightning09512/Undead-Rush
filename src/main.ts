@@ -1281,6 +1281,7 @@ function handleScreenBomb(): void {
 function persistCampaignAmmo(force = false): void {
   if (gameMode !== 'stage' || previewEncounter || (campaignSessionEnded && !force) || !weapons.loadout.campaignMode) return;
   save.data.campaign.gunAmmo = weapons.loadout.getCampaignAmmoState();
+  save.data.campaign.grenades = weapons.loadout.grenadesCurrent;
   save.save();
 }
 
@@ -2359,6 +2360,10 @@ function drawGame(): void {
   enemyProjectiles.draw(ctx, camera);
   drawPickupRadius();
   drawDrones();
+  if (weapons.loadout.isRageActive) {
+    drawRageAura(ctx, camera, player.x, player.y, gameTime,
+      weapons.loadout.rageActiveTimer, weapons.loadout.rageDuration);
+  }
   player.draw(ctx, camera, !!campaignStage);
   if (gameMode === 'endless') {
     for (const z of zombies.pool.getActive()) {
@@ -2475,6 +2480,63 @@ function drawPlayerStatusFlash(): void {
     ctx.globalCompositeOperation = 'screen';
     ctx.fillStyle = `rgba(255, 37, 43, ${.2 * strength})`;
     ctx.fillRect(0, 0, viewportWidth, viewportHeight);
+  }
+  ctx.restore();
+}
+
+/** Warm, animated fire ring makes the player's active Rage state readable in the top-down view. */
+function drawRageAura(ctx: CanvasRenderingContext2D, camera: Camera, worldX: number, worldY: number,
+  time: number, remaining: number, duration: number): void {
+  const [sx, sy] = camera.worldToScreen(worldX, worldY);
+  const pulse = 1 + Math.sin(time * 15) * 0.07;
+  const fadeIn = Math.min(1, Math.max(0, (duration - remaining) / 0.16));
+  const fadeOut = Math.min(1, Math.max(0, remaining / 0.3));
+  const alpha = fadeIn * fadeOut;
+  if (alpha <= 0) return;
+
+  ctx.save();
+  ctx.translate(sx, sy + 3);
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = alpha;
+
+  const glow = ctx.createRadialGradient(0, 0, 13, 0, 0, 48 * pulse);
+  glow.addColorStop(0, 'rgba(255, 107, 28, 0.03)');
+  glow.addColorStop(0.48, 'rgba(255, 73, 18, 0.19)');
+  glow.addColorStop(0.78, 'rgba(255, 139, 35, 0.25)');
+  glow.addColorStop(1, 'rgba(255, 49, 12, 0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath(); ctx.arc(0, 0, 48 * pulse, 0, Math.PI * 2); ctx.fill();
+
+  // Uneven licks of fire rotate and breathe instead of forming a static ring.
+  for (let i = 0; i < 12; i++) {
+    const phase = time * 7.2 + i * 2.399;
+    const angle = i * Math.PI / 6 + Math.sin(phase * 0.43) * 0.12;
+    const inner = 20 + Math.sin(phase) * 2;
+    const outer = (34 + (i % 3) * 4 + Math.sin(phase * 1.31) * 5) * pulse;
+    const halfWidth = 0.11 + (i % 2) * 0.025;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(angle - halfWidth) * inner, Math.sin(angle - halfWidth) * inner);
+    ctx.quadraticCurveTo(Math.cos(angle - 0.035) * (outer + 5), Math.sin(angle - 0.035) * (outer + 5),
+      Math.cos(angle + Math.sin(phase) * 0.06) * outer, Math.sin(angle + Math.sin(phase) * 0.06) * outer);
+    ctx.quadraticCurveTo(Math.cos(angle + halfWidth) * inner, Math.sin(angle + halfWidth) * inner,
+      Math.cos(angle + halfWidth) * inner, Math.sin(angle + halfWidth) * inner);
+    ctx.closePath();
+    ctx.fillStyle = i % 3 === 0 ? 'rgba(255, 191, 69, 0.9)' : 'rgba(255, 76, 22, 0.82)';
+    ctx.shadowColor = '#ff4b17';
+    ctx.shadowBlur = 9;
+    ctx.fill();
+  }
+
+  // Hot inner rim and a few moving embers sell the active, burning state.
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255, 191, 83, 0.76)';
+  ctx.lineWidth = 2.2;
+  ctx.beginPath(); ctx.ellipse(0, 1, 23 * pulse, 18 * pulse, 0, 0, Math.PI * 2); ctx.stroke();
+  for (let i = 0; i < 6; i++) {
+    const angle = time * 2.8 + i * Math.PI / 3;
+    const radius = 34 + Math.sin(time * 8 + i * 2) * 6;
+    ctx.fillStyle = i % 2 ? 'rgba(255, 210, 115, 0.95)' : 'rgba(255, 91, 31, 0.9)';
+    ctx.beginPath(); ctx.arc(Math.cos(angle) * radius, Math.sin(angle) * radius, 1.5 + (i % 2), 0, Math.PI * 2); ctx.fill();
   }
   ctx.restore();
 }
@@ -2870,7 +2932,7 @@ function startGame(): void {
       stock.hasCheckpoint = true;
     }
     weapons.loadout.configureCampaign(stock.ownedGuns, stock.equippedGun, stock.gunLevels,
-      stock.gunAmmo, currentStageIndex + 1, legacyAmmoPacks);
+      stock.gunAmmo, currentStageIndex + 1, legacyAmmoPacks, stock.grenades);
     stock.gunAmmo = weapons.loadout.getCampaignAmmoState();
     stock.ammoPacks = 0;
     campaignResources.reset(stage);

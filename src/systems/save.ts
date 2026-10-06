@@ -50,6 +50,8 @@ export interface CampaignProgress {
   /** Per-weapon loaded and reserve ammo, retained between Campaign missions. */
   gunAmmo: Record<string, { currentAmmo: number; reserveAmmo: number }>;
   ammoPacks: number;
+  /** Grenades carried between Campaign missions (maximum three). */
+  grenades: number;
   medKits: number;
   armorLevel: number;
   flashlightLevel: number;
@@ -67,7 +69,7 @@ const newCampaign = (difficulty: CampaignDifficulty = 'normal'): CampaignProgres
   difficulty,
   credits: 160, selectedCharacter: 'survivor', unlockedCharacters: [...ALL_CHARACTER_IDS],
   unlockedStage: 1, lastStage: 1, hasCheckpoint: false, completedStages: [], ownedGuns: ['p9'], equippedGun: 'p9',
-  gunLevels: {}, gunAmmo: {}, ammoPacks: 0, medKits: 0, armorLevel: 0, flashlightLevel: 1,
+  gunLevels: {}, gunAmmo: {}, ammoPacks: 0, grenades: 2, medKits: 0, armorLevel: 0, flashlightLevel: 1,
   cardLevels: {}, upgradeSystemVersion: 1, stageScores: {}, totalScore: 0,
 });
 
@@ -122,6 +124,7 @@ export class SaveSystem {
           difficulty,
           gunLevels: { ...(savedCampaign?.gunLevels ?? {}) },
           gunAmmo: { ...(savedCampaign?.gunAmmo ?? {}) },
+          grenades: Math.max(0, Math.min(3, Math.floor(Number(savedCampaign?.grenades ?? 2) || 0))),
           cardLevels: { ...(savedCampaign?.cardLevels ?? {}) },
           ownedGuns: [...new Set([...(savedCampaign?.ownedGuns ?? []), 'p9'])],
           completedStages: [...completedCampaignStages],

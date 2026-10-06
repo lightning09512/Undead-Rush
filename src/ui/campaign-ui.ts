@@ -155,6 +155,11 @@ export class CampaignUI {
       if (p.medKits >= 5 || !save.spendCampaign(70)) { this.message = p.medKits >= 5 ? (this.language === 'en' ? 'Medical kit slots are full.' : 'Túi cứu thương đã đầy.') : (this.language === 'en' ? 'Not enough credits' : 'Không đủ tín dụng'); return null; }
       p.medKits++; save.save(); return null;
     }
+    if (b.action === 'grenade') {
+      if (p.grenades >= 3) return null;
+      if (!save.spendCampaign(60)) { this.message = this.language === 'en' ? 'Not enough credits' : 'Không đủ tín dụng'; return null; }
+      p.grenades++; save.save(); return null;
+    }
     if (b.action === 'flashlight') {
       if (p.flashlightLevel >= 3) return null;
       const cost = 95 + p.flashlightLevel * 75;
@@ -550,22 +555,23 @@ export class CampaignUI {
   private drawGear(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number,
     p: SaveSystem['data']['campaign'], narrow: boolean): void {
     const english = this.language === 'en';
-    const gearY = y + h - 143, gearH = 62, gap = 6, cellW = (w - 44 - gap * 2) / 3;
+    const gearY = y + h - 143, gearH = 62, gap = 6, cellW = (w - 44 - gap * 3) / 4;
     const items = [
       { icon: 'flashlight' as const, title: english ? `Flashlight · level ${p.flashlightLevel}/3` : `Đèn pin · cấp ${p.flashlightLevel}/3`, detail: p.flashlightLevel >= 3 ? (english ? 'Maximum brightness' : 'Độ sáng tối đa') : (english ? 'Longer beam' : 'Chiếu xa hơn'), action: 'flashlight', cost: 95 + p.flashlightLevel * 75, disabled: p.flashlightLevel >= 3 },
       { icon: 'armor' as const, title: english ? `Armor · level ${p.armorLevel}/3` : `Áo giáp · cấp ${p.armorLevel}/3`, detail: p.armorLevel ? (english ? `Reduces damage by ${[0, 10, 18, 25][p.armorLevel]}%` : `Giảm ${[0, 10, 18, 25][p.armorLevel]}% sát thương`) : (english ? 'Reduces incoming damage' : 'Giảm sát thương nhận vào'), action: 'armor', cost: [150, 260, 390][p.armorLevel] ?? 390, disabled: p.armorLevel >= 3 },
       { icon: 'medical' as const, title: english ? `Medical kit · ${p.medKits}/5` : `Túi cứu thương · ${p.medKits}/5`, detail: english ? 'Auto-use · restores 50% HP' : 'Tự dùng · hồi 50% máu', action: 'med', cost: 70, disabled: p.medKits >= 5 },
+      { icon: 'grenade' as const, title: english ? `Grenades · ${p.grenades}/3` : `Lựu đạn · ${p.grenades}/3`, detail: english ? 'Adds one grenade' : 'Thêm 1 quả', action: 'grenade', cost: 60, disabled: p.grenades >= 3 },
     ];
     items.forEach((item, i) => {
       const bx = x + 22 + i * (cellW + gap);
-      this.panel(ctx, bx, gearY, cellW, gearH, i === 1 ? '#a7c888' : i === 2 ? '#77b78e' : C.cyanBright);
-      ctx.fillStyle = C.text; ctx.textAlign = 'left'; ctx.font = `bold ${narrow ? 8 : 10}px Segoe UI, Arial`;
-      const textX = bx + (narrow ? 31 : 42);
+      this.panel(ctx, bx, gearY, cellW, gearH, i === 1 ? '#a7c888' : i === 2 ? '#77b78e' : i === 3 ? '#d38c59' : C.cyanBright);
+      ctx.fillStyle = C.text; ctx.textAlign = 'left'; ctx.font = `bold ${narrow ? 8 : cellW < 250 ? 9 : 10}px Segoe UI, Arial`;
+      const textX = bx + (narrow ? 31 : 37);
       this.drawGearIcon(ctx, bx + (narrow ? 17 : 23), gearY + 18, item.icon, narrow ? .34 : .46);
       ctx.fillText(item.title, textX, gearY + 13, cellW - (textX - bx) - 5);
       ctx.fillStyle = C.textSoft; ctx.font = `${narrow ? 7 : 9}px Segoe UI, Arial`;
       ctx.fillText(item.detail, textX, gearY + 26, cellW - (textX - bx) - 5);
-      const label = item.disabled ? (item.action === 'med' ? (english ? 'Full' : 'Đầy túi') : (english ? 'Max level' : 'Tối đa')) : `${english ? 'Buy' : 'Mua'} · ${item.cost}`;
+      const label = item.disabled ? (item.action === 'med' ? (english ? 'Full' : 'Đầy túi') : item.action === 'grenade' ? (english ? 'Full' : 'Đủ lựu đạn') : (english ? 'Max level' : 'Tối đa')) : `${english ? 'Buy' : 'Mua'} · ${item.cost}`;
       this.add(bx + 5, gearY + 33, cellW - 10, 23, label, item.action,
         item.disabled || p.credits < item.cost);
     });
@@ -639,7 +645,7 @@ export class CampaignUI {
 
   /** Small original line-art supply icons, drawn in Canvas to stay sharp at every UI scale. */
   private drawGearIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number,
-    kind: 'flashlight' | 'armor' | 'medical', scale: number): void {
+    kind: 'flashlight' | 'armor' | 'medical' | 'grenade', scale: number): void {
     ctx.save(); ctx.translate(cx, cy); ctx.scale(scale, scale);
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     if (kind === 'flashlight') {
@@ -663,13 +669,20 @@ export class CampaignUI {
       ctx.fillStyle = '#718d77'; ctx.fillRect(-5, -2, 10, 10);
       ctx.strokeStyle = '#d5c99e'; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(-4, 11); ctx.lineTo(4, 11); ctx.stroke();
-    } else {
+    } else if (kind === 'medical') {
       ctx.fillStyle = '#263b3b'; ctx.strokeStyle = '#83c39a'; ctx.lineWidth = 2.4;
       ctx.beginPath(); ctx.roundRect(-17, -12, 34, 27, 4); ctx.fill(); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(-8, -12); ctx.lineTo(-8, -18); ctx.quadraticCurveTo(0, -24, 8, -18); ctx.lineTo(8, -12); ctx.stroke();
       ctx.fillStyle = '#d7e3d0'; ctx.fillRect(-3, -7, 6, 17); ctx.fillRect(-9, -1, 18, 6);
       ctx.strokeStyle = '#b2805a'; ctx.lineWidth = 1.4;
       ctx.beginPath(); ctx.moveTo(-13, 11); ctx.lineTo(-8, 11); ctx.moveTo(8, 11); ctx.lineTo(13, 11); ctx.stroke();
+    } else {
+      ctx.fillStyle = '#4a3529'; ctx.strokeStyle = '#d38c59'; ctx.lineWidth = 2.4;
+      ctx.beginPath(); ctx.moveTo(-10, -7); ctx.lineTo(-7, -13); ctx.lineTo(5, -13); ctx.lineTo(10, -7);
+      ctx.lineTo(9, 8); ctx.lineTo(5, 15); ctx.lineTo(-5, 15); ctx.lineTo(-9, 8); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#c7b58a'; ctx.fillRect(-5, -17, 10, 5);
+      ctx.strokeStyle = '#e0b780'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(-5, -3); ctx.lineTo(5, -3); ctx.moveTo(-4, 4); ctx.lineTo(4, 4); ctx.stroke();
     }
     ctx.restore();
   }
